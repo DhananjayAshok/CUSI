@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(rm *)"
+    ],    
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(tmp.sh)",      
+      "Bash(cd:*)",     
+      "Bash(du:*)",
+      "Bash(echo:*)",
+      "Bash(find:*)",
+      "Bash(gcc:*)",      
+      "Bash(head:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(module:*)",
+      "Bash(sed:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(python3:*)",      
+      "Bash(python:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(source:*)",
+      "Bash(uv add:*)",
+      "Bash(uv sync:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebSearch"
+    ]
+  }
+}

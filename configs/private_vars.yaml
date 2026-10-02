@@ -1,0 +1,3 @@
+storage_dir: "storage" # Path to the directory where heavy duty storage will be done, meant for large files like models and datasets
+huggingface_repo_namespace: "tmp" # The namespace (user or org) on the hub where the repo is located. Use this to sync large files
+huggingface_repo_name: "tmp" # The name of the repo on the hub. Use this to sync large files
