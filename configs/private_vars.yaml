@@ -1,3 +1,4 @@
-storage_dir: "storage" # Path to the directory where heavy duty storage will be done, meant for large files like models and datasets
-huggingface_repo_namespace: "tmp" # The namespace (user or org) on the hub where the repo is located. Use this to sync large files
-huggingface_repo_name: "tmp" # The name of the repo on the hub. Use this to sync large files
+storage_dir: "PLACEHOLDER" # Absolute path to the directory where heavy duty storage will be done, meant for large files like models and datasets
+results_dir: "PLACEHOLDER" # Absolute path to the directory where results will be saved, meant for lightweight files, plots and logs
+huggingface_repo_namespace: "DJ-Research" # The namespace (user or org) on the hub where the repo is located. Use this to sync large files
+huggingface_repo_name: "CU-Storage" # The name of the repo on the hub. Use this to sync large files
