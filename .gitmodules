@@ -5,6 +5,7 @@
 [submodule "GameBoyRL"]
 	path = GameBoyRL
 	url = https://github.com/DhananjayAshok/GameBoyRL
+	branch = main
 [submodule "android_world"]
 	path = android_world
 	url = https://github.com/DhananjayAshok/android_world.git
