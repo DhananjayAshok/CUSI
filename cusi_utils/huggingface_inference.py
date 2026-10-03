@@ -1,5 +1,5 @@
-from utils.lm_inference import *
-from utils.lm_inference import _collapse_meta  # underscore-prefixed, so not covered by *
+from cusi_utils.lm_inference import *
+from cusi_utils.lm_inference import _collapse_meta  # underscore-prefixed, so not covered by *
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from transformers import (

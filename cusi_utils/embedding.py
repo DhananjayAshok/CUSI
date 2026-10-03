@@ -8,12 +8,12 @@ import os
 from PIL import Image
 import transformers
 from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, AutoModelForImageTextToText, AutoTokenizer, AutoProcessor, GenerationMixin
-from utils.log_handling import log_info, log_warn, log_error
-from utils.lm_inference import (
+from cusi_utils.log_handling import log_info, log_warn, log_error
+from cusi_utils.lm_inference import (
     RateLimitedAPIBase,
     OpenAICompatibleAPIBase,
 )
-from utils.huggingface_inference import (
+from cusi_utils.huggingface_inference import (
     HuggingFaceModelBase,
     HuggingFaceModelStore,
     HUGGINGFACE_MODEL_MAPPING,

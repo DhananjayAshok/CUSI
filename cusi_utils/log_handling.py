@@ -1,6 +1,6 @@
 from typing import Any, Optional
-from utils.fundamental import meta_dict_to_str
-from utils.parameter_handling import load_parameters
+from cusi_utils.fundamental import meta_dict_to_str
+from cusi_utils.parameter_handling import load_parameters
 
 
 def log_error(message: str, parameters: Optional[dict[str, Any]] = None) -> None:

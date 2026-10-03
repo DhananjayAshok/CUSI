@@ -28,12 +28,12 @@ uv add accelerate click huggingface_hub seaborn pandas tqdm numpy openai anthrop
 |---|---|---|
 | `click` | CLI commands, `main.py` entry points | Remove all `@click.command` files and `main.py` |
 | `huggingface_hub` | HuggingFace dataset sync | Remove [`sync_data.py`](../sync_data.py) |
-| `numpy` | Paired bootstrap resampling (`paired_bootstrap`) | Remove [`utils/tests.py`](../utils/tests.py) |
-| `seaborn`, `pandas` | Plotting utilities | Remove [`utils/plot_handling.py`](../utils/plot_handling.py) |
-| `openai` | `OpenAIModel`, `vLLMModel`, `OpenRouterModel` | Remove those classes from [`utils/lm_inference.py`](../utils/lm_inference.py) |
-| `anthropic` | `AnthropicModel` | Remove `AnthropicModel` from [`utils/lm_inference.py`](../utils/lm_inference.py) |
-| `Pillow` | Image inputs for all VLM inference | Remove image support from [`utils/lm_inference.py`](../utils/lm_inference.py) |
-| `torch` | Local HuggingFace model GPU execution | Remove `HuggingFaceModel` and model store from [`utils/lm_inference.py`](../utils/lm_inference.py) |
+| `numpy` | Paired bootstrap resampling (`paired_bootstrap`) | Remove [`cusi_utils/tests.py`](../cusi_utils/tests.py) |
+| `seaborn`, `pandas` | Plotting utilities | Remove [`cusi_utils/plot_handling.py`](../cusi_utils/plot_handling.py) |
+| `openai` | `OpenAIModel`, `vLLMModel`, `OpenRouterModel` | Remove those classes from [`cusi_utils/lm_inference.py`](../cusi_utils/lm_inference.py) |
+| `anthropic` | `AnthropicModel` | Remove `AnthropicModel` from [`cusi_utils/lm_inference.py`](../cusi_utils/lm_inference.py) |
+| `Pillow` | Image inputs for all VLM inference | Remove image support from [`cusi_utils/lm_inference.py`](../cusi_utils/lm_inference.py) |
+| `torch` | Local HuggingFace model GPU execution | Remove `HuggingFaceModel` and model store from [`cusi_utils/lm_inference.py`](../cusi_utils/lm_inference.py) |
 | `accelerate`, `transformers` | Local HuggingFace model loading (LM + VLM) | Same as `torch` above |
 | `torchvision` | Image preprocessing for VLM inference via `HuggingFaceModel` | Don't use VLMs with `HuggingFaceModel` |
 | `llm-utils` (submodule) | Efficient, scalable, offline, batched LLM inference | Remove [`scripts/llm-utils.sh`](../scripts/llm-utils.sh) and remove the submodule |

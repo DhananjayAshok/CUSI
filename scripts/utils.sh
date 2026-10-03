@@ -1,6 +1,9 @@
 source configs/config.env || { echo "configs/config.env not found"; exit 1; }
 source setup/.venv/bin/activate || { echo "Virtual environment not found."; exit 1; }
-PROJECT_ROOT=$(pwd) # expects to be run from root, always. 
+PROJECT_ROOT=$(pwd) # expects to be run from root, always.
+# Makes CUSI's packages (cusi_utils, benchmark_adapters) importable from submodule
+# scripts such as android_world/run.py.
+export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 
 # args_to_flags <assoc_array_name>
 #

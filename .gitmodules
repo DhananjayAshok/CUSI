@@ -2,3 +2,14 @@
 	path = llm-utils
 	url = https://github.com/DhananjayAshok/llm-utils/
 	branch = app
+[submodule "GameBoyRL"]
+	path = GameBoyRL
+	url = https://github.com/DhananjayAshok/GameBoyRL
+[submodule "android_world"]
+	path = android_world
+	url = https://github.com/DhananjayAshok/android_world.git
+	branch = cusi
+[submodule "WebVoyager"]
+	path = WebVoyager
+	url = https://github.com/DhananjayAshok/WebVoyager.git
+	branch = cusi

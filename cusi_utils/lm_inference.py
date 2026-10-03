@@ -5,8 +5,8 @@ from time import sleep, perf_counter
 import asyncio
 import random
 from typing import Optional, Any, Union
-from utils.parameter_handling import load_parameters
-from utils.log_handling import log_info, log_warn, log_error
+from cusi_utils.parameter_handling import load_parameters
+from cusi_utils.log_handling import log_info, log_warn, log_error
 import shutil
 from PIL import Image
 import base64
@@ -510,7 +510,7 @@ class InferenceModel(ABC):
         texts, images, passed_in_str = self._standardize_format(texts, images)
         parameters = self.parameters if hasattr(self, "parameters") else load_parameters()
         if batch_size is None:
-            from utils.huggingface_inference import HuggingFaceModel
+            from cusi_utils.huggingface_inference import HuggingFaceModel
 
             if isinstance(self, vLLMModel):
                 batch_size = parameters["max_batch_size_vllm"]

@@ -1,7 +1,7 @@
 import requests
 from PIL import Image
 from io import BytesIO
-from utils import (
+from cusi_utils import (
     OpenAIModel,
     AnthropicModel,
     OpenRouterModel,

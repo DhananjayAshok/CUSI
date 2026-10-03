@@ -1,5 +1,5 @@
-from utils.parameter_handling import load_parameters, compute_secondary_parameters
-from utils.log_handling import log_warn
+from cusi_utils.parameter_handling import load_parameters, compute_secondary_parameters
+from cusi_utils.log_handling import log_warn
 import click
 
 
@@ -17,7 +17,7 @@ def main(ctx, **input_parameters):
     if log_file_passed != loaded_parameters["log_file"]:
         warning_msg = f"The log file passed in is different from the one in the config files. \
         This is fine, but you need to take care that whenever you call functions from \
-        utils/log_handling.py you pass in the parameters dict, otherwise there will be a mixup."
+        cusi_utils/log_handling.py you pass in the parameters dict, otherwise there will be a mixup."
         log_warn(warning_msg, parameters=loaded_parameters)
     ctx.obj = loaded_parameters
 
