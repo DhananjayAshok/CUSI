@@ -12,6 +12,7 @@
 # lives under $storage_dir/android.
 
 source configs/config.env || { echo "configs/config.env not found"; exit 1; }
+[[ -n "${HF_HOME:-}" ]] || { echo "HF_HOME is not set; set it (e.g. in ~/.bashrc) to your Hugging Face cache."; exit 1; }
 set -euo pipefail
 if [[ $# -eq 0 ]]; then
     echo "Usage: bash $0 <command> [args...]"; exit 1
@@ -34,13 +35,32 @@ VENV_PYTHON=$(realpath "$PROJECT_ROOT/setup/.venv/bin/python")
 PYTHON_INSTALL=$(dirname "$(dirname "$VENV_PYTHON")")
 
 BINDS=("$PROJECT_ROOT" "$STORAGE" "$PYTHON_INSTALL")
+# The host's Hugging Face cache (SigLIP 2, Qwen3-VL for exploration), shared with the container.
+mkdir -p "$HF_HOME"
+BINDS+=("$HF_HOME")
+HF_ARGS=(--env HF_HOME="$HF_HOME")
 BIND_ARGS=()
 for b in "${BINDS[@]}"; do
     BIND_ARGS+=(--bind "$b")
 done
 
+# XDG config and cache go on node-local /tmp, private to this call, not in the NAS home.
+# Chromium keeps a locked crash database under $XDG_CONFIG_HOME (even with --user-data-dir)
+# and rewrites its fontconfig cache under $XDG_CACHE_HOME on every launch; on the NAS these
+# are shared by every job on every node, and one job's Chrome can make all others hang
+# at startup. Deleted on exit.
+XDG_TMP=$(mktemp -d "/tmp/${USER}-cusi-xdg-XXXXXX")
+trap 'rm -rf "$XDG_TMP"' EXIT
+mkdir -p "$XDG_TMP/config" "$XDG_TMP/cache"
+XDG_ARGS=(--env XDG_CONFIG_HOME="$XDG_TMP/config" --env XDG_CACHE_HOME="$XDG_TMP/cache")
+
 # /dev (including /dev/kvm) and /tmp come from the host by default.
-exec apptainer exec \
+# CUSI_CONTAINER_NV=1 also exposes the host's NVIDIA GPUs (apptainer --nv), for GPU work
+# (e.g. exploration PPO) inside the container.
+NV_ARGS=()
+if [[ "${CUSI_CONTAINER_NV:-0}" == "1" ]]; then NV_ARGS=(--nv); fi
+# Not exec'd, so the trap above can clean up; the command's exit code is passed through.
+apptainer exec "${NV_ARGS[@]}" "${HF_ARGS[@]}" "${XDG_ARGS[@]}" \
     --home "$CONTAINER_HOME" \
     "${BIND_ARGS[@]}" \
     --env ANDROID_AVD_HOME="$ANDROID_STATE/avd" \

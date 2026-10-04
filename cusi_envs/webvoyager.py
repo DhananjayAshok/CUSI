@@ -44,6 +44,8 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import time
 from typing import Any, Optional
 import numpy as np
 from PIL import Image
@@ -52,6 +54,8 @@ from cusi_utils.log_handling import log_info, log_warn, log_error
 from cusi_envs.base import TextActionEnv, scene_hash
 
 TEXT_KEYS = ("web_elements",)
+_BROWSER_START_LOCK = threading.Lock()
+_LOAD_LOCK = threading.Lock()
 DEFAULT_TEST_MAX_STEPS = 15   # WebVoyager/run.sh --max_iter
 
 # run.py's format error, verbatim.
@@ -62,16 +66,18 @@ MSG_NO_ANSWER = "The ANSWER action is not available: there is no task to answer.
 def load_webvoyager(*, project_root: str):
     """Import WebVoyager's run.py (a script, which imports its siblings `utils` and
     `prompts` by bare name) as the module `webvoyager_run`."""
-    if "webvoyager_run" in sys.modules:
-        return sys.modules["webvoyager_run"]
-    wv_dir = os.path.join(project_root, "WebVoyager")
-    if wv_dir not in sys.path:
-        sys.path.insert(0, wv_dir)
-    spec = importlib.util.spec_from_file_location("webvoyager_run", os.path.join(wv_dir, "run.py"))
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["webvoyager_run"] = module
-    spec.loader.exec_module(module)
-    return module
+    # Locked: a second thread must not see the module in sys.modules half-executed.
+    with _LOAD_LOCK:
+        if "webvoyager_run" in sys.modules:
+            return sys.modules["webvoyager_run"]
+        wv_dir = os.path.join(project_root, "WebVoyager")
+        if wv_dir not in sys.path:
+            sys.path.insert(0, wv_dir)
+        spec = importlib.util.spec_from_file_location("webvoyager_run", os.path.join(wv_dir, "run.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        sys.modules["webvoyager_run"] = module
+        return module
 
 
 def action_menu(*, system_prompt: str, mode: str) -> str:
@@ -115,6 +121,8 @@ def load_task(*, task_id: str, data_file: str) -> dict:
 
 class WebVoyagerPlayEnv(TextActionEnv):
     """A WebVoyager start page as a text-action gym.Env. See the module docstring."""
+
+    env_description = "a web browser"
 
     def __init__(
         self,
@@ -171,6 +179,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._web_eles = []
         self._last_obs = None
         self._url = self.start_url
+        self._states: dict[str, dict] = {}   # saved state_id -> browser state (see _save_state_impl)
         self.browser_restarts = 0
 
         frame = self._open(url=self.start_url)
@@ -190,12 +199,24 @@ class WebVoyagerPlayEnv(TextActionEnv):
     def _new_browser(self) -> None:
         self._quit()
         profile = os.path.join(self._work_dir, "profile")
-        shutil.rmtree(profile, ignore_errors=True)
         shutil.rmtree(self._download_dir, ignore_errors=True)
         os.makedirs(self._download_dir)
         self._args.chrome_profile_dir = profile
-        options = self._wv.driver_config(self._args)
-        self._driver = self._wv._make_driver(self._args, options)
+        # Chrome sessions started at the same moment from one process sometimes fail with
+        # "DevToolsActivePort file doesn't exist"; start one at a time, and retry.
+        with _BROWSER_START_LOCK:
+            for attempt in range(3):
+                shutil.rmtree(profile, ignore_errors=True)
+                options = self._wv.driver_config(self._args)
+                try:
+                    self._driver = self._wv._make_driver(self._args, options)
+                    break
+                except self._wv.WebDriverException as e:
+                    if attempt == 2:
+                        raise
+                    log_warn(f"Chrome failed to start ({str(e).splitlines()[0][:120]}); retrying",
+                             parameters=self._parameters)
+                    time.sleep(3)
         self._download_files = []
 
     def _quit(self) -> None:
@@ -235,6 +256,15 @@ class WebVoyagerPlayEnv(TextActionEnv):
         frame, web_eles_text = self._last_obs
         return {"frame": frame, "texts": {"web_elements": web_eles_text},
                 "actions": self.actions_text, "goal": self._goal}
+
+    def sample_action(self) -> str:
+        """A random WebVoyager action on the current page: click a labelled element, or
+        scroll the window up/down (3:1). Never Type/GoBack/Google/ANSWER, which would leave
+        the scene or need content."""
+        rng = self.np_random
+        if self._web_eles and rng.random() < 0.75:
+            return f"Thought: random action.\nAction: Click [{int(rng.integers(len(self._web_eles)))}]"
+        return f"Thought: random action.\nAction: Scroll [WINDOW]; [{rng.choice(['up', 'down'])}]"
 
     def _on_pdf(self, pdf_path: str) -> str:
         shutil.copy(pdf_path, self._work_dir)
@@ -303,6 +333,80 @@ class WebVoyagerPlayEnv(TextActionEnv):
                               scene_id=self.scene_id, url=self._url, **extra)
         return self._obs(), 0.0, False, truncated, info
 
+    # ------------------------------------------------------------ saved states
+    # The sites are live, so a saved state is the browser's side only: the URL, all
+    # cookies, the page origin's localStorage/sessionStorage and the scroll position.
+    # Loading it opens a fresh browser with those restored. Not restored: anything not
+    # reflected in these (typed but unsubmitted text, open menus/modals, in-page app
+    # state with no URL change, other tabs), and of course server-side content changes.
+
+    # Pages without storage access (e.g. some error pages) throw; they save/restore none.
+    _STORAGE_JS = ("try { return {local: Object.assign({}, window.localStorage),"
+                   " session: Object.assign({}, window.sessionStorage)}; }"
+                   " catch (e) { return {local: {}, session: {}}; }")
+    _SET_STORAGE_JS = ("const s = arguments[0]; try {"
+                       " window.localStorage.clear(); window.sessionStorage.clear();"
+                       " for (const [k, v] of Object.entries(s.local)) window.localStorage.setItem(k, v);"
+                       " for (const [k, v] of Object.entries(s.session)) window.sessionStorage.setItem(k, v);"
+                       " } catch (e) {}")
+    # Fields of a CDP Network.Cookie that Storage.setCookies accepts as a CookieParam.
+    _COOKIE_PARAM_FIELDS = ("name", "value", "domain", "path", "secure", "httpOnly", "sameSite",
+                            "expires", "priority", "sourceScheme", "sourcePort", "partitionKey")
+
+    def _save_state_impl(self, *, state_id: str) -> None:
+        try:
+            cookies = self._driver.execute_cdp_cmd("Storage.getCookies", {})["cookies"]
+            storage = self._driver.execute_script(self._STORAGE_JS)
+            scroll = self._driver.execute_script("return [window.scrollX, window.scrollY];")
+            url = self._driver.current_url
+        except self._wv.WebDriverException as e:
+            log_error(f"Could not save web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
+        self._states[state_id] = {"url": url, "cookies": cookies, "storage": storage, "scroll": scroll}
+
+    def _load_state_impl(self, *, state_id: str) -> dict:
+        state = self._states[state_id]
+        cookies = []
+        for cookie in state["cookies"]:
+            param = {k: cookie[k] for k in self._COOKIE_PARAM_FIELDS if k in cookie}
+            if cookie.get("session") or param.get("expires", -1) < 0:
+                param.pop("expires", None)
+            cookies.append(param)
+        try:
+            self._new_browser()
+            self._driver.execute_cdp_cmd("Storage.setCookies", {"cookies": cookies})
+            # Storage belongs to the page's origin: open it once to write storage, then open
+            # the page as reset does, so its scripts start with the restored storage.
+            self._driver.get(state["url"])
+            self._driver.execute_script(self._SET_STORAGE_JS, state["storage"])
+            self._wv.open_start_page(self._driver, state["url"])
+            self._wait_for_stable_layout()
+            self._driver.execute_script("window.scrollTo(arguments[0], arguments[1]);", *state["scroll"])
+            self._wv._settle(self._driver, 2)
+            self._observe()
+        except self._wv.WebDriverException as e:
+            log_error(f"Could not load web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
+        self._at_initial_state = False
+        self._steps = 0
+        return self._obs()
+
+    def _wait_for_stable_layout(self, *, timeout: float = 8.0, stable_for: float = 1.0) -> None:
+        """Wait until the page height stops changing (late images and ads shift the layout
+        after readyState is complete), so the restored scroll lands where it was saved."""
+        deadline = time.time() + timeout
+        last, since = None, time.time()
+        while time.time() < deadline:
+            height = self._driver.execute_script("return document.documentElement.scrollHeight;")
+            if height != last:
+                last, since = height, time.time()
+            elif time.time() - since >= stable_for:
+                return
+            time.sleep(0.2)
+
+    def _delete_state_impl(self, *, state_id: str) -> None:
+        del self._states[state_id]
+
     def close(self) -> None:
+        self._states.clear()
+        self._saved_state_ids.clear()
         self._quit()
         shutil.rmtree(self._work_dir, ignore_errors=True)

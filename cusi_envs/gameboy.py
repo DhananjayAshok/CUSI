@@ -31,6 +31,7 @@ from enum import Enum
 from typing import Any, Optional
 import numpy as np
 from gameboy_worlds import get_environment, get_test_environment
+from gameboy_worlds.interface.action import LowLevelAction, LowLevelActions
 from gameboy_worlds.utils import get_benchmark_tasks
 from cusi_utils.parameter_handling import load_parameters
 from cusi_utils.log_handling import log_info, log_error
@@ -63,8 +64,26 @@ def canonical_action(*, action_class: type, kwargs: dict) -> dict:
     return action
 
 
+def action_display_name(*, action_class: type, kwargs: dict) -> str:
+    """The action's name as GameBoyRL's reports show it (execution.report.action_name)."""
+    try:
+        return action_class.get_action_name(**kwargs)
+    except Exception:
+        return action_class.__name__
+
+
+# The low-level controller's buttons, as action text (LowLevelAction.get_action_name).
+BUTTONS = tuple(LowLevelAction.get_action_name(a) for a in LowLevelActions)
+
+
 class GameBoyPlayEnv(TextActionEnv):
-    """A GameBoyWorlds game at a fixed savestate as a text-action gym.Env."""
+    """A GameBoyWorlds game at a fixed savestate as a text-action gym.Env.
+
+    Besides the base contract, info carries what GameBoyRL's executor records per step:
+    action_name (e.g. "UP"), frame_changed, action_success (the high-level action's code;
+    0 by convention for low-level actions) and low_level (whether it was a LowLevelAction).
+    action_strings() returns the controller's raw {action class: description} dict, as
+    GameBoyRL's prompts render it."""
 
     def __init__(
         self,
@@ -107,6 +126,7 @@ class GameBoyPlayEnv(TextActionEnv):
                                         **emulator_kwargs)
             self._goal = ""
         self.game = game
+        self.env_description = f"the GameBoy game {game}"
         self.init_state = init_state
         self.scene_id = scene_hash(parts=("gameboy", game, init_state, mode,
                                           benchmark_row["task"] if benchmark_row is not None else None))
@@ -161,6 +181,13 @@ class GameBoyPlayEnv(TextActionEnv):
             frame = np.repeat(frame, 3, axis=2)
         return frame
 
+    def action_strings(self, *, return_all: bool = False) -> dict:
+        """The controller's {HighLevelAction class: description}, unrendered."""
+        return self._env.get_action_strings(return_all=return_all)
+
+    def sample_action(self) -> str:
+        return str(BUTTONS[int(self.np_random.integers(len(BUTTONS)))])
+
     def _obs(self, *, frame: np.ndarray) -> dict:
         actions = render_action_strings(action_strings=self._env.get_action_strings())
         return {"frame": frame, "texts": {}, "actions": actions, "goal": self._goal}
@@ -213,14 +240,49 @@ class GameBoyPlayEnv(TextActionEnv):
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
         unavailable = bool(raw_info.get("invalid_action"))
+        core = raw_info.get("core", {})
+        if "previous_action_details" in core:
+            action_success = core["previous_action_details"][3]
+        else:
+            action_success = -1
         if self.mode == "test":
             reward = 1.0 if terminated else 0.0   # benchmark success = the test tracker terminated
         else:
             reward, terminated = 0.0, False
         info = self.make_info(valid=not unavailable, error=MSG_UNAVAILABLE if unavailable else None,
                               parsed_action=parsed, step=self._steps, scene_id=self.scene_id,
+                              action_name=action_display_name(action_class=action_class, kwargs=kwargs),
+                              frame_changed=bool(core.get("frame_changed", True)),
+                              action_success=action_success,
+                              low_level=issubclass(action_class, LowLevelAction),
                               **self._extra(raw_info=raw_info))
         return self._obs(frame=frame), reward, bool(terminated), bool(truncated), info
 
+    # ------------------------------------------------------------ saved states
+    # GameBoyWorlds' custom states (Environment.save/load/delete_custom_state): a complete,
+    # deterministic emulator savestate, written as custom_<state_id>.state in the game's
+    # states directory. load_custom_state makes the saved state the emulator's init_state
+    # and resets to it; the scene's own init_state is put back afterwards (as GameBoyWorlds'
+    # _simulate does), so reset() still returns to the scene start.
+
+    def _save_state_impl(self, *, state_id: str) -> None:
+        self._env.save_custom_state(state_id)
+
+    def _load_state_impl(self, *, state_id: str) -> dict:
+        scene_init_state = self._env._emulator.init_state
+        try:
+            self._env.load_custom_state(state_id)
+        finally:
+            self._env._emulator.init_state = scene_init_state
+        raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
+        frame = self._frame(raw_obs=raw_obs)
+        self._last = (frame, raw_info)
+        self._steps = 0
+        return self._obs(frame=frame)
+
+    def _delete_state_impl(self, *, state_id: str) -> None:
+        self._env.delete_custom_state(state_id)
+
     def close(self) -> None:
+        self.delete_all_states()
         self._env.close()

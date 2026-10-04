@@ -28,9 +28,25 @@ info always holds:
     step           steps taken since reset
     scene_id       opaque hash of the scene (never the task name, which would
                    leak most of the goal in free play)
+
+Also on every environment:
+    env_description  one sentence naming what is operated ("an Android phone", ...),
+                     for environment-agnostic prompts
+    sample_action()  a random valid action text for the current state (start-state
+                     perturbation in the practice pipeline)
+    current_obs      the latest observation (set by reset, step and load_state)
+
+Saved states (for search over states, e.g. pre-exploration):
+    state_id = env.save_state()       # snapshot the current state; returns a unique id
+    env.load_state(state_id=state_id) # return to it; then read env.current_obs
+    env.delete_state(state_id=state_id)
+load_state starts a new episode from the saved state (step count 0, as after reset).
+Ids are only valid on the env instance that saved them; close() deletes all of them.
+A failed save, load or delete calls log_error.
 """
 import hashlib
 import string
+import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 import gymnasium as gym
@@ -58,6 +74,10 @@ class TextActionEnv(gym.Env, ABC):
 
     metadata = {"render_modes": []}
 
+    #: One sentence naming what is being operated, used by environment-agnostic prompts
+    #: (task proposal, judging, guidance) in place of "a GameBoy game". Subclasses set it.
+    env_description: str = "an interactive environment"
+
     def __init__(self, *, mode: str, frame_shape: tuple, text_keys: tuple[str, ...],
                  parameters: dict[str, Any] = None) -> None:
         """
@@ -78,6 +98,8 @@ class TextActionEnv(gym.Env, ABC):
         })
         self.action_space = spaces.Text(max_length=_MAX_TEXT, charset=_TEXT_CHARSET)
         self._episode_over = False
+        self.current_obs: Optional[dict] = None
+        self._saved_state_ids: set[str] = set()
 
     # gym API. step() takes the action positionally, as gym requires.
     def reset(self, *, seed: Optional[int] = None, options: Optional[dict] = None):
@@ -87,6 +109,7 @@ class TextActionEnv(gym.Env, ABC):
         self._episode_over = False
         obs, info = self._reset_impl()
         self._check_texts(obs=obs)
+        self.current_obs = obs
         return obs, info
 
     def step(self, action: str):
@@ -99,12 +122,62 @@ class TextActionEnv(gym.Env, ABC):
         obs, reward, terminated, truncated, info = self._step_impl(action)
         self._check_texts(obs=obs)
         self._episode_over = bool(terminated or truncated)
+        self.current_obs = obs
         return obs, reward, terminated, truncated, info
+
+    # Saved states. Subclasses implement _save_state_impl / _load_state_impl / _delete_state_impl.
+    def save_state(self) -> str:
+        """Snapshot the current state; returns its unique id."""
+        state_id = uuid.uuid4().hex[:16]
+        self._save_state_impl(state_id=state_id)
+        self._saved_state_ids.add(state_id)
+        return state_id
+
+    def load_state(self, *, state_id: str) -> None:
+        """Return to a saved state and start a new episode there. The observation is in
+        self.current_obs."""
+        self._check_state_id(state_id=state_id)
+        obs = self._load_state_impl(state_id=state_id)
+        self._check_texts(obs=obs)
+        self._episode_over = False
+        self.current_obs = obs
+
+    def delete_state(self, *, state_id: str) -> None:
+        self._check_state_id(state_id=state_id)
+        self._delete_state_impl(state_id=state_id)
+        self._saved_state_ids.discard(state_id)
+
+    def delete_all_states(self) -> None:
+        for state_id in list(self._saved_state_ids):
+            self.delete_state(state_id=state_id)
+
+    @property
+    def saved_state_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(self._saved_state_ids))
+
+    def _check_state_id(self, *, state_id: str) -> None:
+        if state_id not in self._saved_state_ids:
+            log_error(f"No saved state {state_id!r} on this env", parameters=self._parameters)
+
+    def _save_state_impl(self, *, state_id: str) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not implement save_state")
+
+    def _load_state_impl(self, *, state_id: str) -> dict:
+        """Restore the saved state; return the observation there."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement load_state")
+
+    def _delete_state_impl(self, *, state_id: str) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not implement delete_state")
 
     def _check_texts(self, *, obs: dict) -> None:
         if set(obs["texts"]) != set(self.text_keys):
             log_error(f"obs['texts'] keys {sorted(obs['texts'])} != declared text_keys "
                       f"{sorted(self.text_keys)}", parameters=self._parameters)
+
+    def sample_action(self) -> str:
+        """A random valid action text for the current state (used to perturb start
+        states). Uses gym's RNG (self.np_random), so reset(seed=...) makes it reproducible."""
+        raise NotImplementedError(f"{type(self).__name__} does not implement sample_action")
 
     @abstractmethod
     def _reset_impl(self) -> tuple[dict, dict]:

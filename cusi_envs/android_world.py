@@ -38,6 +38,7 @@ watchdog pattern, the snapshot commands) are adapted from SetupAttempt's
 playenv/android_play.py.
 """
 import datetime
+import json
 import re
 import hashlib
 import os
@@ -171,7 +172,12 @@ class AndroidEmulator:
 
 
 class AndroidPlayEnv(TextActionEnv):
-    """AndroidWorld task scene as a text-action gym.Env. See the module docstring."""
+    """AndroidWorld task scene as a text-action gym.Env. See the module docstring.
+
+    info["raw_frame"] is the screenshot without set-of-mark labels (M3A shows the model
+    both)."""
+
+    env_description = "an Android phone"
 
     def __init__(
         self,
@@ -190,6 +196,7 @@ class AndroidPlayEnv(TextActionEnv):
         wait_after_action_seconds: float = 2.0,
         call_timeout: Optional[float] = 600.0,
         probe_success: bool = False,
+        start_app: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
         """
@@ -205,6 +212,9 @@ class AndroidPlayEnv(TextActionEnv):
             (10 * task complexity) in test mode, unlimited in free_play.
         :param probe_success: free_play only: report task.is_successful as
             info["probe_success"] (for logging; never show it to the policy).
+        :param start_app: Open this app (M3A's open_app action) as the last step of building
+            the scene, so the initial state is that app's screen rather than the home
+            screen most tasks start on. Part of the scene: reset() returns to it.
         """
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
@@ -225,7 +235,11 @@ class AndroidPlayEnv(TextActionEnv):
         self.wait_after_action_seconds = wait_after_action_seconds
         self.call_timeout = call_timeout
         self.probe_success = probe_success
+        self.start_app = start_app
+        if start_app:
+            self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
+        self._states: dict[str, datetime.datetime] = {}   # saved state_id -> device clock at save
         self.recoveries = 0
 
         self._env = self._guarded(fn=self._connect)
@@ -267,19 +281,18 @@ class AndroidPlayEnv(TextActionEnv):
         self._go_to_start(env, task)
         snapshot_clock = None
         if self.reset_mode == "snapshot":
-            out = self._adb("emu", "avd", "snapshot", "save", self._snapshot_name, timeout=600)
-            if "OK" not in out:
-                raise RuntimeError(f"Snapshot save failed ({out!r}). Start the emulator with"
-                                   " --snapshots true, or use reset_mode='reinit'.")
-            snapshot_clock = self._device_time()
+            snapshot_clock = self._save_snapshot(self._snapshot_name)
         return task, snapshot_clock, self._observe_raw(env)
 
-    @staticmethod
-    def _go_to_start(env: interface.AsyncEnv, task) -> None:
+    def _go_to_start(self, env: interface.AsyncEnv, task) -> None:
         # M3A.reset: Home if the task says so, clear the interaction cache, hide the
         # pointer-location overlay.
         env.reset(go_home=task.start_on_home_screen)
         env.hide_automation_ui()
+        if self.start_app:
+            env.execute_action(json_action.JSONAction(action_type="open_app", app_name=self.start_app))
+            time.sleep(3.0)
+            env.interaction_cache = ""
 
     def _check_app_snapshots(self, task) -> None:
         """initialize_task resets each task app's data from a snapshot taken at app setup,
@@ -332,19 +345,29 @@ class AndroidPlayEnv(TextActionEnv):
         epoch = int(self._adb("shell", "date", "+%s").split()[-1])
         return datetime.datetime.fromtimestamp(epoch, tz=datetime.timezone.utc)
 
+    def _save_snapshot(self, name: str) -> datetime.datetime:
+        """Save an emulator snapshot (disk + RAM); returns the device clock at save time."""
+        out = self._adb("emu", "avd", "snapshot", "save", name, timeout=600)
+        if "OK" not in out:
+            raise RuntimeError(f"Snapshot save failed ({out!r}). Start the emulator with --snapshots true.")
+        return self._device_time()
+
+    def _load_snapshot(self, env: interface.AsyncEnv, name: str, clock: datetime.datetime) -> None:
+        out = self._adb("emu", "avd", "snapshot", "load", name, timeout=600)
+        if "OK" not in out:
+            raise RuntimeError(f"Snapshot load failed: {out!r}")
+        self._wait_until_restored(env)
+        # Pin the clock back to its value at save time, whatever the guest clock
+        # does across a load.
+        if abs((self._device_time() - clock).total_seconds()) > 2:
+            datetime_utils.set_datetime(env.controller, clock)
+        # Python-side state the snapshot cannot restore.
+        env.interaction_cache = ""
+
     def _restore(self, env: interface.AsyncEnv, task, snapshot_clock):
         """Return the device to the scene's initial state. Returns the raw observation."""
         if self.reset_mode == "snapshot":
-            out = self._adb("emu", "avd", "snapshot", "load", self._snapshot_name, timeout=600)
-            if "OK" not in out:
-                raise RuntimeError(f"Snapshot load failed: {out!r}")
-            self._wait_until_restored(env)
-            # Pin the clock back to its value at save time, whatever the guest clock
-            # does across a load.
-            if abs((self._device_time() - snapshot_clock).total_seconds()) > 2:
-                datetime_utils.set_datetime(env.controller, snapshot_clock)
-            # Python-side state the snapshot cannot restore.
-            env.interaction_cache = ""
+            self._load_snapshot(env, self._snapshot_name, snapshot_clock)
         else:
             task.tear_down(env)
             task.initialize_task(env)
@@ -354,9 +377,11 @@ class AndroidPlayEnv(TextActionEnv):
     # ------------------------------------------------------------ observation
 
     def _observe_raw(self, env: interface.AsyncEnv):
-        """(frame, (ui_elements_text, ui_count)): M3A's view of the current screen."""
+        """(frame, (ui_elements_text, ui_count), raw_pixels): M3A's view of the current
+        screen; raw_pixels is the screenshot without set-of-mark labels."""
         state = env.get_state(wait_to_stabilize=True)
         size = env.logical_screen_size
+        raw_pixels = state.pixels.copy().astype(np.uint8)
         frame = state.pixels.copy()
         if self.som:
             for i, ui in enumerate(state.ui_elements):
@@ -364,10 +389,10 @@ class AndroidPlayEnv(TextActionEnv):
                     m3a_utils.add_ui_element_mark(frame, ui, i, size, env.physical_frame_boundary,
                                                   env.orientation)
         text = m3a._generate_ui_elements_description_list(state.ui_elements, size)
-        return frame.astype(np.uint8), (text, len(state.ui_elements))
+        return frame.astype(np.uint8), (text, len(state.ui_elements)), raw_pixels
 
     def _obs(self, *, raw) -> dict:
-        frame, (ui_elements, _count) = raw
+        frame, (ui_elements, _count), _raw_pixels = raw
         goal = self._task.goal if self.mode == "test" else ""
         return {"frame": frame, "texts": {"ui_elements": ui_elements},
                 "actions": self.actions_text, "goal": goal}
@@ -383,10 +408,17 @@ class AndroidPlayEnv(TextActionEnv):
                 raw = self._guarded(fn=lambda: self._restore(env, task, clock))
             except EnvStalled as e:
                 raw = self._recover(why=f"reset: {e}")
+            except RuntimeError as e:
+                # e.g. "Device did not come back after the snapshot load": the restore itself
+                # failed, so the device is in an unknown state. Same remedy as a stall.
+                if self._emulator is None:
+                    raise
+                raw = self._recover(why=f"reset failed: {e}")
         self._at_initial_state = False
         self._steps = 0
         self._ui_count = raw[1][1]
-        info = self.make_info(valid=True, error=None, parsed_action=None, step=0, scene_id=self.scene_id)
+        info = self.make_info(valid=True, error=None, parsed_action=None, step=0, scene_id=self.scene_id,
+                              raw_frame=raw[2])
         return self._obs(raw=raw), info
 
     def _step_impl(self, action: str):
@@ -426,7 +458,8 @@ class AndroidPlayEnv(TextActionEnv):
             self._ui_count = raw[1][1]
             info = self.make_info(valid=False, error="The environment stopped responding and was restarted.",
                                   parsed_action=canonical_action(action=ja) if ja else None,
-                                  step=self._steps, scene_id=self.scene_id, env_recovered=str(e))
+                                  step=self._steps, scene_id=self.scene_id, env_recovered=str(e),
+                                  raw_frame=raw[2])
             return self._obs(raw=raw), 0.0, False, True, info
 
         self._steps += 1
@@ -437,8 +470,24 @@ class AndroidPlayEnv(TextActionEnv):
         valid = ja is not None and error is None
         info = self.make_info(valid=valid, error=error,
                               parsed_action=canonical_action(action=ja) if ja is not None else None,
-                              step=self._steps, scene_id=self.scene_id, **extra)
+                              step=self._steps, scene_id=self.scene_id, raw_frame=raw[2], **extra)
         return self._obs(raw=raw), reward, terminated, truncated, info
+
+    def sample_action(self) -> str:
+        """A random M3A action: tap or scroll on a listed element, a whole-screen scroll,
+        back or home (weights 4:1:2:1:1). Never open_app/input_text/status."""
+        rng = self.np_random
+        kind = rng.choice(["click", "scroll_element", "scroll", "navigate_back", "navigate_home"],
+                          p=[4 / 9, 1 / 9, 2 / 9, 1 / 9, 1 / 9])
+        direction = str(rng.choice(["up", "down", "left", "right"]))
+        if kind in ("click", "scroll_element") and self._ui_count > 0:
+            index = int(rng.integers(self._ui_count))
+            if kind == "click":
+                return json.dumps({"action_type": "click", "index": index})
+            return json.dumps({"action_type": "scroll", "direction": direction, "index": index})
+        if kind in ("click", "scroll_element", "scroll"):
+            return json.dumps({"action_type": "scroll", "direction": direction})
+        return json.dumps({"action_type": str(kind)})
 
     def _execute(self, env: interface.AsyncEnv, ja: json_action.JSONAction) -> Optional[str]:
         try:
@@ -449,8 +498,48 @@ class AndroidPlayEnv(TextActionEnv):
         time.sleep(self.wait_after_action_seconds)
         return None
 
+    # ------------------------------------------------------------ saved states
+    # Emulator snapshots (disk + RAM), as for reset_mode="snapshot"; they need an emulator
+    # started with --snapshots true, and live in that emulator's private AVD copy.
+
+    def _state_snapshot_name(self, state_id: str) -> str:
+        return f"{self._snapshot_name}_{state_id}"
+
+    def _save_state_impl(self, *, state_id: str) -> None:
+        name = self._state_snapshot_name(state_id)
+        try:
+            self._states[state_id] = self._guarded(fn=lambda: self._save_snapshot(name))
+        except (EnvStalled, RuntimeError) as e:
+            log_error(f"Could not save Android state {state_id}: {e}", parameters=self._parameters)
+
+    def _load_state_impl(self, *, state_id: str) -> dict:
+        env, name, clock = self._env, self._state_snapshot_name(state_id), self._states[state_id]
+
+        def load():
+            self._load_snapshot(env, name, clock)
+            return self._observe_raw(env)
+
+        try:
+            raw = self._guarded(fn=load)
+        except (EnvStalled, RuntimeError) as e:
+            log_error(f"Could not load Android state {state_id}: {e}", parameters=self._parameters)
+        self._at_initial_state = False
+        self._steps = 0
+        self._ui_count = raw[1][1]
+        return self._obs(raw=raw)
+
+    def _delete_state_impl(self, *, state_id: str) -> None:
+        out = self._adb("emu", "avd", "snapshot", "delete", self._state_snapshot_name(state_id), timeout=120)
+        if "OK" not in out:
+            log_error(f"Could not delete Android state {state_id}: {out!r}", parameters=self._parameters)
+        del self._states[state_id]
+
     def close(self) -> None:
         try:
+            for state_id in list(self._states):
+                self._adb("emu", "avd", "snapshot", "delete", self._state_snapshot_name(state_id), timeout=120)
+            self._states.clear()
+            self._saved_state_ids.clear()
             if self.reset_mode == "snapshot":
                 self._adb("emu", "avd", "snapshot", "delete", self._snapshot_name, timeout=120)
             self._env.close()
@@ -491,6 +580,11 @@ class AndroidPlayEnv(TextActionEnv):
         log_warn(f"AndroidPlayEnv stalled ({why}); restarting the emulator and rebuilding the scene",
                  parameters=self._parameters)
         self.recoveries += 1
+        if self._states:
+            # The restarted emulator runs on a freshly staged AVD copy: saved snapshots are gone.
+            log_warn(f"Emulator restart drops {len(self._states)} saved state(s)", parameters=self._parameters)
+            self._states.clear()
+            self._saved_state_ids.clear()
         self._emulator.restart()
         self._env = self._guarded(fn=self._connect)
         env = self._env
