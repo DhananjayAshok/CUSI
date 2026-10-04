@@ -37,6 +37,8 @@ from cusi_utils.log_handling import log_info, log_error
 from cusi_envs.base import TextActionEnv, scene_hash
 
 # GameBoyWorlds exposes no text channel (see the module docstring).
+# TODO: add an OCR text channel (e.g. "ocr") from info["text_regions"] once the
+# GameBoy OCR approach is decided.
 TEXT_KEYS = ()
 
 MSG_PARSE_FAILED = "Could not parse an action from the output. Reply with one of the allowed actions."
