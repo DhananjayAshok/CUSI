@@ -22,6 +22,7 @@ dependencies = [
     "peft>=0.18.1",
     "pillow>=11.3.0",
     "protobuf>=6.33.5",
+    "pypdf>=6.19.0",
     "pyyaml>=6.0.3",
     "scikit-learn>=1.8.0",
     "seaborn>=0.13.2",

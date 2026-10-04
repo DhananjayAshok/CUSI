@@ -1,9 +1,28 @@
-source configs/config.env || { echo "configs/config.env not found"; exit 1; }
+_env_files=(configs/*.env)
+if [[ ! -f "${_env_files[0]}" ]]; then
+    echo "No configs/*.env found; run: python configs/create_env_file.py"; exit 1
+fi
+for _env_file in "${_env_files[@]}"; do
+    source "$_env_file" || { echo "Could not source $_env_file"; exit 1; }
+done
 source setup/.venv/bin/activate || { echo "Virtual environment not found."; exit 1; }
 PROJECT_ROOT=$(pwd) # expects to be run from root, always.
 # Makes CUSI's packages (cusi_utils, benchmark_adapters) importable from submodule
 # scripts such as android_world/run.py.
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+# uv's standalone Python looks for CA certificates at /etc/ssl/cert.pem, which some
+# distros (e.g. AlmaLinux) lack, so HTTPS downloads fail. Use certifi's bundle.
+SSL_CERT_FILE=$(python -c "import certifi; print(certifi.where())") || { echo "certifi not found in the venv."; exit 1; }
+export SSL_CERT_FILE
+export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"
+# The CUSI benchmark container (Android emulator + Chromium); see scripts/container.sh.
+export CUSI_SIF="${storage_dir%/}/containers/cusi.sif"
+# uv's downloads and Python installs live under storage_dir (see setup/setup.sh).
+export UV_CACHE_DIR="${storage_dir%/}/uv/cache"
+export UV_PYTHON_INSTALL_DIR="${storage_dir%/}/uv/python"
+if [[ -x "${storage_dir%/}/uv/bin/uv" ]]; then
+    export PATH="${storage_dir%/}/uv/bin:$PATH"
+fi
 
 # args_to_flags <assoc_array_name>
 #

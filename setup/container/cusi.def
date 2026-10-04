@@ -1,0 +1,75 @@
+Bootstrap: docker
+From: debian:bookworm-slim
+
+# System layer for CUSI's benchmarks: the Android emulator (AndroidWorld) and
+# Chromium + chromedriver (WebVoyager). Python is not installed here: commands run
+# with the host's setup/.venv, bind-mounted by scripts/container.sh. Writable state
+# (AVDs, the container's home) lives under storage_dir, never in the image.
+# Build with: bash setup/container/build.sh
+
+%arguments
+    # Android command-line tools build (same as android_world/Dockerfile).
+    CMDLINE_TOOLS=11076708
+    # AndroidWorld requires a Pixel 6 AVD on Android 13 (API 33).
+    API_LEVEL=33
+    SYSTEM_IMAGE=system-images;android-33;google_apis;x86_64
+
+%labels
+    org.cusi.description Android emulator + Chromium for CUSI benchmarks
+    org.cusi.cmdline_tools {{ CMDLINE_TOOLS }}
+    org.cusi.system_image {{ SYSTEM_IMAGE }}
+
+%environment
+    export ANDROID_HOME=/opt/android-sdk
+    export ANDROID_SDK_ROOT=/opt/android-sdk
+    export PATH=/opt/android-sdk/platform-tools:/opt/android-sdk/emulator:/opt/android-sdk/cmdline-tools/latest/bin:$PATH
+    export CUSI_CHROME_BINARY=/usr/bin/chromium
+    export CUSI_CHROMEDRIVER=/usr/bin/chromedriver
+    export CUSI_CONTAINER=1
+
+%post -c /bin/bash
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    # Emulator runtime libraries: android_world/Dockerfile's list, minus its VNC
+    # and window-manager packages (we only run headless). Then Java for the SDK
+    # tools, Chromium with its matching driver, ffmpeg (AndroidWorld), and tools.
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl unzip procps \
+        libdrm-dev libxkbcommon-dev libgbm-dev libasound-dev libnss3 libxcursor1 \
+        libpulse-dev libxshmfence-dev xauth xvfb libdbus-glib-1-2 \
+        openjdk-17-jre-headless \
+        chromium chromium-driver fonts-liberation \
+        ffmpeg
+
+    SDK=/opt/android-sdk
+    mkdir -p $SDK/cmdline-tools
+    curl -fsSL -o /tmp/cmdline-tools.zip \
+        "https://dl.google.com/android/repository/commandlinetools-linux-{{ CMDLINE_TOOLS }}_latest.zip"
+    unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+    mv /tmp/cmdline-tools/cmdline-tools $SDK/cmdline-tools/latest
+    SDKMANAGER=$SDK/cmdline-tools/latest/bin/sdkmanager
+    # `yes` dies of SIGPIPE once the licenses are accepted; that is not a failure.
+    set +o pipefail
+    yes | $SDKMANAGER --sdk_root=$SDK --licenses > /dev/null
+    set -o pipefail
+    $SDKMANAGER --sdk_root=$SDK \
+        "platform-tools" "emulator" "platforms;android-{{ API_LEVEL }}" "{{ SYSTEM_IMAGE }}"
+
+    # Record exactly what was installed, for reproducibility.
+    {
+        echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "debian: $(cat /etc/debian_version)"
+        chromium --version
+        chromedriver --version
+        java -version 2>&1 | head -1
+        $SDKMANAGER --sdk_root=$SDK --list_installed 2>/dev/null | sed -n '/Installed packages/,$p'
+    } > /opt/cusi-versions.txt
+    cat /opt/cusi-versions.txt
+
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /tmp/cmdline-tools /tmp/cmdline-tools.zip
+
+%help
+    CUSI benchmark container (Android emulator + Chromium). Use it through
+    scripts/container.sh from the CUSI root. Installed versions: /opt/cusi-versions.txt
