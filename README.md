@@ -17,22 +17,35 @@ A template for Python research projects. Provides standardised environment setup
 
 This project uses Python with [uv](https://docs.astral.sh/uv/) for dependency management. See [setup/README.md](setup/README.md) for full instructions.
 
-Quick start (from project root):
+Quick start:
 ```bash
-
-git pull <url> --recursive
+# 1. Clone with every submodule, recursively
+git clone --recurse-submodules <url>
 cd <project_name>
-cd setup && uv sync
-cd ..
-cd llm-utils/setup && uv sync
-cd ../../
+
+# 2. Project venv. Optional first: put the venv under your storage dir and symlink it,
+#    e.g. ln -s <storage_dir>/venvs/cusi setup/.venv
+cd setup && uv sync && cd ..
+cd llm-utils/setup && uv sync && cd ../..
 source setup/.venv/bin/activate
+
+# 3. Fill in every PLACEHOLDER in configs/private_vars.yaml (storage_dir, results_dir,
+#    shared_vllm_dir, ...), then generate the shell config
+python configs/create_env_file.py
+
+# 4. Install the vLLM helper scripts into shared_vllm_dir and check its venv
+bash setup/move_vllm_scripts.sh
 ```
 
-Then fill in your local values in `configs/private_vars.yaml` (replacing any `PLACEHOLDER` entries) and generate the shell config:
-```bash
-python configs/create_env_file.py
-```
+`HF_HOME` must already be set in your shell (model weights live there).
+
+**vLLM.** vLLM runs from its own venv at `<shared_vllm_dir>/.venv`, separate from the project
+venv (its torch version differs), and that directory can be shared by several projects. Step 4
+copies `setup/vllm_scripts/` (`serve_vllm.sh`, `stop_vllm.sh`, `env.sh`) there and checks for a
+`.venv` with vLLM. If there is none, it warns: create a venv there and install vLLM into it,
+symlink `.venv` to a venv that already has vLLM, or install vLLM into the venv that is there.
+`setup/vllm_scripts/` is the source of truth: after changing those scripts, rerun step 4
+(`scripts/serve_vllm.sh` warns when the installed copies are out of date).
 
 - Maybe a line on pulling data
 

@@ -25,7 +25,8 @@ def compute_secondary_parameters(params: dict[str, Any]) -> None:
     ``tmp_dir``, ``sync_dir``. Derives the following from ``results_dir``:
     ``log_dir``, ``figure_dir``. All derived directories are created if they do
     not exist. Also sets ``log_file`` (defaulting to ``<log_dir>/log.txt`` if not
-    already present) and initialises the ``logger`` key.
+    already present) and initialises the ``logger`` key. Derives ``vLLM_base_url``
+    (``http://localhost:<vllm_port>/v1/``) from ``vllm_port``, so the port is set in one place.
 
     :param params: The parameters dictionary to extend in-place.
     :type params: dict[str, Any]
@@ -36,6 +37,7 @@ def compute_secondary_parameters(params: dict[str, Any]) -> None:
     params["sync_dir"] = os.path.join(params["storage_dir"], "sync")
     params["log_dir"] = os.path.join(params["results_dir"], "logs")
     params["figure_dir"] = os.path.join(params["results_dir"], "figures")
+    params["vLLM_base_url"] = f"http://localhost:{params['vllm_port']}/v1/"
     for dirname in [
         "data_dir",
         "model_dir",

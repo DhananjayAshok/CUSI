@@ -39,6 +39,12 @@ All `.yaml` files in `configs/` are automatically loaded and merged into a singl
 
 **All paths must be absolute.**
 
+**Never default a model.** Model choices (served LLM/VLM, policy, encoder, judge, ...) are never set in config YAMLs or as defaults in code (no `DEFAULT_MODEL` constants, no `default=parameters["..._model"]`). They are always required arguments (`--model`, `--model_name`, `--policy_model`, ...), and a script that starts a server and its client takes the model once and passes the same value to both.
+
+**vLLM helper scripts live in `setup/vllm_scripts/`** (`serve_vllm.sh`, `stop_vllm.sh`, `env.sh`). They are installed into `shared_vllm_dir` by `bash setup/move_vllm_scripts.sh`. Edit them only in `setup/vllm_scripts/` and rerun that script — never edit the copies in `shared_vllm_dir` directly. The `.venv` there (vLLM installed) is the user's responsibility; never create or modify it.
+
+**`HF_HOME` must already be set** in the user's environment. Never add a config key or `cache_dir=` for model weights; rely on `HF_HOME` (`scripts/utils.sh` exits if it is unset).
+
 ### Auto-Derived Parameters (do not set in YAML)
 `compute_secondary_parameters()` derives and creates these directories automatically:
 - From `storage_dir`: `data_dir`, `model_dir`, `tmp_dir`, `sync_dir`
@@ -69,6 +75,17 @@ source setup/.venv/bin/activate || { echo "Virtual environment not found."; exit
 ```
 
 This ensures config variables (`storage_dir`, `WANDB_PROJECT`, etc.) are available as shell environment variables and the correct Python is active. Never run project bash scripts without this sourcing in place.
+
+### Slurm jobs: `slurm/<name>.sh` + `scripts/slurm/<name>.sh`
+
+Every Slurm job is a matched pair with the same name:
+- `slurm/<name>.sh` — the file you `sbatch` (from the project root). It holds only the `#SBATCH` header (partition, GPU type/count, memory, time — the system-specific part), a usage comment, and a single line `bash scripts/slurm/<name>.sh "$@"`. No logic.
+- `scripts/slurm/<name>.sh` — all the logic, runnable directly with `bash` (on a node, interactively, or under a different scheduler). It must:
+  1. Not be system-specific: no hardcoded paths, partitions, hostnames or GPU models. Read everything from the sourced config (`configs/*.env` via `scripts/utils.sh`) and from the environment (`CUDA_VISIBLE_DEVICES`, `SLURM_JOB_ID` with a fallback, ...).
+  2. Not commit to a number of GPUs (or other resources) except as documented in its header comment (e.g. "PPO uses the first visible GPU; vLLM uses the rest"). Size things from what is visible.
+  3. Take `--flag value` arguments via `parse_args` (BASH_TEMPLATE.md conventions), not ad-hoc env vars.
+
+When adding or changing a job, change both files and keep them in sync.
 
 ---
 

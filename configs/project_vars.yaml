@@ -5,4 +5,6 @@ max_batch_size_huggingface: 32 # Default max batch size for local HuggingFace mo
 default_max_queries_per_minute: 60 # Fallback rate limit (queries/minute) for API models whose name isn't in _RATE_LIMITS in cusi_utils/lm_inference.py
 figure_skip_show: False # Indicates whether the Plotter object should save a figure or display it. In envs with no display you'll want to set this to True
 WANDB_PROJECT: "CU" # This is more for bash than for within python. Will set the wandb logger to the right project
-vLLM_base_url: "http://localhost:8000/v1/"
+vllm_port: 8000 # The one place the vLLM port is set: scripts/serve_vllm.sh serves on it and vLLM_base_url is derived from it (override per run with --port / --vllm_port)
+vllm_max_model_len: 32768 # --max-model-len for the vLLM server
+vllm_max_images: 16 # --limit-mm-per-prompt image count for the vLLM server (judge describe slices send 10 frames)

@@ -6,6 +6,8 @@ for _env_file in "${_env_files[@]}"; do
     source "$_env_file" || { echo "Could not source $_env_file"; exit 1; }
 done
 source setup/.venv/bin/activate || { echo "Virtual environment not found."; exit 1; }
+# Model weights come from the user's Hugging Face cache; it must already be configured.
+[[ -n "${HF_HOME:-}" ]] || { echo "HF_HOME is not set; set it (e.g. in ~/.bashrc) to your Hugging Face cache."; exit 1; }
 PROJECT_ROOT=$(pwd) # expects to be run from root, always.
 # Makes CUSI's packages (cusi_utils, benchmark_adapters) importable from submodule
 # scripts such as android_world/run.py.
@@ -138,3 +140,47 @@ function populate_common_required_training_args() {
 
 # Combined key list for use with args_to_flags_subset when calling a subscript
 COMMON_TRAINING_ARGS_KEYS=("${COMMON_REQUIRED_TRAINING_ARGS[@]}" "${!COMMON_OPTIONAL_TRAINING_ARGS_DEFAULTS[@]}")
+# parse_args <assoc_array_name> <required_array_name> "$@"
+#
+# The BASH_TEMPLATE.md argument parser as one function: validates that optional
+# defaults are non-blank, accepts only --key value pairs for known keys, checks the
+# required ones, and prints the active variables. Exits with the usage string on error.
+#   declare -A ARGS=( ["port"]="8000" ); REQUIRED_ARGS=("env")
+#   parse_args ARGS REQUIRED_ARGS "$@"
+function parse_args() {
+    local -n _pa_args="$1"
+    local -n _pa_req="$2"
+    shift 2
+    local usage_str="Usage: $0"
+    local req opt
+    for req in "${_pa_req[@]}"; do usage_str+=" --$req <value>"; done
+    for opt in "${!_pa_args[@]}"; do
+        if [[ ! " ${_pa_req[*]} " =~ " ${opt} " ]]; then
+            if [[ -z "${_pa_args[$opt]}" ]]; then
+                echo "DEFAULT VALUE OF KEY \"$opt\" CANNOT BE BLANK"; exit 1
+            fi
+            usage_str+=" [--$opt <value> (default: ${_pa_args[$opt]})]"
+        fi
+    done
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help) echo "$usage_str"; exit 1 ;;
+            --*)
+                local flag=${1#--}
+                if [[ ! " ${_pa_req[*]} ${!_pa_args[*]} " =~ " ${flag} " ]]; then
+                    echo "Error: Unknown flag --$flag"; echo "$usage_str"; exit 1
+                fi
+                _pa_args["$flag"]="$2"
+                shift 2
+                ;;
+            *) echo "Unknown argument: $1"; echo "$usage_str"; exit 1 ;;
+        esac
+    done
+    local failed=false
+    for req in "${_pa_req[@]}"; do
+        if [[ -z "${_pa_args[$req]}" ]]; then echo "Error: Argument --$req is required."; failed=true; fi
+    done
+    if [[ "$failed" == true ]]; then echo "$usage_str"; exit 1; fi
+    echo "Script: $0 Active variables:"
+    for opt in "${!_pa_args[@]}"; do echo "  -$opt = ${_pa_args[$opt]}"; done
+}
