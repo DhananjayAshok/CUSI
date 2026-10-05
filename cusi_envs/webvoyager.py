@@ -18,6 +18,8 @@ exec_action (action execution, with eval's failure/warning feedback).
 Observation: frame = the set-of-mark screenshot (HxWx3 uint8); texts =
 {"web_elements": WebVoyager's labelled element list}; actions = the action list from
 WebVoyager's system prompt; goal = the task question in "test" mode, "" otherwise.
+info["raw_frame"] is the same page without the set-of-mark labels (a second screenshot after
+the labels are removed, ~0.1 s), as AndroidPlayEnv's, for embedders (labels are not content).
 
 Modes (base.py):
     test       ANSWER ends the episode, with the answer in info["answer"]; reward 0.
@@ -178,6 +180,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._driver = None
         self._web_eles = []
         self._last_obs = None
+        self._raw_frame = None
         self._url = self.start_url
         self._states: dict[str, dict] = {}   # saved state_id -> browser state (see _save_state_impl)
         self.browser_restarts = 0
@@ -244,6 +247,11 @@ class WebVoyagerPlayEnv(TextActionEnv):
         except self._wv.StaleElementReferenceException:
             pass
         frame = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), dtype=np.uint8)
+        try:
+            raw_png = self._driver.get_screenshot_as_png()
+            self._raw_frame = np.asarray(Image.open(io.BytesIO(raw_png)).convert("RGB"), dtype=np.uint8)
+        except self._wv.WebDriverException:
+            self._raw_frame = frame
         self._web_eles = web_eles
         try:
             self._url = self._driver.current_url
@@ -273,6 +281,16 @@ class WebVoyagerPlayEnv(TextActionEnv):
     # ---------------------------------------------------------------- gym API
 
     def _reset_impl(self):
+        obs, info = self._reset_core()
+        info["raw_frame"] = self._raw_frame
+        return obs, info
+
+    def _step_impl(self, action: str):
+        obs, reward, terminated, truncated, info = self._step_core(action)
+        info["raw_frame"] = self._raw_frame
+        return obs, reward, terminated, truncated, info
+
+    def _reset_core(self):
         if not self._at_initial_state:
             self._open(url=self.start_url)
         self._at_initial_state = False
@@ -281,7 +299,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
                               url=self._url)
         return self._obs(), info
 
-    def _step_impl(self, action: str):
+    def _step_core(self, action: str):
         self._at_initial_state = False
         self._steps += 1
         action_key, parsed_info = self._wv.extract_information(action_text(text=action))
