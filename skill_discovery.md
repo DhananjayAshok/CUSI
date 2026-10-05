@@ -555,4 +555,47 @@ where a broken output format breaks the run:
 - **Parallel work:** build the `cusi_state` migration and the search's minimum pieces first,
   then the rest of each plan in parallel on separate files.
 
+**First build results (2026-10-04).**
+- **Code.**
+  - Core (kept): `cusi_search/{tree,selection,expanders,prior,search}.py`.
+  - Toy: `cusi_search/toy/{stats_handwaved,stopping,envs,calibrate,tree_io,viewer}.py`,
+    `run_preexplore_toy.py` and the `preexplore_toy` Slurm pair.
+  - Tests: `tests/search_core_test.py` (the strip-out check: the core runs a search on a fake
+    env with `cusi_search.toy` blocked from import; passes) and `tests/search_viewer_toy_render.py`
+    (renders a viewer in headless Chromium).
+- **GameBoy, random expander** (`random_patch`, text `none`, `embedding` scorer, login-node CPU):
+  - Setup: viridian + pewter roots, K = 10, 100 expansions in 20 s.
+  - Tree: 1000 steps → 106 nodes, depth up to 8, 232 cells.
+  - Selection: 49 distinct nodes expanded; the most-picked node was picked 6 times.
+  - Calibration: cell threshold 0.970 (25th percentile of nearest-neighbour similarity), node
+    threshold 0.139 (90th percentile of novelty).
+  - Viewer renders: 106 tree nodes, chart, selection log, 0 JS errors, 0 broken images.
+  - Output: `storage/preexplore_toy/gameboy/toy_random/index.html`.
+- **Web, VLM explorer + VLM prior** (job 282985, `Qwen/Qwen3-VL-2B-Instruct` via vLLM,
+  `random_patch` + `tfidf`, arXiv):
+  - Run: 6 expansions × 4 steps → 8 nodes.
+  - Explorer: all 24 actions were valid (it reached search and results pages), so the model was
+    not escalated.
+  - Prior: all 8 calls parsed, but the score was always 7/10, so P(n) carried no information.
+  - Timing: about 6 s per load, about 16 s per expansion.
+  - Output: `storage/preexplore_toy/web/toy_vlm_qwen3vl2b/`.
+- **Android, random expander** (job 282986, contacts, `random_patch` + `overlap`, no lazy nodes):
+  - Run: stopped at 8 nodes, 7 expansions × 3 steps, 9 cells.
+  - Timing: loads of 6–9 s, about 30 s per expansion.
+  - Output: `storage/preexplore_toy/android/toy_random_tiny/`.
+- **Changes made during the build (toy only):**
+  - **Restores now count as visits.** Expanding a node counts one visit of its cell in the
+    handwaved stats. Without this, N(n) never rose when n was re-expanded, and one node with a
+    good early yield was picked forever.
+  - **Defaults changed for selection spread.** The defaults are τ = 3 and a 25th-percentile cell
+    threshold. With τ = 1, yields of 4–7 per expansion made selection nearly greedy.
+- **Open issues:**
+  - **Web calibration is too short.** 8 random steps gave only 6 unique states, so the cell
+    threshold (0.57) was too loose and the whole search fell into 2 cells. Web needs more
+    calibration steps, or fixed thresholds.
+  - **The 2B prior does not discriminate.** Try a larger model, or score relative to the parent.
+  - **Web load time.** Restores add about 6 s per expansion on Web and 6–9 s on Android.
+  - **Yield scale needs revisiting.** Yields mix cell counts with summed novelty, so τ and c
+    depend on the env (part of the handwaved statistics).
+
 <!-- TOY-END -->
