@@ -1,0 +1,9 @@
+# debug_curiosity.py human on the Android contacts scene: a new app (spike), repeats (~0), back home
+{"action_type": "open_app", "app_name": "Settings"}
+{"action_type": "scroll", "direction": "down"}
+{"action_type": "scroll", "direction": "down"}
+{"action_type": "navigate_back"}
+{"action_type": "open_app", "app_name": "Contacts"}
+{"action_type": "wait"}
+{"action_type": "click", "index": 999}
+{"action_type": "navigate_home"}

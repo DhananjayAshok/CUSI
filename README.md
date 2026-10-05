@@ -83,3 +83,18 @@ python main.py [--global_option value] subcommand [--subcommand_option value]
 ```
 
 For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
+
+---
+
+## CUSI pipelines (plan.md)
+
+| Part | Code | Entry point | Slurm |
+|---|---|---|---|
+| 0. Shared vLLM | `setup/vllm_scripts/` (installed into `shared_vllm_dir` by `setup/move_vllm_scripts.sh`) | `bash scripts/serve_vllm.sh` / `scripts/stop_vllm.sh` | `slurm/vllm_smoke.sh` |
+| 1. Practice pipeline | `cusi_practice/` (native executors: GameBoyRL, M3A, WebVoyager) | `python run_practice.py --env {gameboy,android,web} [--source curiosity] {propose,attempt,guidance,practice,clean,dataset,all}` | `slurm/practice_small.sh`, `slurm/curiosity_practice.sh` |
+| 2. Curiosity + world model | `cusi_explore/` (SigLIP 2 encoder, Qwen3-VL-2B LoRA PPO policy, novelty buffers, replay, world model, decoder) | `python run_explore.py --env X {ppo,tasks,world_model,decoder,wm_eval,elements}` | `slurm/explore.sh` |
+
+Outputs go to `storage_dir/practice/<env>/<model>/` and `storage_dir/explore/<env>/`. Design
+decisions are in `decisions.md`. Tests: `tests/practice_gameboy_prompt_test.py` (GameBoy prompts
+identical to GameBoyRL's), `tests/practice_strip_test.py`, `tests/practice_pipeline_mock_test.py`
+(all six stages with a scripted model), `tests/vllm_smoke.py`.

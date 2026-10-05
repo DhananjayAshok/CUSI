@@ -481,4 +481,31 @@ broken output format breaks the run:**
 search's minimum pieces (`random_patch`, `overlap`/`tfidf`, archive with cells, `embedding`
 scorer), then both plans continue on separate files.
 
+### First build results (2026-10-04)
+
+Everything in steps 0–8 runs. Logs: `$results_dir/logs/`; outputs: `storage_dir/explore/<env>/`.
+
+| Step | What ran | Result |
+|---|---|---|
+| 0 | `tests/policy_model_check.py` (jobs 282983, 282988) | Qwen3.5-0.8B loads via `AutoModelForImageTextToText`, LoRA r128/a256 on 12 derived targets incl. DeltaNet `in_proj_*`/`out_proj` (86.6M params), backward ok, act vs evaluate per-token log-probs identical (48-token reply). 0.47 s/act vs 0.35 s for Qwen3-VL-2B (2-token replies). **Kept Qwen3.5-0.8B.** |
+| 0 | `uv add causal-conv1d` | **Skipped**: no nvcc/CUDA toolkit on the login node, torch 2.11+cu130 has no prebuilt wheel. Qwen3.5 runs with fla's triton delta-rule kernels on the host and the torch conv fallback. In the container (no C compiler) triton can't JIT, so `policy.py` disables fla there (torch implementation). |
+| 1 | `tests/cusi_state_regression_test.py` | Exact (max diff 0) vs the pre-migration code on 1588 GameBoy + 342 Web replay steps (cosine/distance/hinge), KMeans compaction, SigLIP embeddings. |
+| 2 | `tests/cusi_state_unit_test.py`; `tests/web_state_check.py` (arXiv, container) | `random_patch` == GameBoyRL PatchProjection; Web `raw_frame` present every step (labels change 1–10% of pixels); option-A region novelty 1.0 on new pages / 0 on repeats; overlap / tfidf / dense (MiniLM) similarities sensible, self-similarity 1. |
+| 3 | `debug_curiosity.py random` GameBoy, 3000 steps (17 s), `combinationbuffer` + `random_patch` | frame novelty mean 0.042 (SigLIP was ~0.015), exactly 0 when the screen is unchanged; OCR region 1.0 when a menu/dialogue appears, 0 for 89% of steps. |
+| 3 | `debug_curiosity.py human` Android (job 282984, 8 actions) and GameBoy `--interactive` | new app → region 0.75 / home screen 0.52; repeats → 0; invalid click → −0.1. Annotated frames in `debug/<run>/frames/`. |
+| 5 | `train_embedder --embedder cnn` on the random replay (CPU, 4.6 min, 6 epochs) | val MSE 0.89 → 0.58; decoded pixel MAE 41 (toy). Loads via `--image_embedder cnn --embedder_load_path`; frame novelty mean 0.11. |
+| 6 | `world_model --image_embedder random_patch` on the random replay (30 epochs, CPU) | val cos 0.949 vs copy baseline 0.935 (changed frames 0.949 vs 0.924): unlike SigLIP, it beats "nothing changes". `world_model` scorer loads it, checks embedder + action vocab (mismatch refused); novelty mean 0.056 in a random run. |
+| 7 | `train_embedder --embedder siglip`, 10 steps CPU | loss 0.54 → 0.38; `vision_model.pt` + meta load in `SiglipEmbedder`; frame novelty 0.047 (zero-shot 0.015). |
+| 4/8 | PPO smoke, 2 iterations each (`explore.sh`): GameBoy embedbuffer / combinationbuffer / world_model (282987, 282989, 282994), Web (282996), Android (282997) | All run end to end. GameBoy ~0.8–1 step/s with action-only replies (was ~0.11), 2 tokens per action once the policy settles. Web 0.14–0.18 step/s, 37–50% valid, 7–9 tokens. Android 0.06 step/s (emulator-bound), 100% valid, 9–10 tokens (with the prefill below; 25–50% and 79–96 tokens without). |
+
+Fixes made on the way:
+- `world_model` scorer: a rejected action (unchanged screen) now scores 0. The random-agent replay has no "invalid" transitions, so the model's arbitrary prediction for that index rewarded invalid actions (novelty 0.57 vs 0.06).
+- `action_only` replies get a prefilled start (`RESPONSE_PREFIX`): `Action:` on Web, `{"action_type": "` on Android. Qwen3.5-0.8B followed the native prompts' "Thought:" / "Reason:" formats over the appended instruction: 0% valid on Web, 79–96 tokens on Android.
+
+Open issues (for the real runs):
+- **Update size.** With LoRA r128/a256 and lr 1e-5, the first Adam step moves the policy far: approx KL 0.3–1.2 per token right after the first minibatch, so every iteration early-stops on target_kl 0.1, and kl_ref reaches ~4.6 by iteration 2. The objective is right (log-probs match exactly before the update). Try a lower lr (or rank) first.
+- **Collapse.** In one GameBoy run (combinationbuffer + `--normalize_curiosity_reward`), iteration 2 collapsed to 16-token invalid replies (valid 0%).
+- **first_add.** After a reset into an empty archive, the first two frames score 0 (GameBoyRL's semantics, kept). On Android this zeroes the first, often most novel, step.
+- **Untested.** Dense text in PPO (it was only checked live on Web); `siglip` in PPO beyond the regression; world-model training on Android/Web replays.
+
 <!-- TOY-END -->
