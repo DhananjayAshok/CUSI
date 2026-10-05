@@ -96,6 +96,7 @@ class GameBoyPlayEnv(TextActionEnv):
         max_steps: Optional[int] = None,
         session_name: Optional[str] = None,
         save_video: bool = False,
+        wait_ticks: Optional[int] = None,
         benchmark_row: Optional[dict] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
@@ -105,13 +106,19 @@ class GameBoyPlayEnv(TextActionEnv):
             None: the game's default start state.
         :param mode: "test" needs a benchmark row (use from_benchmark); "free_play".
         :param environment_variant: free_play only; "default" as the curiosity runs use.
-        :param max_steps: Emulator step limit (truncation). None: GameBoyWorlds' default.
+        :param max_steps: Emulator step limit (truncation). None: GameBoyWorlds' default
+            (gameboy_max_steps, 10000). The benchmark harness passes 175.
+        :param wait_ticks: Emulator ticks per low-level action. None: GameBoyWorlds' default
+            (gameboy_wait_ticks, 8). GameBoyRL's benchmark harness forces 20
+            (benchmark_scripts/common.py run_episode): pass 20 for evaluation.
         :param benchmark_row: Set by from_benchmark.
         """
         self._parameters = load_parameters(parameters)
         emulator_kwargs = {"headless": True, "save_video": save_video, "session_name": session_name}
         if max_steps is not None:
             emulator_kwargs["max_steps"] = max_steps
+        if wait_ticks is not None:
+            emulator_kwargs["wait_ticks"] = wait_ticks
         if mode == "test":
             if benchmark_row is None:
                 log_error("mode='test' needs a benchmark task; use GameBoyPlayEnv.from_benchmark(...)",
@@ -130,11 +137,14 @@ class GameBoyPlayEnv(TextActionEnv):
         self.init_state = init_state
         self.scene_id = scene_hash(parts=("gameboy", game, init_state, mode,
                                           benchmark_row["task"] if benchmark_row is not None else None))
-        raw_obs, raw_info = self._env.reset()
+        # GameBoyWorlds' Environment.__init__ has already reset to the scene start; resetting
+        # again here would only add to the tracker's step count (info["core"]["steps"]).
+        raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         frame = self._frame(raw_obs=raw_obs)
         super().__init__(mode=mode, frame_shape=frame.shape, text_keys=TEXT_KEYS, parameters=self._parameters)
         self._last = (frame, raw_info)
         self._steps = 0
+        self._fresh = True       # the emulator is at the scene start, untouched since its last reset
         log_info(f"GameBoyPlayEnv ready: {game} @ {init_state} (mode {mode})", parameters=self._parameters)
 
     @classmethod
@@ -147,6 +157,9 @@ class GameBoyPlayEnv(TextActionEnv):
         mode: str = "test",
         controller_variant: str = "low_level",
         max_steps: Optional[int] = None,
+        wait_ticks: Optional[int] = None,
+        save_video: bool = False,
+        session_name: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> "GameBoyPlayEnv":
         """Build the env for a GameBoyWorlds benchmark task, chosen by row index or by its
@@ -164,11 +177,11 @@ class GameBoyPlayEnv(TextActionEnv):
         else:
             log_error("Pass task_index or task", parameters=parameters)
         row = dict(row)
+        common = dict(controller_variant=controller_variant, max_steps=max_steps, wait_ticks=wait_ticks,
+                      save_video=save_video, session_name=session_name, parameters=parameters)
         if mode == "test":
-            return cls(game=game, mode="test", controller_variant=controller_variant, max_steps=max_steps,
-                       benchmark_row=row, parameters=parameters)
-        return cls(game=game, init_state=row["init_state"], mode=mode, controller_variant=controller_variant,
-                   max_steps=max_steps, parameters=parameters)
+            return cls(game=game, mode="test", benchmark_row=row, **common)
+        return cls(game=game, init_state=row["init_state"], mode=mode, **common)
 
     # ---------------------------------------------------------------- helpers
 
@@ -219,7 +232,13 @@ class GameBoyPlayEnv(TextActionEnv):
     # ---------------------------------------------------------------- gym API
 
     def _reset_impl(self):
-        raw_obs, raw_info = self._env.reset()
+        # A reset of an untouched emulator is skipped: the state is identical, and GameBoyRL's
+        # benchmark resets exactly once per task, which keeps info["core"]["steps"] equal to its.
+        if self._fresh:
+            raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
+        else:
+            raw_obs, raw_info = self._env.reset()
+        self._fresh = True
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
         self._steps = 0
@@ -236,6 +255,8 @@ class GameBoyPlayEnv(TextActionEnv):
                                   scene_id=self.scene_id)
             return self._obs(frame=frame), 0.0, False, False, info
         parsed = canonical_action(action_class=action_class, kwargs=kwargs)
+        self._fresh = False
+        core_frame_before = self._env.get_info()["core"]["current_frame"]
         raw_obs, _reward, terminated, truncated, raw_info = self._env.step_high_level_action(action_class, **kwargs)
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
@@ -255,6 +276,11 @@ class GameBoyPlayEnv(TextActionEnv):
                               frame_changed=bool(core.get("frame_changed", True)),
                               action_success=action_success,
                               low_level=issubclass(action_class, LowLevelAction),
+                              # What GameBoyRL's executor records per step (EnvironmentStepRecord).
+                              action_class=action_class, action_kwargs=dict(kwargs),
+                              transition_states=(core["previous_action_details"][2]
+                                                 if "previous_action_details" in core else []),
+                              core_frame_before=core_frame_before, core_frame_after=core.get("current_frame"),
                               **self._extra(raw_info=raw_info))
         return self._obs(frame=frame), reward, bool(terminated), bool(truncated), info
 
@@ -269,6 +295,7 @@ class GameBoyPlayEnv(TextActionEnv):
         self._env.save_custom_state(state_id)
 
     def _load_state_impl(self, *, state_id: str) -> dict:
+        self._fresh = False
         scene_init_state = self._env._emulator.init_state
         try:
             self._env.load_custom_state(state_id)

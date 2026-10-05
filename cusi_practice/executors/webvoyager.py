@@ -5,7 +5,8 @@ SYSTEM_PROMPT, the task message, format_msg for each observation (set-of-mark sc
 the web element list), the failure message as a plain user turn after a failed action,
 clip_message_and_obs keeping the last 3 screenshots (run.sh's --max_attached_imgs), and
 run.py's format check ("Thought:" and "Action:" both required). ANSWER ends the leg with the
-answer kept for the judge.
+answer kept for the judge (cusi_eval sends it through env.step, so the test-mode env terminates).
+`messages_for_log()` gives the chat as run.py's print_message writes interact_messages.json.
 
 Images live in the neutral chat as {"type": "image", "image": i} parts: format_msg is called
 with a placeholder base64 string, and its image part is swapped for an index.
@@ -48,6 +49,9 @@ class WebVoyagerExecutor(Executor):
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
         self._messages: list = []
         self._images: list = []
+        #: (iteration, set-of-mark frame) of every observation sent, as run.py saves
+        #: screenshot{it}.png (read by cusi_eval.web to write the native artefacts).
+        self.screenshots: list = []
         self._it = 0
         self._fail_obs = ""
         self._pdf_obs = ""
@@ -56,6 +60,7 @@ class WebVoyagerExecutor(Executor):
     def reset_memory(self) -> None:
         self._messages = [{"role": "system", "content": self._wv.SYSTEM_PROMPT}]
         self._images = []
+        self.screenshots = []
         self._it = 0
         self._fail_obs = self._pdf_obs = self._warn_obs = ""
 
@@ -66,6 +71,7 @@ class WebVoyagerExecutor(Executor):
         for part in msg["content"]:
             if part["type"] == "image_url":
                 self._images.append(obs["frame"])
+                self.screenshots.append((self._it, obs["frame"]))
                 parts.append({"type": "image", "image": len(self._images) - 1})
             else:
                 parts.append(dict(part))
@@ -108,7 +114,8 @@ class WebVoyagerExecutor(Executor):
         chosen_action = re.split(_PATTERN, response)[2].strip()
         action_key, parsed = self._wv.extract_information(chosen_action)
         if action_key == "answer":
-            return Decision(finish=True, answer=parsed["content"])
+            # action_text: what env.step parses if the caller sends the finish through the env.
+            return Decision(finish=True, answer=parsed["content"], action_text=f"Action: {chosen_action}")
         if action_key is None:
             # run.py: exec_action raises NotImplementedError -> the generic failure message.
             self._fail_obs = MSG_EXEC_FAILED
@@ -133,3 +140,16 @@ class WebVoyagerExecutor(Executor):
             return info["pdf"]
         return ("You downloaded a PDF file, I ask the Assistant API to answer the task based on the PDF file and get"
                 " the following response: " + answer)
+
+    def messages_for_log(self) -> list:
+        """The (clipped) chat in run.py's interact_messages.json format: OpenAI-style parts, every
+        image replaced by run.py's placeholder URL."""
+        out = []
+        for msg in self._messages:
+            if isinstance(msg["content"], str):
+                out.append({"role": msg["role"], "content": msg["content"]})
+                continue
+            out.append({"role": msg["role"], "content": [
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{b64_img}"}}
+                if p["type"] == "image" else {"type": "text", "text": p["text"]} for p in msg["content"]]})
+        return out

@@ -197,6 +197,8 @@ class AndroidPlayEnv(TextActionEnv):
         call_timeout: Optional[float] = 600.0,
         probe_success: bool = False,
         start_app: Optional[str] = None,
+        connection: Optional[interface.AsyncEnv] = None,
+        stabilize_after_action: bool = True,
         parameters: dict[str, Any] = None,
     ) -> None:
         """
@@ -215,6 +217,13 @@ class AndroidPlayEnv(TextActionEnv):
         :param start_app: Open this app (M3A's open_app action) as the last step of building
             the scene, so the initial state is that app's screen rather than the home
             screen most tasks start on. Part of the scene: reset() returns to it.
+        :param connection: An open AndroidWorld connection (load_and_setup_env) to reuse, as
+            the evaluation harness keeps one for the whole suite; default: open a new one.
+            close(close_connection=False) leaves it open for the next env.
+        :param stabilize_after_action: Wait for the screen to stabilize before the
+            observation after an action. False matches M3A, which looks right after its
+            2 s pause (for the step summary) and observes again, stabilized, at the start of
+            the next step (call observe() for that; cusi_eval does).
         """
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
@@ -236,13 +245,14 @@ class AndroidPlayEnv(TextActionEnv):
         self.call_timeout = call_timeout
         self.probe_success = probe_success
         self.start_app = start_app
+        self.stabilize_after_action = stabilize_after_action
         if start_app:
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
         self._states: dict[str, datetime.datetime] = {}   # saved state_id -> device clock at save
         self.recoveries = 0
 
-        self._env = self._guarded(fn=self._connect)
+        self._env = connection if connection is not None else self._guarded(fn=self._connect)
         env = self._env
         self._task, self._snapshot_clock, raw = self._guarded(fn=lambda: self._build_scene(env))
         super().__init__(mode=mode, frame_shape=raw[0].shape, text_keys=TEXT_KEYS,
@@ -376,10 +386,10 @@ class AndroidPlayEnv(TextActionEnv):
 
     # ------------------------------------------------------------ observation
 
-    def _observe_raw(self, env: interface.AsyncEnv):
+    def _observe_raw(self, env: interface.AsyncEnv, stabilize: bool = True):
         """(frame, (ui_elements_text, ui_count), raw_pixels): M3A's view of the current
         screen; raw_pixels is the screenshot without set-of-mark labels."""
-        state = env.get_state(wait_to_stabilize=True)
+        state = env.get_state(wait_to_stabilize=stabilize)
         size = env.logical_screen_size
         raw_pixels = state.pixels.copy().astype(np.uint8)
         frame = state.pixels.copy()
@@ -396,6 +406,18 @@ class AndroidPlayEnv(TextActionEnv):
         goal = self._task.goal if self.mode == "test" else ""
         return {"frame": frame, "texts": {"ui_elements": ui_elements},
                 "actions": self.actions_text, "goal": goal}
+
+    def observe(self) -> tuple:
+        """Observe the current screen again (stabilized) without acting, as M3A does at the
+        start of every step. Updates current_obs and the element count used by index checks.
+        Returns (obs, info)."""
+        env = self._env
+        raw = self._guarded(fn=lambda: self._observe_raw(env))
+        self._ui_count = raw[1][1]
+        obs = self._obs(raw=raw)
+        self.current_obs = obs
+        return obs, self.make_info(valid=True, error=None, parsed_action=None, step=self._steps,
+                                   scene_id=self.scene_id, raw_frame=raw[2])
 
     # ---------------------------------------------------------------- gym API
 
@@ -431,7 +453,8 @@ class AndroidPlayEnv(TextActionEnv):
             except Exception:
                 ja, error = None, MSG_PARSE_FAILED
         if ja is not None and ja.action_type in _INDEXED_ACTIONS and ja.index is not None:
-            if not 0 <= int(ja.index) < self._ui_count:
+            # As M3A: only too-large indices are rejected (a negative one indexes from the end).
+            if int(ja.index) >= self._ui_count:
                 ja, error = None, MSG_OUT_OF_RANGE
         if ja is not None and ja.action_type == json_action.STATUS and self.mode == "free_play":
             ja, error = None, MSG_NO_STATUS
@@ -449,7 +472,7 @@ class AndroidPlayEnv(TextActionEnv):
             else:
                 if ja is not None:
                     error = self._guarded(fn=lambda: self._execute(env, ja))
-                raw = self._guarded(fn=lambda: self._observe_raw(env))
+                raw = self._guarded(fn=lambda: self._observe_raw(env, stabilize=self.stabilize_after_action))
         except EnvStalled as e:
             # The device was restarted and the scene rebuilt, so this episode cannot
             # continue: truncate it.
@@ -534,7 +557,7 @@ class AndroidPlayEnv(TextActionEnv):
             log_error(f"Could not delete Android state {state_id}: {out!r}", parameters=self._parameters)
         del self._states[state_id]
 
-    def close(self) -> None:
+    def close(self, *, close_connection: bool = True) -> None:
         try:
             for state_id in list(self._states):
                 self._adb("emu", "avd", "snapshot", "delete", self._state_snapshot_name(state_id), timeout=120)
@@ -542,7 +565,8 @@ class AndroidPlayEnv(TextActionEnv):
             self._saved_state_ids.clear()
             if self.reset_mode == "snapshot":
                 self._adb("emu", "avd", "snapshot", "delete", self._snapshot_name, timeout=120)
-            self._env.close()
+            if close_connection:
+                self._env.close()
         except Exception as e:
             log_warn(f"AndroidPlayEnv.close: {e}", parameters=self._parameters)
 

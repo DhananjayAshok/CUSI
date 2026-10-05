@@ -92,9 +92,22 @@ For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
 |---|---|---|---|
 | 0. Shared vLLM | `setup/vllm_scripts/` (installed into `shared_vllm_dir` by `setup/move_vllm_scripts.sh`) | `bash scripts/serve_vllm.sh` / `scripts/stop_vllm.sh` | `slurm/vllm_smoke.sh` |
 | 1. Practice pipeline | `cusi_practice/` (native executors: GameBoyRL, M3A, WebVoyager) | `python run_practice.py --env {gameboy,android,web} [--source curiosity] {propose,attempt,guidance,practice,clean,dataset,all}` | `slurm/practice_small.sh`, `slurm/curiosity_practice.sh` |
-| 2. Curiosity + world model | `cusi_explore/` (SigLIP 2 encoder, Qwen3-VL-2B LoRA PPO policy, novelty buffers, replay, world model, decoder) | `python run_explore.py --env X {ppo,tasks,world_model,decoder,wm_eval,elements}` | `slurm/explore.sh` |
+| 2. Curiosity + world model | `cusi_explore/` (VLM LoRA PPO policy, e.g. Qwen3.5-0.8B; curiosity modules on `cusi_state`; replay, world model, decoder, embedder training) | `python run_explore.py --env X {ppo,tasks,world_model,decoder,wm_eval,elements,train_embedder}`, `python debug_curiosity.py {random,human}` | `slurm/explore.sh`, `slurm/debug_curiosity.sh` |
+| Shared state module | `cusi_state/` (image / text embedders, novelty archive with cells, novelty scorers; inference only) | used by `run_explore.py` and `run_preexplore_toy.py` | — |
+| Pre-exploration search | `cusi_search/` (tree, energy-sampling selection, random / VLM expanders, VLM prior; throwaway pieces in `cusi_search/toy/`) | `python run_preexplore_toy.py ...` | `slurm/preexplore_toy.sh` |
+| Evaluation | `cusi_eval/` (test sets through `cusi_envs` in test mode, shown equivalent to the native harnesses: `eval_plan.md`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ...` | `slurm/eval_parity_{gameboy,android,web}.sh`; `slurm/eval.sh` planned (`agents.md`) |
 
-Outputs go to `storage_dir/practice/<env>/<model>/` and `storage_dir/explore/<env>/`. Design
+Outputs go to `storage_dir/practice/<env>/<model>/`, `storage_dir/explore/<env>/`,
+`storage_dir/preexplore_toy/<env>/` and `storage_dir/eval/<env>/<run>/`.
+
+Plans and results:
+- `curiosity_plan.md`, `skill_discovery.md`: curiosity PPO and pre-exploration search.
+- `eval_plan.md`: evaluation through our envs vs the native harnesses (done; parity results inside).
+- `agents.md`: GameBoyRL's supervisors on all three envs, episode artifacts for debug panels,
+  and the supervisor ablation (planned).
+- `results.md`: results of the supervisor ablation (all envs × gemma-4 26B / 31B ×
+  baseline / revision / subgoal): success per config, the best supervisor, and run times.
+  Written when the ablation runs. Design
 decisions are in `decisions.md`. Tests: `tests/practice_gameboy_prompt_test.py` (GameBoy prompts
 identical to GameBoyRL's), `tests/practice_strip_test.py`, `tests/practice_pipeline_mock_test.py`
 (all six stages with a scripted model), `tests/vllm_smoke.py`.

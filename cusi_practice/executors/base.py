@@ -7,8 +7,11 @@ per benchmark (prompt building, how many calls a step takes, memory, how the age
 is finished) lives in the subclass, which reuses each benchmark's own prompt code.
 
 A leg starts from whatever state the environment is in (the caller resets and perturbs
-it), so run() takes the current observation. The agent's own "done" only ends the leg;
-the judge decides success.
+it), so run() takes the current observation. In practice the agent's own "done" only ends
+the leg and the judge decides success. For evaluation (cusi_eval), run() can instead send the
+finishing action through env.step (finish_through_env), so the env's test mode scores it,
+drop the consecutive-invalid limit (max_consecutive_invalid=None: native M3A and WebVoyager
+have none) and end the leg on a model error (stop_on_model_error, as WebVoyager's run.py).
 
 Hint/guidance blocks are wrapped in markers that strip_hint_blocks() removes, giving
 exactly the prompt the evaluation agent sees (checked per executor in tests).
@@ -152,8 +155,11 @@ class Executor(ABC):
     # ------------------------------------------------------------ the loop
 
     def run(self, *, task: str, hint: Optional[str], max_steps: int, obs: dict, info: dict,
-            allow_done_check: bool = False, env_name: str = "") -> LegReport:
+            allow_done_check: bool = False, env_name: str = "",
+            max_consecutive_invalid: Optional[int] = MAX_CONSECUTIVE_INVALID, finish_through_env: bool = False,
+            stop_on_model_error: bool = False) -> LegReport:
         """Play one leg from the current state. Returns the LegReport."""
+        limit = max_consecutive_invalid if max_consecutive_invalid is not None else float("inf")
         self.task = task
         self.report = LegReport(env_name=env_name, task=task, hint=hint, max_steps=max_steps,
                                 initial_frame=EncodedImage.of(self.judge_frame(obs=obs, info=info)))
@@ -163,13 +169,33 @@ class Executor(ABC):
         n_steps = 0
         consecutive_invalid = 0
         while n_steps < max_steps:
-            decision = self.decide(obs=obs, info=info, error=error, hint=hint)
+            try:
+                decision = self.decide(obs=obs, info=info, error=error, hint=hint)
+            except Exception as e:
+                if not stop_on_model_error:
+                    raise
+                self.report.termination_reason, self.report.error = "model_error", f"{type(e).__name__}: {e}"[:500]
+                return self.report
             deciding_call = self._current_call
             deciding_call.decision = ("finish" if decision.finish else
                                       "invalid" if decision.invalid is not None else "step")
             if decision.finish:
                 self.report.answer = decision.answer
                 self.report.termination_reason = "agent_done"
+                if finish_through_env:
+                    # The raw reply carries the finishing action (M3A status, WebVoyager ANSWER).
+                    text = decision.action_text or deciding_call.response
+                    frame_before = EncodedImage.of(self.judge_frame(obs=obs, info=info))
+                    obs_after, reward, terminated, truncated, info_after = self.env.step(text)
+                    self.report.final_reward = float(reward)
+                    self._record(StepRecord(frame_before=frame_before,
+                                            frame_after=EncodedImage.of(self.judge_frame(obs=obs_after,
+                                                                                         info=info_after)),
+                                            action_text=text, parsed_action=info_after.get("parsed_action"),
+                                            valid=bool(info_after["valid"]), error=info_after.get("error"),
+                                            reward=float(reward), extra={}))
+                    if terminated:
+                        self.report.termination_reason = "terminated"
                 return self.report
             if decision.invalid is not None:
                 self._record(InvalidRecord(response=self._current_call.response if self._current_call else "",
@@ -178,7 +204,7 @@ class Executor(ABC):
                 error = decision.error
                 n_steps += 1
                 consecutive_invalid += 1
-                if consecutive_invalid >= MAX_CONSECUTIVE_INVALID:
+                if consecutive_invalid >= limit:
                     self.report.termination_reason = "max_invalid"
                     return self.report
                 continue
@@ -194,7 +220,7 @@ class Executor(ABC):
                     self.after_invalid(decision=converted, obs=obs, info=info)
                     error = converted.error
                     consecutive_invalid += 1
-                    if consecutive_invalid >= MAX_CONSECUTIVE_INVALID:
+                    if consecutive_invalid >= limit:
                         self.report.termination_reason = "max_invalid"
                         return self.report
                     obs, info = obs_after, info_after
@@ -208,13 +234,20 @@ class Executor(ABC):
                               valid=bool(info_after["valid"]), error=info_after.get("error"),
                               reward=float(reward), extra=extra)
             self._record(step)
+            self.report.final_reward = float(reward)
             if step.valid:
                 consecutive_invalid, error = 0, None
             else:
                 consecutive_invalid += 1
                 error = step.error
-            self.after_step(decision=decision, obs_before=obs, info_before=info, obs_after=obs_after,
-                            info_after=info_after, step=step)
+            try:
+                self.after_step(decision=decision, obs_before=obs, info_before=info, obs_after=obs_after,
+                                info_after=info_after, step=step)
+            except Exception as e:
+                if not stop_on_model_error:
+                    raise
+                self.report.termination_reason, self.report.error = "model_error", f"{type(e).__name__}: {e}"[:500]
+                return self.report
             obs, info = obs_after, info_after
             if terminated or truncated:
                 self.report.termination_reason = "terminated" if terminated else "truncated"
@@ -222,7 +255,7 @@ class Executor(ABC):
                     log_warn(f"Environment recovered mid-leg ({info_after['env_recovered']}); leg truncated.",
                              parameters=self._parameters)
                 return self.report
-            if consecutive_invalid >= MAX_CONSECUTIVE_INVALID:
+            if consecutive_invalid >= limit:
                 self.report.termination_reason = "max_invalid"
                 return self.report
             if allow_done_check and step.valid and self.done_check(step=step, hint=hint):

@@ -152,6 +152,10 @@ class LegReport:
     termination_reason: Optional[str] = None
     answer: Optional[str] = None
     initial_frame: Optional[EncodedImage] = None
+    #: The env's reward on the last env step (test mode: the benchmark's success signal).
+    final_reward: Optional[float] = None
+    #: Set when the leg ended on a model error (Executor.run(stop_on_model_error=True)).
+    error: Optional[str] = None
 
     @property
     def steps(self) -> list:
