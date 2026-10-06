@@ -1,17 +1,5 @@
-"""WebVoyager's agent inside the shared skeleton.
-
-One chat for the whole leg, built exactly as WebVoyager/run.py's run_single_task builds it:
-SYSTEM_PROMPT, the task message, format_msg for each observation (set-of-mark screenshot +
-the web element list), the failure message as a plain user turn after a failed action,
-clip_message_and_obs keeping the last 3 screenshots (run.sh's --max_attached_imgs), and
-run.py's format check ("Thought:" and "Action:" both required). ANSWER ends the leg with the
-answer kept for the judge (cusi.eval sends it through env.step, so the test-mode env terminates).
-`messages_for_log()` gives the chat as run.py's print_message writes interact_messages.json.
-
-Images live in the neutral chat as {"type": "image", "image": i} parts: format_msg is called
-with a placeholder base64 string, and its image part is swapped for an index.
-
-Guidance is a marked block in the first user message, after the task sentence.
+"""
+WebVoyager's agent inside the shared skeleton: one chat per leg, built as WebVoyager's run.py builds it.
 """
 import os
 import re
@@ -21,7 +9,7 @@ from cusi.envs.webvoyager import load_webvoyager
 from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
 
 MAX_ATTACHED_IMGS = 3     # WebVoyager/run.sh --max_attached_imgs
-_PLACEHOLDER = "__CUSI_IMAGE__"
+_PLACEHOLDER = "__CUSI_IMAGE__"   # passed to format_msg, whose image part is then swapped for an index
 _PATTERN = r"Thought:|Action:|Observation:"
 # run.py's messages, verbatim.
 MSG_FORMAT = "Format ERROR: Both 'Thought' and 'Action' should be included in your reply."
@@ -49,8 +37,7 @@ class WebVoyagerExecutor(Executor):
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
         self._messages: list = []
         self._images: list = []
-        #: (iteration, set-of-mark frame) of every observation sent, as run.py saves
-        #: screenshot{it}.png (read by cusi.eval.web to write the native artefacts).
+        #: (iteration, set-of-mark frame) of every observation sent.
         self.screenshots: list = []
         self._it = 0
         self._fail_obs = ""
@@ -66,8 +53,7 @@ class WebVoyagerExecutor(Executor):
         self._fail_obs = self._pdf_obs = self._warn_obs = ""
 
     def history(self) -> dict:
-        """WebVoyager's memory: the whole chat after the system prompt, with its images. The next
-        leg continues it with its own first message (task, hint and current screenshot)."""
+        """The whole chat after the system prompt, with its images."""
         return {"messages": [dict(m) for m in self._messages[1:]], "images": list(self._images)}
 
     def restore_history(self, history: dict) -> None:
@@ -125,10 +111,9 @@ class WebVoyagerExecutor(Executor):
         chosen_action = re.split(_PATTERN, response)[2].strip()
         action_key, parsed = self._wv.extract_information(chosen_action)
         if action_key == "answer":
-            # action_text: what env.step parses if the caller sends the finish through the env.
             return Decision(finish=True, answer=parsed["content"], action_text=f"Action: {chosen_action}")
         if action_key is None:
-            # run.py: exec_action raises NotImplementedError -> the generic failure message.
+            # run.py gives the generic failure message for an unknown action.
             self._fail_obs = MSG_EXEC_FAILED
             return Decision(invalid="unknown action", error=MSG_EXEC_FAILED)
         return Decision(action_text=f"Action: {chosen_action}")
@@ -153,10 +138,7 @@ class WebVoyagerExecutor(Executor):
                 " the following response: " + answer)
 
     def messages_for_log(self, *, own_leg_only: bool = True) -> list:
-        """The (clipped) chat in run.py's interact_messages.json format: OpenAI-style parts, every
-        image replaced by run.py's placeholder URL. own_leg_only: the system prompt and this leg's
-        own messages (what auto_eval reads: its first user message holds the real task), without
-        the chat carried over from earlier legs."""
+        """The chat in run.py's interact_messages.json format; own_leg_only drops chat carried over from earlier legs."""
         out = []
         messages = self._messages
         if own_leg_only and self._n_previous:
@@ -171,6 +153,5 @@ class WebVoyagerExecutor(Executor):
         return out
 
     def _own_messages(self) -> list:
-        """This leg's messages: those after the carried-over chat. clip_message_and_obs rewrites
-        messages in place (image parts become text) but never drops one, so the count holds."""
+        """This leg's messages; valid because clip_message_and_obs rewrites messages but never drops one."""
         return self._messages[1 + self._n_previous:]

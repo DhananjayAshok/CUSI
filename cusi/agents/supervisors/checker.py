@@ -1,9 +1,5 @@
-"""Windowed trajectory summaries (GameBoyRL execution/supervisors/checker.py: window_trajectory,
-summarise_trajectory_segments). The checker arm itself (AttemptCheckerSupervisor) is a
-data-generation tool in GameBoyRL, not a benchmark arm, and is not ported.
-
-Frames are each env step's frame_after (GameBoy: the screen; Android / Web: the unlabelled
-screenshot); action lines are the steps' action labels.
+"""
+Windowed trajectory summaries for the supervisor's judge.
 """
 from typing import Any, Callable
 from cusi.agents.supervisors._format import step_name
@@ -11,8 +7,7 @@ from cusi.agents.supervisors._format import step_name
 
 def window_trajectory(env_steps: list, slice_prompt: str, *, game: str, call: Callable[..., Any],
                       max_new_tokens: int, domain, task: str = "", slice_size: int = 8) -> list:
-    """Cut a trajectory into fixed-size windows and describe each, all in one batched call.
-    Returns [((start, end), raw_output), ...]."""
+    """[((start, end), raw_output), ...]: each fixed-size window described, in one batched call."""
     frames = [s.frame_after for s in env_steps]
     if not frames:
         return []
@@ -45,7 +40,7 @@ def window_trajectory(env_steps: list, slice_prompt: str, *, game: str, call: Ca
 def summarise_trajectory_segments(env_steps: list, slice_prompt: str, game: str, task: str,
                                   call: Callable[..., Any], max_new_tokens: int, domain,
                                   max_frames_per_slice: int = 8) -> list:
-    """One "Steps a-b: ..." summary per window (the "Segment summary:" line, else the reply)."""
+    """One "Steps a-b: ..." summary per window."""
     windows = window_trajectory(env_steps, slice_prompt, game=game, task=task, call=call,
                                 max_new_tokens=max_new_tokens, domain=domain, slice_size=max_frames_per_slice)
 

@@ -1,13 +1,5 @@
-"""Stage 2: attempt each proposed task (GameBoyRL attempt_tasks).
-
-Per (scene, task): reset, run the native executor, judge the leg; on failure derive a
-critique hint from the failed leg and retry, up to max_attempts tries. GameBoy keeps its
-post-step completion check (allow_self_termination, as GameBoyRL's attempts run); M3A and
-WebVoyager end a leg on their own finishing action.
-
-Output in attempts/: results.csv (one row per task), legs.pkl ({group: LegReport of the final
-try}), success.json ({group: {task, scene}} for the successes). checkpoint.json/.pkl make a
-rerun resume.
+"""
+Stage 2: attempt each proposed task, judged, retrying with a critique hint on failure.
 """
 import json
 import os
@@ -15,7 +7,8 @@ import pickle
 import pandas as pd
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.practice.judging import derive_critique_hint, judge_leg
-from cusi.practice.stages.common import PracticePaths, atomic_json, atomic_pickle, load_json, run_jobs
+from cusi.practice.stages.common import atomic_json, atomic_pickle, load_json, run_jobs
+from cusi.utils.paths import PracticePaths
 
 
 def attempt(*, spec, pool, vlm, paths: PracticePaths, max_attempts: int, lookback: int, judge_max_new_tokens: int,

@@ -1,9 +1,5 @@
-"""Decompose the task into a plan, then drive the plan one step at a time (GameBoyRL
-execution/supervisors/subgoal.py).
-
-SubgoalSupervisor is RevisingSupervisor whose targets are plan steps. The extra targets bring the
-judge (an intermediate step has no env signal; the last step reverts to the task and is never
-judged), the regression check (a step can undo one already cleared) and plan-flaw replanning.
+"""
+Decompose the task into a plan, then drive the plan one step at a time.
 """
 from typing import List, Optional
 from cusi.utils.log_handling import log_warn
@@ -12,7 +8,7 @@ from cusi.agents.supervisors.revising import RevisingSupervisor
 
 
 class SubgoalSupervisor(RevisingSupervisor):
-    """:param max_replans: how many times the plan may be rewritten in one episode."""
+    """The revising supervisor whose targets are plan steps; max_replans is per episode."""
 
     def __init__(self, *, max_replans: int = 2, **kwargs) -> None:
         self.max_replans = max_replans
@@ -57,7 +53,7 @@ class SubgoalSupervisor(RevisingSupervisor):
         self.completed_steps.append({"step": target, "frame": self.current_frame()})
 
     def _check_regression(self, summaries: List[str]) -> Optional[str]:
-        """Whether the failed attempt undid the last completed step (its proving frame vs now)."""
+        """A note if the failed attempt undid the last completed step, else None."""
         if not self.completed_steps:
             return None
         last = self.completed_steps[-1]

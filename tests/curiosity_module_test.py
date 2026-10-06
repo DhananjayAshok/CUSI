@@ -1,11 +1,6 @@
 """
-CPU checks of the curiosity wrappers (curiosity_plan §3.3) on synthetic states:
-
-    python tests/curiosity_module_test.py [--world_model_load_path <a GameBoy random_patch world model>]
-
-first_add (the first two frames after a reset into an empty archive score 0), reset to the prior,
-the invalid-action penalty, reward normalisation, and (optionally) the world_model scorer loading
-a trained model, scoring a rejected action 0 and refusing a different embedder.
+CPU checks of the curiosity modules' rewards, prior, penalty and normalisation on synthetic states.
+    python tests/curiosity_module_test.py [--world_model_load_path <GameBoy random_patch world model>]
 """
 import tempfile
 import click

@@ -1,10 +1,6 @@
 """
-Quick checks of the generalised cusi.state pieces (curiosity_plan §6 step 2) on synthetic data, CPU:
-
+CPU checks of the cusi.state embedders, archive and scorers on synthetic data.
     python tests/cusi_state_unit_test.py
-
-random_patch == GameBoyRL's PatchProjection on GameBoy; canvases for all envs; overlap / tfidf
-similarities; archive cells, copy/restore, save/load; region scorers (text lines, GameBoy OCR).
 """
 import os
 import sys

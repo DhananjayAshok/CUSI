@@ -1,12 +1,5 @@
-"""Environment-agnostic prompts for the shared stages, ported from GameBoyRL.
-
-Sources: vlm_scripts/propose_tasks_zeroshot.py (PROPOSE_PROMPT), execution/supervisors/prompts.py
-(DESCRIBE_*, JUDGE_*, CRITIQUE_*), vlm_scripts/infer_guidance.py (*_GUIDANCE_PROMPT),
-vlm_scripts/clean_practice.py (AUGMENT_PARAPHRASE_PROMPT, CLEAN_PROMPT*).
-
-The wording is GameBoyRL's, with "a game of [GAME]" replaced by [DOMAIN] (filled from a
-per-environment Domain), "player" by [ACTOR], and GameBoy-only examples moved into the Domain.
-For GameBoy the Domain reproduces GameBoyRL's phrasing ("a game of pokemon_red", "player").
+"""
+Environment-agnostic prompts for the practice stages, with [DOMAIN]-style slots filled per environment.
 """
 from dataclasses import dataclass
 
@@ -82,8 +75,7 @@ Tasks:
 ...
 [STOP]"""
 
-# Fills [TEXTS_BLOCK] for environments with a text channel (the element list the native
-# agent also sees). Empty for GameBoy [GB-OCR].
+# Fills [TEXTS_BLOCK] for environments with a text channel; empty for GameBoy.
 PROPOSE_TEXTS_BLOCK = """
 The text elements on this [SCREEN] are:
 [TEXTS]
@@ -133,7 +125,7 @@ The goal condition for this task is: "[GOAL_CONDITION]"
 The goal condition is a strict guide, and only if the [ACTOR] has basically achieved the task with only minor, trivial differences from the goal condition should you consider it a success.
 """
 
-# Fills [ANSWER_NOTE] when the agent ended with an answer (WebVoyager ANSWER, M3A answer).
+# Fills [ANSWER_NOTE] when the agent ended with an answer.
 JUDGE_ANSWER_NOTE = """
 At the end, the [ACTOR] gave this final answer: "[ANSWER]"
 If the task asks for information, judge whether this answer is correct and supported by what was seen.

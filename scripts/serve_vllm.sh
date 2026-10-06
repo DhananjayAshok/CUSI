@@ -2,23 +2,18 @@
 # Start CUSI's model on the shared vLLM install and return once it is healthy.
 # CUSI's venv stays active: the shared vLLM venv is only activated inside the shared script.
 #
-#   bash scripts/serve_vllm.sh --model <HF id or path> [--served_model_name <name>] [--port <p>] [--tp <n>|none]
-#       [--gpu_memory_utilization <0-1>] [--extra "<more vllm serve args>"]
+#   bash scripts/serve_vllm.sh --model <HF id or path> [--served_model_name <value>] [--port <value>] [--tp <value>]
+#       [--gpu_memory_utilization <value>] [--extra <value>]
 #
-# --served_model_name (what clients pass as --model_name) defaults to --model.
-# Healthy means the server answers on --port and lists that served name.
-# For a second server on the same node, pass another --port here and the same port to the
+# --served_model_name <served_model_name> clients pass as --model_name) defaults to --model.
+# Healthy means the server answers on --port <port> lists that served name.
+# For a second server on the same node, pass another --port <port> and the same port to the
 # client (run_practice.py / run_explore.py --vllm_port), and give each server its own GPUs.
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-ARGS["served_model_name"]="none"
-ARGS["port"]="$vllm_port"
-ARGS["tp"]="none"
-ARGS["max_model_len"]="$vllm_max_model_len"
-ARGS["max_images"]="$vllm_max_images"
-ARGS["gpu_memory_utilization"]="0.90"
-ARGS["extra"]="none"
-REQUIRED_ARGS=("model")
+populate_dict SERVE_VLLM_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array SERVE_VLLM_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 # The scripts in shared_vllm_dir are copies of this repo's setup/vllm_scripts/; warn loudly if stale.
@@ -41,7 +36,7 @@ served_name="${ARGS["served_model_name"]}"
 [[ "$served_name" == "none" ]] && served_name="${ARGS["model"]}"
 tp_args=()
 if [[ "${ARGS["tp"]}" != "none" ]]; then tp_args=(-tp "${ARGS["tp"]}"); fi
-# --extra: further `vllm serve` arguments, word-split (e.g. --extra "--generation-config vllm").
+# --extra: further `vllm serve` arguments, word-split (e.g. --extra <extra>).
 extra_args=()
 if [[ "${ARGS["extra"]}" != "none" ]]; then read -r -a extra_args <<< "${ARGS["extra"]}"; fi
 bash "$shared_vllm_dir/serve_vllm.sh" "${ARGS["model"]}" --served-model-name "$served_name" \

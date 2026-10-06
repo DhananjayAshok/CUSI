@@ -1,11 +1,7 @@
-"""Test-set evaluation through cusi.envs in test mode (plans/eval_plan.md, option 2).
+"""
+Test-set evaluation through cusi.envs in test mode.
 
-    python run_eval.py gameboy --model_name <served name> --run_name dev [--n_tasks N]
-    python run_eval.py android --model_name <served name> --run_name dev [--tasks A,B]
-    python run_eval.py web --model_name <served name> --run_name dev [--tasks Site--0,...]
-
-Outputs: storage_dir/eval/<env>/<run_name>/ (results.jsonl, summary.json, config.json, per-task
-trajectories). Each command's options are in cusi/eval/<env>.py.
+    python run_eval.py <gameboy|android|web> --model_name <served name> --run_name dev
 """
 import click
 from cusi.utils.parameter_handling import load_parameters
@@ -14,8 +10,7 @@ loaded_parameters = load_parameters()
 
 
 class LazyGroup(click.Group):
-    """Commands import their benchmark only when run (GameBoyRL's and WebVoyager's top-level
-    `utils` modules cannot share a process)."""
+    """Imports each benchmark only when run (GameBoyRL's and WebVoyager's `utils` modules clash)."""
     COMMANDS = {"gameboy": "cusi.eval.gameboy", "android": "cusi.eval.android", "web": "cusi.eval.web"}
 
     def list_commands(self, ctx):

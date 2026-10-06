@@ -17,10 +17,7 @@ import uuid
 
 MIN_QUERIES_PER_MINUTE = 1
 
-# Retries for a timed-out call to a hosted API. A timeout means the provider stopped
-# answering, not that we asked too fast, so the rate-limit-derived backoff below is far too
-# short to outlast it: a 200 queries/minute model waits 0.3s between tries. Local vLLM is
-# excluded, since a hung server there will not heal on its own.
+# Hosted-API timeouts need a much longer backoff than the rate-limit one; local vLLM is excluded (a hung server won't heal).
 TIMEOUT_MAX_TRIES = 20
 TIMEOUT_BACKOFF_FLOOR = 60.0
 TIMEOUT_BACKOFF_CAP = 600.0
@@ -31,17 +28,12 @@ def _is_timeout(error: Exception) -> bool:
 
 
 def _retry_backoff(attempt: int, seconds_to_wait: float, timeout_retry: bool) -> float:
-    """Seconds to wait before the retry following ``attempt`` (0-based), with jitter.
-
-    Jitter spreads coroutines that all failed together: a batch of concurrent calls can
-    time out in the same second, and retrying them in lockstep repeats the collision.
-    """
+    """Seconds to wait after 0-based ``attempt``; jittered so concurrent failures don't retry in lockstep."""
     if timeout_retry:
         return min(TIMEOUT_BACKOFF_FLOOR * (2 ** attempt) * random.uniform(1.0, 1.5), TIMEOUT_BACKOFF_CAP)
     return seconds_to_wait * (2 ** attempt) * random.uniform(1.0, 1.5)
 
-# Placeholder per-model rate limits (queries per minute). All currently set to
-# the previous global default of 60; tune per-model as needed.
+# Placeholder per-model rate limits (queries per minute).
 _RATE_LIMITS: dict[str, int] = {
     "gpt-4o-mini": 60,
     "gpt-4o": 60,
@@ -56,22 +48,7 @@ _RATE_LIMITS: dict[str, int] = {
 
 
 def get_max_queries_per_minute(model: str, parameters: dict[str, Any]) -> int:
-    """
-    Look up the per-model rate limit (queries per minute) from ``_RATE_LIMITS``.
-
-    A key matches ``model`` if the key equals ``model``, the key is a substring
-    of ``model``, or ``model`` is a substring of the key. If multiple keys
-    match, the longest (most specific) one wins. Falls back to
-    ``parameters["default_max_queries_per_minute"]`` (logging a warning) if no
-    key matches.
-
-    :param model: The model identifier string.
-    :type model: str
-    :param parameters: Loaded parameters dict.
-    :type parameters: dict[str, Any]
-    :return: The queries-per-minute limit to use for ``model``.
-    :rtype: int
-    """
+    """Queries per minute for ``model`` from a substring match in ``_RATE_LIMITS``, else the config default."""
     matches = [key for key in _RATE_LIMITS if key in model or model in key]
     if not matches:
         log_warn(
@@ -95,18 +72,7 @@ def get_max_queries_per_minute(model: str, parameters: dict[str, Any]) -> int:
 
 
 def _sum_optional(values: list[Optional[int]]) -> Optional[int]:
-    """
-    Sum token counts, propagating unknowns.
-
-    ``None`` means "the backend did not report this count". A single ``None`` makes the
-    whole sum ``None`` rather than a silently partial total. ``0`` is used elsewhere to
-    mean "already counted on a sibling entry" and sums harmlessly.
-
-    :param values: Token counts, any of which may be None.
-    :type values: list[Optional[int]]
-    :return: The total, or None if any value was None.
-    :rtype: Optional[int]
-    """
+    """Sum token counts; any None (unreported) makes the sum None rather than a partial total."""
     total = 0
     for value in values:
         if value is None:
@@ -116,14 +82,7 @@ def _sum_optional(values: list[Optional[int]]) -> Optional[int]:
 
 
 def _collapse_meta(meta: dict[str, list[Optional[int]]]) -> dict[str, Optional[int]]:
-    """
-    Collapse a single-record meta dict (each value a length-1 list) to scalar values.
-
-    :param meta: Meta dict whose values are lists of length 1.
-    :type meta: dict[str, list[Optional[int]]]
-    :return: The same dict with each value replaced by its single element.
-    :rtype: dict[str, Optional[int]]
-    """
+    """Collapse a single-record meta dict (length-1 lists) to scalars."""
     return {key: value[0] for key, value in meta.items()}
 
 
@@ -134,22 +93,7 @@ def _extract_usage(
     output_attr: str,
     parameters: dict[str, Any] = None,
 ) -> tuple[Optional[int], Optional[int]]:
-    """
-    Read the token usage off an API response, tolerating providers that omit it.
-
-    :param response: The raw response object returned by the API client.
-    :type response: Any
-    :param input_attr: Name of the input-token attribute on ``response.usage``
-        (``"prompt_tokens"`` for OpenAI-compatible, ``"input_tokens"`` for Anthropic).
-    :type input_attr: str
-    :param output_attr: Name of the output-token attribute on ``response.usage``.
-    :type output_attr: str
-    :param parameters: Loaded parameters dict, used for logging.
-    :type parameters: dict[str, Any] or None
-    :return: ``(input_tokens, output_tokens)``, either of which is None if the response
-        did not report it.
-    :rtype: tuple[Optional[int], Optional[int]]
-    """
+    """(input_tokens, output_tokens) from ``response.usage``, None for any the provider omitted."""
     usage = getattr(response, "usage", None)
     if usage is None:
         log_warn(
@@ -169,12 +113,7 @@ def _extract_usage(
 
 
 class RateLimitedAPIBase:
-    """
-    Mixin that provides rate-limited API client state and ``wait()`` logic.
-
-    Shared by ``APIModel`` and any future rate-limited API-backed model
-    wrapper to avoid duplicating the init and rate-limiting code.
-    """
+    """Mixin with rate-limit state and ``wait()``."""
 
     def __init__(
         self,
@@ -199,11 +138,7 @@ class RateLimitedAPIBase:
             )
 
     def wait(self) -> None:
-        """
-        Enforce the rate limit by sleeping until enough time has elapsed since the last query.
-
-        Updates ``last_query_time`` after waiting.
-        """
+        """Sleep until the rate limit allows another query."""
         time_to_wait = self.seconds_to_wait - (perf_counter() - self.last_query_time)
         if time_to_wait > 0:
             sleep(time_to_wait)
@@ -211,17 +146,7 @@ class RateLimitedAPIBase:
 
 
 class OpenAICompatibleAPIBase(RateLimitedAPIBase):
-    """
-    Mixin that extends ``RateLimitedAPIBase`` with an OpenAI-compatible async client.
-
-    Stores the ``AsyncOpenAI(base_url=..., api_key=...)`` constructor arguments
-    after the rate-limiting state is set up. The client itself is created fresh
-    by :meth:`_make_async_client` inside each ``asyncio.run()`` call (see
-    ``APIModel._infer_messages_async``/``_do_infer_async``), so its connection
-    pool is never reused across event loops. Shared by all OpenAI-compatible
-    models (``OpenAIAPIModel`` and its subclasses) to avoid repeating client
-    creation in every subclass.
-    """
+    """Rate-limited base whose AsyncOpenAI client is built fresh per ``asyncio.run()``, never reused across loops."""
 
     def __init__(
         self,
@@ -249,9 +174,7 @@ class OpenAICompatibleAPIBase(RateLimitedAPIBase):
 
 
 class InferenceModel(ABC):
-    """
-    Abstract base class for all LM inference that support inference
-    """
+    """Base for every LM/VLM backend; calls return ``{"output": ..., "meta": {input_tokens, output_tokens}}``."""
 
     @abstractmethod
     def do_infer(
@@ -263,57 +186,13 @@ class InferenceModel(ABC):
         stop_strings: list[str] = None,
         num_return_sequences: int = 1,
     ) -> dict[str, Any]:
-        """
-        Run inference on a batch of text prompts with associated images. Assumes validated inputs
-
-        :param texts: List of text prompts, one per sample.
-        :type texts: list[str]
-        :param images: List of image lists, one image list per sample.
-        :type images: list[list[Image.Image]]
-        :param max_new_tokens: Maximum number of tokens to generate per response.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of independent sequences to return per prompt.
-        :type num_return_sequences: int
-        :return: ``{"output": ..., "meta": ...}`` where ``output`` holds the post-processed
-            output strings shaped ``[batch, num_return_sequences]`` and ``meta`` is
-            ``{"input_tokens": [...], "output_tokens": [...]}`` with one entry per record
-            (i.e. lists of length ``batch``), each entry an int or None if the backend did
-            not report the count. See :meth:`_build_meta` for the per-record accounting.
-        :rtype: dict[str, Any]
-        """
+        """Validated batch in; output shaped [batch, num_return_sequences], meta per record ("[STOP]" always a stop)."""
         pass
 
     def _build_meta(
         self, *, usages: list[list[tuple[Optional[int], Optional[int]]]]
     ) -> dict[str, list[Optional[int]]]:
-        """
-        Aggregate per-sequence token counts into the per-record ``meta`` dict.
-
-        ``meta`` is always per *record*: it never gains a ``num_return_sequences``
-        dimension. A record's counts are the sum over its sequences, which means the
-        accounting for ``num_return_sequences > 1`` differs by backend, deliberately —
-        each reflects what that backend actually consumed:
-
-        - ``AnthropicModel``/``OpenRouterModel`` issue one call per sequence, so the
-          prompt genuinely is consumed ``num_return_sequences`` times and is summed.
-        - ``OpenAIAPIModel``/``vLLMModel`` use the API's native ``n``, so the prompt is
-          consumed once; the extra sequences carry ``0`` input tokens.
-        - ``HuggingFaceModel`` encodes the prompt once per record, likewise.
-
-        ``None`` means "not reported by the backend" and propagates: if any sequence of a
-        record has an unknown count, the record's count is None rather than a partial sum.
-
-        :param usages: Per-sequence ``(input_tokens, output_tokens)`` tuples shaped
-            ``[batch, num_return_sequences]``.
-        :type usages: list[list[tuple[Optional[int], Optional[int]]]]
-        :return: ``{"input_tokens": [...], "output_tokens": [...]}``, each a list of
-            length ``batch``.
-        :rtype: dict[str, list[Optional[int]]]
-        """
+        """Sum per-sequence counts per record; the prompt is counted once per call actually made."""
         return {
             "input_tokens": [
                 _sum_optional([usage[0] for usage in record_usages])
@@ -326,14 +205,7 @@ class InferenceModel(ABC):
         }
 
     def get_output_final(self, output_text: str) -> str:
-        """
-        Post-process a single output text by truncating at the ``[STOP]`` token and stripping whitespace.
-
-        :param output_text: Raw output string from the model.
-        :type output_text: str
-        :return: Cleaned output string with content after ``[STOP]`` removed.
-        :rtype: str
-        """
+        """Truncate at ``[STOP]`` and strip."""
         output_text = output_text.split("[STOP]")[0]
         return output_text.strip()
 
@@ -342,17 +214,7 @@ class InferenceModel(ABC):
         texts: Union[str, list[str]],
         images: Union[list[Image.Image], list[list[Image.Image]]] = None,
     ) -> tuple[list[str], list[list[Image.Image]], bool]:
-        """
-        Validates and standardizes the format of ``texts`` and ``images`` inputs as per do_infer's expectations. 
-
-        :param texts: A single text prompt or a list of text prompts.
-        :type texts: str or list[str]
-        :param images: A list of PIL Images (when ``texts`` is a single string) or a list of lists
-            of PIL Images (when ``texts`` is a list). If None, no images are passed.
-        :type images: list[Image.Image] or list[list[Image.Image]] or None
-        :return: A tuple of (standardized_texts, standardized_images, passed_in_str) where standardized_texts is a list of strings and standardized_images is a list of lists of PIL Images both formatted for input to do_infer. passed_in_str is a boolean indicating whether the original input was a single string (True) or a list of strings (False), which can be used to determine the appropriate output format in infer().
-        :rtype: tuple[list[str], list[list[Image.Image]], bool]
-        """
+        """Validate and convert inputs to do_infer's batched form; returns (texts, images, passed_in_str)."""
         passed_in_str = isinstance(texts, str)
         if passed_in_str:
             if texts.strip() == "":
@@ -417,47 +279,7 @@ class InferenceModel(ABC):
         num_return_sequences: int = 1,
         batch_size: int = None
     ) -> dict[str, Any]:
-        """
-        Run inference on a batch of text prompts with associated images.
-
-        Returns ``{"output": ..., "meta": ...}``.
-
-        ``output`` follows the input shape: if a single string is passed, a single string
-        is returned; if a list is passed, a list is returned. When
-        ``num_return_sequences > 1``, each item is itself a list of
-        ``num_return_sequences`` output strings.
-
-        ``meta`` is ``{"input_tokens": ..., "output_tokens": ...}`` with one entry **per
-        record** — a bare int (or None) if a single string was passed, otherwise a list of
-        length ``len(texts)``. ``meta`` never gains a ``num_return_sequences`` dimension;
-        a record's output tokens are summed over its sequences. See :meth:`_build_meta`
-        for how each backend accounts for the prompt when ``num_return_sequences > 1``.
-
-        :param texts: A single text prompt or a list of text prompts.
-        :type texts: str or list[str]
-        :param max_new_tokens: Maximum number of tokens to generate per response.
-        :type max_new_tokens: int
-        :param images: A list of PIL Images (when ``texts`` is a single string) or a list of lists
-            of PIL Images (when ``texts`` is a list). If None, no images are passed.
-        :type images: list[Image.Image] or list[list[Image.Image]] or None
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of independent sequences to return per prompt.
-        :type num_return_sequences: int
-        :param batch_size: Number of samples to process in a single batch. If None, defaults to
-            ``max_batch_size_vllm``, ``max_batch_size_huggingface``, or ``max_batch_size_api`` from
-            project parameters, depending on the concrete model class.
-        :return: ``{"output": ..., "meta": ...}``. ``output`` is a single output string if
-            ``texts`` was a string and ``num_return_sequences == 1``; a list of output
-            strings if ``texts`` was a list and ``num_return_sequences == 1``; a list of
-            ``num_return_sequences`` strings if ``texts`` was a string and
-            ``num_return_sequences > 1``; or a list of such lists otherwise. ``meta`` holds
-            per-record ``input_tokens``/``output_tokens``, scalars if ``texts`` was a string
-            and lists of length ``len(texts)`` otherwise.
-        :rtype: dict[str, Any]
-        """
+        """Output and per-record meta follow the input shape (str -> scalar); sequences add a dimension to output only."""
         texts, images, passed_in_str = self._standardize_format(texts, images)
         parameters = self.parameters if hasattr(self, "parameters") else load_parameters()
         if batch_size is None:
@@ -501,16 +323,7 @@ class InferenceModel(ABC):
         stop_strings: list[str] = None,
         num_return_sequences: int = 1,
     ) -> dict[str, Any]:
-        """
-        Run inference on a pre-formatted chat messages list.
-
-        :return: ``{"output": ..., "meta": ...}``. ``output`` is a single output string if
-            ``num_return_sequences == 1``, else a list of ``num_return_sequences`` output
-            strings. A messages list is a single record, so ``meta``'s
-            ``input_tokens``/``output_tokens`` are scalars (int or None) regardless of
-            ``num_return_sequences``, with output tokens summed over the sequences.
-        :rtype: dict[str, Any]
-        """
+        """Inference on one pre-formatted chat messages list; meta counts are scalars."""
         pass
 
     def partial_temperature(
@@ -523,36 +336,7 @@ class InferenceModel(ABC):
         stop_strings: list[str] = None,
         num_return_sequences: int = 1,
     ) -> dict[str, Any]:
-        """
-        Run inference once at ``temperature``, then deterministically complete the
-        portion of the output following ``switch_phrase``.
-
-        Samples a "thinking" prefix at ``temperature``; if ``switch_phrase`` is found
-        in the output, truncates before it and re-queries (at ``temperature=None``,
-        i.e. deterministic) with the truncated output plus ``switch_phrase`` appended
-        to the prompt, to obtain a deterministic final answer.
-
-        :param texts: A single text prompt or a list of text prompts.
-        :type texts: str or list[str]
-        :param max_new_tokens: Maximum number of tokens to generate per response.
-        :type max_new_tokens: int
-        :param switch_phrase: Phrase marking the boundary between "thinking" and "answer".
-        :type switch_phrase: str
-        :param images: A list of PIL Images, or None.
-        :type images: list[Image.Image] or None
-        :param temperature: Sampling temperature for the first pass. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of independent sequences to return.
-        :type num_return_sequences: int
-        :return: ``{"output": ..., "meta": ...}``. ``output`` is shaped exactly as
-            :meth:`infer`'s, holding the completed output string (or None where
-            ``switch_phrase`` was not found). ``meta`` holds per-record
-            ``input_tokens``/``output_tokens`` summed across **both** passes, scalars if
-            ``texts`` was a string and lists of length ``len(texts)`` otherwise.
-        :rtype: dict[str, Any]
-        """
+        """Sample up to ``switch_phrase`` at ``temperature``, then complete the rest deterministically; meta sums both passes."""
         texts, images, passed_in_str = self._standardize_format(texts, images)
         asked_for_single_sequence = num_return_sequences == 1
         first_result = self.infer(
@@ -566,9 +350,7 @@ class InferenceModel(ABC):
         first_outputs = first_result["output"]
         first_meta = first_result["meta"]
 
-        # texts is always a list by this point, so infer returned one entry per record.
-        # Nest the num_return_sequences == 1 case so the loops below are uniformly
-        # [batch][num_return_sequences].
+        # Nest the single-sequence case so the loops below are uniformly [batch][num_return_sequences].
         first_outputs_list = [[output] for output in first_outputs] if asked_for_single_sequence else first_outputs
         next_batch_text = []
         next_batch_images = []
@@ -646,18 +428,11 @@ class InferenceModel(ABC):
 
 
 class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
-    """
-    Abstract base class for API-backed language and vision-language models.
-
-    Handles rate limiting, image encoding, and output post-processing.
-    Subclasses must implement ``get_image_input_dict``, ``query_client``,
-    and ``get_output_texts``.
-    """
+    """Base for API-backed models: rate limiting, image encoding and output post-processing."""
 
     SUPPORTS_NATIVE_N: bool = False
 
-    # Whether the endpoint is one we run ourselves (vLLM), where a timeout means the server
-    # is hung or dead rather than a provider being briefly unreachable.
+    # True for endpoints we run ourselves (vLLM), where a timeout means the server is hung.
     LOCAL_ENDPOINT: bool = False
 
     def __init__(
@@ -666,16 +441,6 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         max_queries_per_minute: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize the base API model with rate limiting and parameter loading.
-
-        :param model: The model identifier string (e.g. ``"gpt-4o"``).
-        :type model: str
-        :param max_queries_per_minute: Maximum number of queries allowed per minute. Must be at least 1.
-        :type max_queries_per_minute: Optional[int]
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         super().__init__(
             model=model,
             max_queries_per_minute=max_queries_per_minute,
@@ -683,17 +448,7 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         )
 
     def get_encoded_images(self, images: list[Image.Image]) -> list[str]:
-        """Encodes images to base64 strings for OpenAI API input.
-
-        Uses a fresh per-call cache directory (rather than one shared per
-        model instance) so concurrent calls from different threads on the
-        same model instance don't race on each other's cached files.
-
-        :param images: List of images in Pillow Image format.
-        :type images: list[Image.Image]
-        :return: List of base64 encoded image strings.
-        :rtype: list[str]
-        """
+        """Base64 JPEG strings; a fresh per-call cache dir keeps concurrent calls from racing."""
         cache_dir = os.path.join(
             self.parameters["tmp_dir"], "api_image_cache", self.unique_id, str(uuid.uuid4())
         )
@@ -715,95 +470,29 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
 
     @abstractmethod
     def get_image_input_dict(self, image: str) -> dict:
-        """
-        Return the API-specific content dict for a single base64-encoded image.
-
-        :param image: A base64-encoded image string.
-        :type image: str
-        :return: A dictionary formatted for inclusion in the API message content.
-        :rtype: dict
-        """
+        """The API-specific content dict for one base64-encoded image."""
         pass
 
     @abstractmethod
     def _make_async_client(self) -> Any:
-        """
-        Construct a fresh async API client (e.g. ``AsyncOpenAI``/``AsyncAnthropic``).
-
-        Called once per ``asyncio.run()`` invocation (see
-        ``_infer_messages_async``/``_do_infer_async``) so the client's
-        connection pool — and any event-loop-bound primitives it lazily
-        creates — never outlives the loop it was created in.
-
-        :return: A newly constructed async client, usable as an async context manager.
-        :rtype: Any
-        """
+        """A fresh async client per ``asyncio.run()``, so it never outlives its event loop."""
         pass
 
     @abstractmethod
     async def query_client(self, client: Any, messages: list[dict], max_new_tokens: int, temperature: Optional[float] = None, stop_strings: list[str] = None, num_return_sequences: int = 1) -> Any:
-        """
-        Send messages to the API client (asynchronously) and return the raw response.
-
-        :param messages: A list of message dicts formatted for the API.
-        :type messages: list[dict]
-        :param max_new_tokens: Maximum number of tokens to generate.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of sequences to return per prompt, if natively supported.
-        :type num_return_sequences: int
-        :return: Response from API
-        :rtype: Any
-        """
+        """Send messages (with retry/backoff) and return the raw response."""
         pass
 
     @abstractmethod
     def get_output_texts(self, response: Any) -> tuple[list[str], list[tuple[Optional[int], Optional[int]]]]:
-        """
-        Extract raw output text strings and token usage from a single model API response.
-
-        The usage list is parallel to the text list. Where a response reports a single
-        ``usage`` covering several choices (the native-``n`` case), the counts are
-        emitted on the first entry and the remaining entries carry ``0`` — meaning
-        "already counted on a sibling entry", so summing a record's entries yields the
-        correct total. ``None`` means the API did not report the count at all.
-
-        :param response: The raw response object returned by the API client.
-        :type response: Any
-        :return: ``(texts, usages)`` where ``texts`` holds one output string per sequence
-            in the response and ``usages`` holds the matching
-            ``(input_tokens, output_tokens)`` tuples.
-        :rtype: tuple[list[str], list[tuple[Optional[int], Optional[int]]]]
-        """
+        """Raw (texts, usages) per sequence; a shared usage goes on the first entry, 0 on the rest."""
         pass
 
     def get_outputs(self, response: Any) -> tuple[list[str], list[tuple[Optional[int], Optional[int]]]]:
-        """
-        Extract and post-process all output texts from a single API response.
-
-        :param response: The raw response object returned by the API client.
-        :type response: Any
-        :return: ``(texts, usages)`` where ``texts`` holds the cleaned output strings, one
-            per sequence, and ``usages`` holds the matching
-            ``(input_tokens, output_tokens)`` tuples (passed through unchanged).
-        :rtype: tuple[list[str], list[tuple[Optional[int], Optional[int]]]]
-        """
         texts, usages = self.get_output_texts(response)
         return [self.get_output_final(t) for t in texts], usages
 
     def get_output(self, response: Any) -> tuple[str, tuple[Optional[int], Optional[int]]]:
-        """
-        Extract and post-process the first output text from a single API response.
-
-        :param response: The raw response object returned by the API client.
-        :type response: Any
-        :return: ``(text, usage)`` for the first sequence, where ``usage`` is
-            ``(input_tokens, output_tokens)``.
-        :rtype: tuple[str, tuple[Optional[int], Optional[int]]]
-        """
         texts, usages = self.get_outputs(response)
         return texts[0], usages[0]
 
@@ -815,18 +504,6 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         stop_strings: list[str] = None,
         num_return_sequences: int = 1,
     ) -> dict[str, Any]:
-        """
-        Run inference on a pre-formatted chat messages list via the API.
-
-        :return: ``{"output": ..., "meta": ...}``. ``output`` is a single output string if
-            ``num_return_sequences == 1``, else a list of ``num_return_sequences`` output
-            strings. A messages list is a single record, so ``meta``'s
-            ``input_tokens``/``output_tokens`` are scalars (int or None) regardless of
-            ``num_return_sequences``, with output tokens summed over the sequences. When
-            ``SUPPORTS_NATIVE_N`` is False the ``num_return_sequences`` separate calls each
-            consume the prompt, so ``input_tokens`` is their sum; see :meth:`_build_meta`.
-        :rtype: dict[str, Any]
-        """
         if num_return_sequences > 1 and temperature is None:
             log_error(
                 f"num_return_sequences={num_return_sequences} requires temperature to be set "
@@ -847,14 +524,7 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         stop_strings: list[str],
         num_return_sequences: int,
     ) -> tuple[list[str], list[tuple[Optional[int], Optional[int]]]]:
-        """
-        Issue the request(s) for a single chat messages list and return ``num_return_sequences``
-        output strings alongside their matching ``(input_tokens, output_tokens)`` tuples.
-
-        A single ``self.wait()`` paces this call relative to the last request issued;
-        all ``num_return_sequences`` requests (if multiple) are then fired concurrently.
-        Per-request rate-limit errors are handled by ``query_client``'s retry/backoff.
-        """
+        """One wait(), then all sequences' requests fire concurrently."""
         async with self._make_async_client() as client:
             self.wait()
             if self.SUPPORTS_NATIVE_N:
@@ -888,27 +558,6 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         stop_strings: list[str] = None,
         num_return_sequences: int = 1,
     ) -> dict[str, Any]:
-        """
-        Encodes all images to base64, constructs API message dicts, enforces
-        the rate limit, queries the client, and returns post-processed outputs.
-
-        :param texts: List of text prompts, one per sample.
-        :type texts: list[str]
-        :param images: List of image lists, one image list per sample.
-        :type images: list[list[Image.Image]]
-        :param max_new_tokens: Maximum number of tokens to generate per response.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of independent sequences to return per prompt.
-        :type num_return_sequences: int
-        :return: ``{"output": ..., "meta": ...}`` where ``output`` holds the post-processed
-            output strings shaped ``[batch, num_return_sequences]`` and ``meta`` holds
-            per-record ``input_tokens``/``output_tokens`` lists of length ``batch``.
-        :rtype: dict[str, Any]
-        """
         if len(images[0]) != 0:
             all_images = []
             for img_list in images:
@@ -939,15 +588,7 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
         stop_strings: list[str],
         num_return_sequences: int,
     ) -> tuple[list[list[str]], list[list[tuple[Optional[int], Optional[int]]]]]:
-        """
-        Issue one query per input message concurrently and return outputs shaped
-        ``[batch, num_return_sequences]``, alongside per-sequence
-        ``(input_tokens, output_tokens)`` tuples nested identically.
-
-        A single ``self.wait()`` paces the start of this batch relative to the last
-        request issued; all requests within the batch are then fired concurrently.
-        Per-request rate-limit errors are handled by ``query_client``'s retry/backoff.
-        """
+        """One wait() per batch, then every request fires concurrently; outputs [batch, num_return_sequences]."""
         async with self._make_async_client() as client:
             self.wait()
             if self.SUPPORTS_NATIVE_N:
@@ -982,12 +623,7 @@ class APIModel(RateLimitedAPIBase, InferenceModel, ABC):
 
 
 class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
-    """
-    APIModel implementation backed by an OpenAI-compatible client.
-
-    Initializes an ``openai.OpenAI`` client pointed at the given base URL.
-    Suitable as a base for any service that exposes an OpenAI-compatible API.
-    """
+    """An APIModel for any OpenAI-compatible endpoint."""
 
     SUPPORTS_NATIVE_N: bool = True
 
@@ -999,20 +635,6 @@ class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
         max_queries_per_minute: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize the OpenAI-compatible API model.
-
-        :param model: The model identifier string.
-        :type model: str
-        :param base_url: The base URL for the OpenAI-compatible API endpoint.
-        :type base_url: str
-        :param api_key: The API key for authentication. If None, uses environment variables.
-        :type api_key: str or None
-        :param max_queries_per_minute: Maximum number of queries allowed per minute.
-        :type max_queries_per_minute: Optional[int]
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         super().__init__(
             model=model,
             base_url=base_url,
@@ -1022,36 +644,12 @@ class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
         )
 
     def get_image_input_dict(self, image: str) -> dict:
-        """
-        Return the OpenAI-format content dict for a base64-encoded image.
-
-        :param image: A base64-encoded JPEG image string.
-        :type image: str
-        :return: A content dict with ``type`` and ``image_url`` fields.
-        :rtype: dict
-        """
         return {
             "type": "image_url",
             "image_url": {"url": f"data:image/jpeg;base64,{image}"},
         }
 
     async def query_client(self, client: Any, messages: list[dict], max_new_tokens: int, temperature: Optional[float] = None, stop_strings: list[str] = None, num_return_sequences: int = 1) -> Any:
-        """
-        Send a message to the OpenAI chat completions endpoint (asynchronously).
-
-        :param messages: A list containing the formatted user message dict.
-        :type messages: list[dict]
-        :param max_new_tokens: Maximum number of tokens to generate.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop strings. ``"[STOP]"`` is always included.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Number of sequences to return per prompt.
-        :type num_return_sequences: int
-        :return: The raw API response object.
-        :rtype: Any
-        """
         final_stop = list(dict.fromkeys(["[STOP]"] + (stop_strings or [])))
         kwargs = dict(model=self.model, messages=messages, max_tokens=max_new_tokens, stop=final_stop, n=num_return_sequences)
         if temperature is not None:
@@ -1080,19 +678,7 @@ class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
         raise RuntimeError(f"OpenAI API call failed after {max_tries} attempts. Last error: {last_error}") from last_error
 
     def get_output_texts(self, response: Any) -> tuple[list[str], list[tuple[Optional[int], Optional[int]]]]:
-        """
-        Extract output text strings and token usage from an OpenAI API response.
-
-        The API reports a single ``usage`` for the whole call, covering the shared prompt
-        once and the completions of all choices together. It is therefore emitted on the
-        first choice, with ``0`` on the remaining choices (``None`` if the count was not
-        reported at all), so that summing a record's choices gives the correct total.
-
-        :param response: The raw response object from the OpenAI client.
-        :type response: Any
-        :return: ``(texts, usages)``, one entry each per choice.
-        :rtype: tuple[list[str], list[tuple[Optional[int], Optional[int]]]]
-        """
+        """One (text, usage) per choice; the call's single usage goes on choice 0."""
         input_tokens, output_tokens = _extract_usage(
             response,
             input_attr="prompt_tokens",
@@ -1117,8 +703,7 @@ class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
             if choice_index == 0:
                 usages.append((input_tokens, output_tokens))
             else:
-                # Already counted on choice 0; None stays None so a genuinely missing
-                # count is never mistaken for a zero contribution.
+                # Counted on choice 0; None stays None so a missing count is never read as 0.
                 usages.append((
                     None if input_tokens is None else 0,
                     None if output_tokens is None else 0,
@@ -1127,11 +712,7 @@ class OpenAIAPIModel(OpenAICompatibleAPIBase, APIModel):
 
 
 class OpenAIModel(OpenAIAPIModel):
-    """
-    Model using the official OpenAI API endpoint.
-
-    Connects directly to OpenAI without a custom base URL.
-    """
+    """The official OpenAI endpoint; api_key None reads OPENAI_API_KEY."""
 
     def __init__(
         self,
@@ -1140,18 +721,6 @@ class OpenAIModel(OpenAIAPIModel):
         max_queries_per_minute: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize an OpenAI model using the default OpenAI endpoint.
-
-        :param model: The OpenAI model identifier (e.g. ``"gpt-4o"``).
-        :type model: str
-        :param api_key: The OpenAI API key. If None, uses the ``OPENAI_API_KEY`` environment variable.
-        :type api_key: str or None
-        :param max_queries_per_minute: Maximum number of queries allowed per minute.
-        :type max_queries_per_minute: Optional[int]
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         super().__init__(
             model=model,
             base_url=None,
@@ -1162,9 +731,7 @@ class OpenAIModel(OpenAIAPIModel):
 
 
 class AnthropicModel(APIModel):
-    """
-    APIModel implementation backed by the Anthropic Messages API.
-    """
+    """The Anthropic Messages API; api_key None reads ANTHROPIC_API_KEY."""
 
     def __init__(
         self,
@@ -1173,18 +740,6 @@ class AnthropicModel(APIModel):
         max_queries_per_minute: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize the Anthropic model.
-
-        :param model: The Anthropic model identifier (e.g. ``"claude-opus-4-6"``).
-        :type model: str
-        :param api_key: The Anthropic API key. If None, uses the ``ANTHROPIC_API_KEY`` environment variable.
-        :type api_key: str or None
-        :param max_queries_per_minute: Maximum number of queries allowed per minute.
-        :type max_queries_per_minute: Optional[int]
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         super().__init__(
             model=model,
             max_queries_per_minute=max_queries_per_minute,
@@ -1196,14 +751,6 @@ class AnthropicModel(APIModel):
         return AsyncAnthropic(api_key=self._async_client_api_key)
 
     def get_image_input_dict(self, image: str) -> dict:
-        """
-        Return the Anthropic-format content dict for a base64-encoded image.
-
-        :param image: A base64-encoded JPEG image string.
-        :type image: str
-        :return: A content dict with ``type`` and ``source`` fields.
-        :rtype: dict
-        """
         return {
             "type": "image",
             "source": {
@@ -1214,22 +761,7 @@ class AnthropicModel(APIModel):
         }
 
     async def query_client(self, client: Any, messages: list[dict], max_new_tokens: int, temperature: Optional[float] = None, stop_strings: list[str] = None, num_return_sequences: int = 1) -> Any:
-        """
-        Send a message to the Anthropic messages endpoint (asynchronously).
-
-        :param messages: A list containing the formatted user message dict.
-        :type messages: list[dict]
-        :param max_new_tokens: Maximum number of tokens to generate.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. None means model default.
-        :type temperature: Optional[float]
-        :param stop_strings: Additional stop sequences passed through to the API.
-        :type stop_strings: list[str] or None
-        :param num_return_sequences: Unused (Anthropic has no native multi-sample API); kept for signature compatibility.
-        :type num_return_sequences: int
-        :return: The raw API response object.
-        :rtype: Any
-        """
+        """num_return_sequences is unused: Anthropic has no native multi-sample API."""
         kwargs = dict(model=self.model, messages=messages, max_tokens=max_new_tokens)
         if temperature is not None:
             kwargs["temperature"] = temperature
@@ -1259,17 +791,6 @@ class AnthropicModel(APIModel):
         raise RuntimeError(f"Anthropic API call failed after {max_tries} attempts. Last error: {last_error}") from last_error
 
     def get_output_texts(self, response: Any) -> tuple[list[str], list[tuple[Optional[int], Optional[int]]]]:
-        """
-        Extract the output text string and token usage from an Anthropic API response.
-
-        Anthropic has no native multi-sample API, so a response always holds exactly one
-        sequence and its usage is exact for that sequence.
-
-        :param response: The raw response object from the Anthropic client.
-        :type response: Any
-        :return: ``(texts, usages)``, each a single-element list.
-        :rtype: tuple[list[str], list[tuple[Optional[int], Optional[int]]]]
-        """
         text = response.content[0].text
         if text.strip() == "":
             log_warn(f"Received empty output text from model: {response}")
@@ -1283,12 +804,7 @@ class AnthropicModel(APIModel):
 
 
 class vLLMModel(OpenAIAPIModel):
-    """
-    Model served via vLLM using an OpenAI-compatible API.
-
-    Uses the OpenAI client pointed at a local or remote vLLM server. The base
-    URL is read from ``parameters["vLLM_base_url"]``.
-    """
+    """A vLLM server's OpenAI-compatible API; base_url None uses ``parameters["vLLM_base_url"]``."""
 
     LOCAL_ENDPOINT: bool = True
 
@@ -1299,18 +815,6 @@ class vLLMModel(OpenAIAPIModel):
         base_url: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize a vLLM-served model.
-
-        :param model: The model identifier as registered in the vLLM server.
-        :type model: str
-        :param api_key: The API key for the vLLM server, if required.
-        :type api_key: str or None
-        :param base_url: The base url at which the endpoint is accessible, if not default.
-        :type base_url: str
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         parameters = load_parameters(parameters)
         if base_url is None:
             base_url = parameters["vLLM_base_url"]
@@ -1324,16 +828,9 @@ class vLLMModel(OpenAIAPIModel):
 
 
 class OpenRouterModel(OpenAIAPIModel):
-    """
-    Model accessed through the OpenRouter API.
+    """The OpenRouter API; the key is read from OPENROUTER_API_KEY."""
 
-    Routes requests to various model providers (OpenAI, Anthropic, Mistral, etc.)
-    via a single OpenAI-compatible endpoint at ``https://openrouter.ai/api/v1``.
-    The API key is read from the ``OPENROUTER_API_KEY`` environment variable.
-    """
-
-    # OpenRouter does not reliably forward `n` to the underlying provider, so
-    # multiple sequences are obtained via separate sequential calls instead.
+    # OpenRouter does not reliably forward `n` to the provider, so sequences are separate calls.
     SUPPORTS_NATIVE_N: bool = False
 
     def __init__(
@@ -1342,16 +839,6 @@ class OpenRouterModel(OpenAIAPIModel):
         max_queries_per_minute: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        Initialize an OpenRouter model.
-
-        :param model: The OpenRouter model identifier (e.g. ``"openai/gpt-4o"``).
-        :type model: str
-        :param max_queries_per_minute: Maximum number of queries allowed per minute.
-        :type max_queries_per_minute: Optional[int]
-        :param parameters: Loaded parameters dict. If None, loads from config.
-        :type parameters: dict[str, Any] or None
-        """
         api_key = os.environ["OPENROUTER_API_KEY"]
         super().__init__(
             model=model,

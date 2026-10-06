@@ -1,31 +1,5 @@
-"""GameBoyWorlds as a TextActionEnv (see cusi/envs/base.py).
-
-    # A fixed start state, as GameBoyRL's curiosity runs use (scripts/core_rl/train.sh):
-    env = GameBoyPlayEnv(game="pokemon_red", init_state="location_viridian_city_starting_charmander")
-    # A benchmark task (GameBoyWorlds/benchmark/tests/<game>.csv):
-    env = GameBoyPlayEnv.from_benchmark(game="pokemon_red", task_index=0, mode="test")
-
-    obs, info = env.reset()
-    obs, reward, terminated, truncated, info = env.step("A")
-
-The scene is one GameBoyWorlds savestate (`init_state`), fixed at construction.
-reset() reloads it: a complete, deterministic restore of the emulator.
-
-Observation: frame = the Game Boy screen as HxWx3 uint8 (grayscale repeated to 3
-channels); texts = {} (GameBoyWorlds' OCR trackers capture text *regions* as images,
-not text; those are passed on as info["text_regions"]); actions = the controller's
-get_action_strings(); goal = the benchmark task in "test" mode, "" otherwise.
-
-Modes (base.py):
-    test       built with GameBoyWorlds' get_test_environment(row): the task's test
-               tracker decides `terminated` (= success, as the benchmark scores it) and
-               `truncated`; reward 1.0 on success, else 0.
-    free_play  the game's "default" environment at the same kind of fixed start state:
-               no goal, reward 0, never terminated; truncated only at max_steps.
-
-Text that does not parse to an action (controller.string_to_high_level_action), or
-that the controller reports as unavailable in the current state, is a no-op with
-info["valid"] = False; invalid text does not advance the emulator.
+"""
+GameBoyWorlds as a TextActionEnv: one game at a fixed savestate, deterministic on reset.
 """
 from enum import Enum
 from typing import Any, Optional
@@ -37,9 +11,8 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_error
 from cusi.envs.base import TextActionEnv, scene_hash
 
-# GameBoyWorlds exposes no text channel (see the module docstring).
-# TODO: add an OCR text channel (e.g. "ocr") from info["text_regions"] once the
-# GameBoy OCR approach is decided.
+# GameBoyWorlds' OCR gives text regions as images (info["text_regions"]), not text.
+# TODO: add an OCR text channel once the GameBoy OCR approach is decided.
 TEXT_KEYS = ()
 
 MSG_PARSE_FAILED = "Could not parse an action from the output. Reply with one of the allowed actions."
@@ -47,8 +20,7 @@ MSG_UNAVAILABLE = "That action is not available right now. No action was perform
 
 
 def render_action_strings(*, action_strings: Any) -> str:
-    """get_action_strings() returns {ActionClass: description} (or a bare string for
-    some controllers); render it as one text block."""
+    """get_action_strings() (a dict, or a bare string for some controllers) as one text block."""
     if isinstance(action_strings, dict):
         parts = [str(v).strip() for v in action_strings.values()]
     else:
@@ -65,25 +37,18 @@ def canonical_action(*, action_class: type, kwargs: dict) -> dict:
 
 
 def action_display_name(*, action_class: type, kwargs: dict) -> str:
-    """The action's name as GameBoyRL's reports show it (execution.report.action_name)."""
+    """The action's name as GameBoyRL's reports show it."""
     try:
         return action_class.get_action_name(**kwargs)
     except Exception:
         return action_class.__name__
 
 
-# The low-level controller's buttons, as action text (LowLevelAction.get_action_name).
 BUTTONS = tuple(LowLevelAction.get_action_name(a) for a in LowLevelActions)
 
 
 class GameBoyPlayEnv(TextActionEnv):
-    """A GameBoyWorlds game at a fixed savestate as a text-action gym.Env.
-
-    Besides the base contract, info carries what GameBoyRL's executor records per step:
-    action_name (e.g. "UP"), frame_changed, action_success (the high-level action's code;
-    0 by convention for low-level actions) and low_level (whether it was a LowLevelAction).
-    action_strings() returns the controller's raw {action class: description} dict, as
-    GameBoyRL's prompts render it."""
+    """info also carries what GameBoyRL's executor records per step."""
 
     def __init__(
         self,
@@ -95,26 +60,13 @@ class GameBoyPlayEnv(TextActionEnv):
         environment_variant: str = "default",
         max_steps: Optional[int] = None,
         session_name: Optional[str] = None,
-        save_video: bool = False,
         wait_ticks: Optional[int] = None,
         benchmark_row: Optional[dict] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        :param game: GameBoyWorlds game, e.g. "pokemon_red".
-        :param init_state: Savestate name (gameboy_worlds get_available_init_states).
-            None: the game's default start state.
-        :param mode: "test" needs a benchmark row (use from_benchmark); "free_play".
-        :param environment_variant: free_play only; "default" as the curiosity runs use.
-        :param max_steps: Emulator step limit (truncation). None: GameBoyWorlds' default
-            (gameboy_max_steps, 10000). The benchmark harness passes 175.
-        :param wait_ticks: Emulator ticks per low-level action. None: GameBoyWorlds' default
-            (gameboy_wait_ticks, 8). GameBoyRL's benchmark harness forces 20
-            (benchmark_scripts/common.py run_episode): pass 20 for evaluation.
-        :param benchmark_row: Set by from_benchmark.
-        """
+        """mode="test" needs benchmark_row (use from_benchmark); evaluation should pass wait_ticks=20."""
         self._parameters = load_parameters(parameters)
-        emulator_kwargs = {"headless": True, "save_video": save_video, "session_name": session_name}
+        emulator_kwargs = {"headless": True, "save_video": False, "session_name": session_name}
         if max_steps is not None:
             emulator_kwargs["max_steps"] = max_steps
         if wait_ticks is not None:
@@ -137,14 +89,13 @@ class GameBoyPlayEnv(TextActionEnv):
         self.init_state = init_state
         self.scene_id = scene_hash(parts=("gameboy", game, init_state, mode,
                                           benchmark_row["task"] if benchmark_row is not None else None))
-        # GameBoyWorlds' Environment.__init__ has already reset to the scene start; resetting
-        # again here would only add to the tracker's step count (info["core"]["steps"]).
+        # Already reset by GameBoyWorlds; resetting again would inflate info["core"]["steps"].
         raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         frame = self._frame(raw_obs=raw_obs)
         super().__init__(mode=mode, frame_shape=frame.shape, text_keys=TEXT_KEYS, parameters=self._parameters)
         self._last = (frame, raw_info)
         self._steps = 0
-        self._fresh = True       # the emulator is at the scene start, untouched since its last reset
+        self._fresh = True       # untouched since the last reset
         log_info(f"GameBoyPlayEnv ready: {game} @ {init_state} (mode {mode})", parameters=self._parameters)
 
     @classmethod
@@ -158,12 +109,10 @@ class GameBoyPlayEnv(TextActionEnv):
         controller_variant: str = "low_level",
         max_steps: Optional[int] = None,
         wait_ticks: Optional[int] = None,
-        save_video: bool = False,
         session_name: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> "GameBoyPlayEnv":
-        """Build the env for a GameBoyWorlds benchmark task, chosen by row index or by its
-        task text. In free_play mode: the task's start state with no goal."""
+        """A benchmark task by row index or task text; free_play gives its start state without the goal."""
         parameters = load_parameters(parameters)
         tasks = get_benchmark_tasks(game).reset_index(drop=True)
         if task is not None:
@@ -178,7 +127,7 @@ class GameBoyPlayEnv(TextActionEnv):
             log_error("Pass task_index or task", parameters=parameters)
         row = dict(row)
         common = dict(controller_variant=controller_variant, max_steps=max_steps, wait_ticks=wait_ticks,
-                      save_video=save_video, session_name=session_name, parameters=parameters)
+                      session_name=session_name, parameters=parameters)
         if mode == "test":
             return cls(game=game, mode="test", benchmark_row=row, **common)
         return cls(game=game, init_state=row["init_state"], mode=mode, **common)
@@ -232,8 +181,7 @@ class GameBoyPlayEnv(TextActionEnv):
     # ---------------------------------------------------------------- gym API
 
     def _reset_impl(self):
-        # A reset of an untouched emulator is skipped: the state is identical, and GameBoyRL's
-        # benchmark resets exactly once per task, which keeps info["core"]["steps"] equal to its.
+        # Skip resetting an untouched emulator, so info["core"]["steps"] matches GameBoyRL's single reset.
         if self._fresh:
             raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         else:
@@ -276,7 +224,7 @@ class GameBoyPlayEnv(TextActionEnv):
                               frame_changed=bool(core.get("frame_changed", True)),
                               action_success=action_success,
                               low_level=issubclass(action_class, LowLevelAction),
-                              # What GameBoyRL's executor records per step (EnvironmentStepRecord).
+                              # GameBoyRL's EnvironmentStepRecord fields.
                               action_class=action_class, action_kwargs=dict(kwargs),
                               transition_states=(core["previous_action_details"][2]
                                                  if "previous_action_details" in core else []),
@@ -285,11 +233,7 @@ class GameBoyPlayEnv(TextActionEnv):
         return self._obs(frame=frame), reward, bool(terminated), bool(truncated), info
 
     # ------------------------------------------------------------ saved states
-    # GameBoyWorlds' custom states (Environment.save/load/delete_custom_state): a complete,
-    # deterministic emulator savestate, written as custom_<state_id>.state in the game's
-    # states directory. load_custom_state makes the saved state the emulator's init_state
-    # and resets to it; the scene's own init_state is put back afterwards (as GameBoyWorlds'
-    # _simulate does), so reset() still returns to the scene start.
+    # load_custom_state overwrites the emulator's init_state; it is restored so reset() returns to the scene start.
 
     def _save_state_impl(self, *, state_id: str) -> None:
         self._env.save_custom_state(state_id)

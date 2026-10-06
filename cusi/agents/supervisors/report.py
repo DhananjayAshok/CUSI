@@ -1,13 +1,5 @@
-"""The record of one supervised episode: GameBoyRL's SupervisorReport / SupervisorVLMCallRecord
-(execution/report.py) over our LegReport.
-
-    SupervisorCall    one supervisor model call: stage, images, prompt, response, tokens, seconds
-    LegEvent          one executor leg: its LegReport plus the target it served, whether it was the
-                      final target, whether it could end itself, and its wall-clock seconds
-    SupervisorReport  event_log (SupervisorCall and LegEvent interleaved, in order), the supervisor's
-                      settings, and the views GameBoyRL has (supervisor_calls, legs, token sums)
-
-cusi.eval.episode writes it to disk as JSON + PNG.
+"""
+The record of one supervised episode: supervisor calls and executor legs, interleaved in order.
 """
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -15,7 +7,7 @@ from cusi.agents.records import InvalidRecord, LegReport
 
 
 def sum_optional(values) -> Optional[int]:
-    """GameBoyRL utils.sum_optional: the sum of the known values, None if none is known."""
+    """The sum of the known values, None if none is known."""
     known = [v for v in values if v is not None]
     return sum(known) if known else None
 
@@ -96,7 +88,7 @@ class SupervisorReport:
         return sum_optional(c.output_tokens for r in self.executor_reports for c in r.calls)
 
     def timing(self) -> dict:
-        """Model seconds (supervisor / executor) and leg seconds; env time = leg - executor model."""
+        """Model and leg seconds; env time is leg time minus executor model time."""
         sup = sum(c.seconds or 0.0 for c in self.supervisor_calls)
         exe = sum(c.seconds or 0.0 for r in self.executor_reports for c in r.calls)
         legs = sum(e.seconds for e in self.legs)
@@ -112,7 +104,7 @@ class SupervisorReport:
                 "executor_output_tokens": self.executor_output_tokens or 0}
 
     def __str__(self) -> str:
-        """The interleaved event log as text (GameBoyRL's SupervisorReport.__str__ layout)."""
+        """The interleaved event log as text, in GameBoyRL's layout."""
         if not self.event_log:
             return "  (no supervisor events recorded)"
         lines: list = []
@@ -136,7 +128,7 @@ def _indent(text: str, prefix: str = "      ") -> str:
 
 
 def jsonable(value: Any) -> Any:
-    """step_log / extras values as JSON (images dropped)."""
+    """A value as JSON, with images dropped."""
     if isinstance(value, dict):
         return {k: jsonable(v) for k, v in value.items() if k != "frame"}
     if isinstance(value, (list, tuple)):

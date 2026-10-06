@@ -1,24 +1,5 @@
-"""Curiosity-driven PPO with the VLM text policy, on one environment (plan Part 2.2-2.5,
-curiosity_plan §3.3-3.6).
-
-Follows GameBoyRL's cleanrl/ppo_curiosity.py: rollouts of num_steps, reward = environment
-reward (0 in free play) + the curiosity module's reward, GAE (gamma 0.99, lambda 0.95), a clipped
-objective, a clipped value loss, an entropy term, optional target-KL early stop, linear LR
-annealing, and every transition written to the replay buffer.
-
-Objective (curiosity_plan §3.6, fixed): standard per-token PPO for text policies. Per generated
-action token t, r_t = exp(logp_new(t) - logp_old(t)); clipped surrogate per token (clip 0.2) with
-the step's advantage on every token; averaged over the action's tokens, then over the minibatch.
-KL penalty to the reference model (LoRA disabled) per token; approx KL and clip fraction are per
-token. The target-KL early stop (0.1) is a safety net.
-
-Curiosity (§3.3): a cusi.explore.curiosity module (embedbuffer / combinationbuffer / world_model)
-on a cusi.state encoder built from the shared flags; reset to its prior every episode;
---invalid_action_penalty and --normalize_curiosity_reward shape its reward.
-
-Bug fixed from the original loop: at an episode end the original skipped the reward assignment,
-so rewards[step] kept a stale value from an earlier rollout. Here the final transition's
-intrinsic reward is computed before the curiosity module is reset.
+"""
+Curiosity-driven per-token PPO for the VLM text policy (after GameBoyRL's ppo_curiosity.py).
 """
 import json
 import os
@@ -34,6 +15,7 @@ from cusi.state.canvas import frame_for_embedding
 from cusi.explore.policy import VLMPolicy
 from cusi.explore.prompts import MAX_NEW_TOKENS, PolicyPrompter
 from cusi.explore.replay import ReplayWriter
+from cusi.utils.paths import explore_replay
 from cusi.agents.records import EncodedImage
 
 
@@ -86,7 +68,7 @@ class CuriosityPPO:
             normalize_curiosity_reward=normalize_curiosity_reward, parameters=parameters)
         self.vocab = ActionVocab(env_name=env_name)
         self.vocab.save(directory=out_dir)
-        self.replay = ReplayWriter(directory=os.path.join(out_dir, "replay"))
+        self.replay = ReplayWriter(directory=explore_replay(run_dir=out_dir))
         policy_kwargs = dict(policy_kwargs or {})
         if policy_kwargs.get("max_new_tokens") is None:
             policy_kwargs["max_new_tokens"] = MAX_NEW_TOKENS[reply_format][env_name]
@@ -137,7 +119,7 @@ class CuriosityPPO:
         frame = frame_for_embedding(obs=obs2, info=info2)
         record = StateRecord(obs=obs2, info=info2, embedding=self.encoder.encode_one(obs=obs2, info=info2),
                              prev_image=self.record.embedding.image)
-        # The final transition's reward is computed here, before any reset (the original's bug).
+        # The final transition's reward must be computed before the curiosity module is reset.
         rew = self.curiosity.get_reward(prev=self.record, action=info2.get("parsed_action"), next=record,
                                         valid=info2["valid"], done=done)
         reward = float(r_ext) + rew["total"]

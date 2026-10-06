@@ -1,6 +1,5 @@
-"""The supervisor that does nothing (GameBoyRL execution/supervisors/dummy.py): the `baseline` arm.
-
-One executor leg with the whole budget, no hint, no self-termination; success is the env's verdict.
+"""
+The supervisor that does nothing: one executor leg with the whole budget.
 """
 from typing import Optional
 from cusi.agents.supervisors.base import Supervisor

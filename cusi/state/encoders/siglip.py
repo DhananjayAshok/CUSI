@@ -1,13 +1,5 @@
-"""`siglip`: SigLIP 2, one pooled vector per frame (768-d for base), L2-normalised. The model id is
-always passed in (never defaulted).
-
-    zero-shot:   SiglipEmbedder(env_name=..., model_name="google/siglip2-base-patch16-224")
-    fine-tuned:  SiglipEmbedder(env_name=..., model_name=..., load_path=<dir from train_embedder>)
-
-The frame is put on the env canvas first (GameBoy: native, so identical to the pre-migration
-cusi.explore FrozenEncoder), then the processor resizes it to the model's input size.
-A fine-tuned checkpoint is a directory with `vision_model.pt` (the vision tower's state dict)
-and embedder_meta.json (embedder, env, canvas, base_model), checked on load.
+"""
+SigLIP 2 embedder: one pooled, L2-normalised vector per canvas frame, zero-shot or fine-tuned.
 """
 import os
 import torch

@@ -1,8 +1,5 @@
-"""VLM prior P(n) (plans/skill_discovery.md §1.4 C, minimal): when a node is created, a VLM sees its
-frame and flattened text and env.env_description and answers how promising it is to explore from
-there, as a 0-10 score with one line of reasoning; P(n) = score / 10. One call per node, never per
-selection; no tree summary in the prompt yet. An unparseable reply gives P = fallback (0.5) and
-flags the node.
+"""
+VLM prior P(n): a VLM rates how promising a new node is to explore from, once per node.
 """
 import re
 from typing import Optional

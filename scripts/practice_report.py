@@ -1,6 +1,5 @@
-"""Summarise practice-pipeline outputs per environment as Markdown: counts per stage
-(proposed / attempted / succeeded / practice runs / succeeded / accepted calls / dataset rows)
-and a few example dataset rows.
+"""
+Markdown report of practice-pipeline outputs per environment: stage counts and example dataset rows.
 
     python scripts/practice_report.py --envs "gameboy web android" --out results/practice_small.md
 """
@@ -9,7 +8,7 @@ import os
 import click
 import pandas as pd
 from cusi.utils import load_parameters, log_info
-from cusi.practice.stages.common import PracticePaths
+from cusi.utils.paths import PracticePaths
 
 
 def _csv(path: str) -> pd.DataFrame:

@@ -15,28 +15,7 @@ def paired_bootstrap(
     parameters: Optional[dict[str, Any]] = None,
     verbose=False,
 ) -> float:
-    """Evaluate with paired bootstrap.
-
-    This compares two systems, performing a significance test with
-    paired bootstrap resampling to compare the performance of the two systems.
-
-    :param sys1: The eval metrics (instance-wise) of system 1.
-    :type sys1: Sequence[float]
-    :param sys2: The eval metrics (instance-wise) of system 2. Must be of the same length.
-    :type sys2: Sequence[float]
-    :param num_samples: The number of bootstrap samples to take.
-    :type num_samples: int
-    :param sample_ratio: The ratio of instances to sample on each bootstrap iteration.
-    :type sample_ratio: float
-    :param progress_title: Optional label shown on the tqdm progress bar and in logged results.
-    :type progress_title: str or None
-    :param parameters: Loaded parameters dict for logging. If None, logs to console only.
-    :type parameters: dict[str, Any] or None
-    :param verbose: If True, logs progress and results; otherwise runs silently.
-    :type verbose: bool
-    :return: The achieved p-value.
-    :rtype: float
-    """
+    """Paired bootstrap significance test on per-instance metrics of two systems; returns the p-value."""
     parameters = load_parameters(parameters)
 
     sys1_scores = []
@@ -51,11 +30,9 @@ def paired_bootstrap(
     ids = list(range(n))
 
     for _ in tqdm(range(num_samples), desc=progress_title):
-        # Subsample the gold and system outputs
         reduced_ids = np.random.choice(ids, int(len(ids) * sample_ratio), replace=True)
         reduced_sys1 = [sys1[i] for i in reduced_ids]
         reduced_sys2 = [sys2[i] for i in reduced_ids]
-        # Calculate accuracy on the reduced sample and save stats
         sys1_score = np.mean(reduced_sys1)
         sys2_score = np.mean(reduced_sys2)
         if sys1_score > sys2_score:
@@ -69,7 +46,6 @@ def paired_bootstrap(
 
     wins = [x / float(num_samples) for x in wins]
     achieved_p = 1 - max(wins[0], wins[1])
-    # log_info win stats
     if verbose:
         log_info(f"Results: {progress_title}", parameters=parameters)
         log_info(
@@ -89,7 +65,6 @@ def paired_bootstrap(
         else:
             log_info("sys1 is literally tied with sys2.\n", parameters=parameters)
 
-    # log_info system stats
     sys1_scores.sort()
     sys2_scores.sort()
     if verbose:

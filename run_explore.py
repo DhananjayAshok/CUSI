@@ -1,32 +1,21 @@
-"""Curiosity exploration + world model (plans/plan.md Part 2), one environment per process.
+"""
+Curiosity exploration and world-model training, one environment per process.
 
-    python run_explore.py --env gameboy ppo --scene viridian --run_name dev --total_steps 1024 \
-        --policy_model Qwen/Qwen3.5-0.8B --curiosity_module combinationbuffer \
-        --image_embedder random_patch --text_embedder none
-    python run_explore.py --env gameboy tasks --run_name dev --model_name <served name>   # needs vLLM
-    python run_explore.py --env gameboy world_model --run_names dev [--image_embedder random_patch]
-    python run_explore.py --env gameboy train_embedder --embedder cnn --run_names debug/rand_patch
-    python run_explore.py --env gameboy decoder --run_names dev
-    python run_explore.py --env gameboy wm_eval --name dev
-    python run_explore.py --env android elements --run_names dev                   # K check
-
-Outputs: storage_dir/explore/<env>/<run_name>/ (replay/, policy/, metrics.jsonl, action_space.json,
-buffer/), storage_dir/explore/<env>/world_model/<name>/, storage_dir/explore/<env>/decoder/<name>/.
-Curiosity tasks go to storage_dir/practice/<env>/<model>/curiosity/attempts/, then
-`python run_practice.py --env <env> --model_name <served name> --source curiosity all` practises them.
+    python run_explore.py --env gameboy <command> [options]
 """
 import json
 import os
 import click
 import numpy as np
 from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
+from cusi.utils import paths
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
 from cusi.state import state_config, state_options
 
 loaded_parameters = load_parameters()
 
-# Per-environment episode length (GameBoy: 30, as GameBoyRL's curiosity runs) and rollout length.
+# Per-environment episode length and rollout length.
 EPISODE_STEPS = {"gameboy": 30, "android": 20, "web": 15}
 ROLLOUT_STEPS = {"gameboy": 128, "android": 64, "web": 64}
 
@@ -40,13 +29,13 @@ def main(ctx, env_name, random_seed, vllm_port):
     loaded_parameters["random_seed"] = random_seed
     loaded_parameters["vllm_port"] = vllm_port
     compute_secondary_parameters(loaded_parameters)
-    root = os.path.join(loaded_parameters["storage_dir"], "explore", env_name)
+    root = paths.explore_root(parameters=loaded_parameters, env=env_name)
     os.makedirs(root, exist_ok=True)
     ctx.obj = {"parameters": loaded_parameters, "env_name": env_name, "root": root}
 
 
 def _run_dirs(obj, run_names: str) -> list:
-    return [os.path.join(obj["root"], r) for r in run_names.split(",") if r.strip()]
+    return paths.explore_runs(parameters=obj["parameters"], env=obj["env_name"], run_names=run_names)
 
 
 @main.command()
@@ -87,7 +76,7 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
     config = state_config(state_kwargs)
     spec = ENV_SPECS[env_name]
     env = spec.make_env(scene=spec.scenes[scene], worker=worker, parameters=parameters)
-    out_dir = os.path.join(obj["root"], run_name)
+    out_dir = paths.explore_run(parameters=parameters, env=env_name, run=run_name)
     try:
         trainer = CuriosityPPO(
             env_name=env_name, env=env, out_dir=out_dir, total_steps=total_steps, state_config=config,
@@ -123,19 +112,18 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
 def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups, max_new_tokens, rescore_text_alpha):
     """High-novelty trajectories -> groups -> tasks (the curiosity task source for run_practice.py)."""
     from cusi.explore.trajectories import curiosity_tasks
-    from cusi.practice.stages.common import PracticePaths
     from cusi.agents.vlm import AgentVLM
     env_name, parameters = obj["env_name"], obj["parameters"]
-    run_dir = os.path.join(obj["root"], run_name)
+    run_dir = paths.explore_run(parameters=parameters, env=env_name, run=run_name)
     scene = scene or open(os.path.join(run_dir, "scene.txt")).read().strip()
-    paths = PracticePaths(parameters=parameters, env_name=env_name, model_name=model_name, source="curiosity")
-    stats = curiosity_tasks(replay_dir=os.path.join(run_dir, "replay"), scene=scene, env_name=env_name,
+    practice = paths.PracticePaths(parameters=parameters, env_name=env_name, model_name=model_name, source="curiosity")
+    stats = curiosity_tasks(replay_dir=paths.explore_replay(run_dir=run_dir), scene=scene, env_name=env_name,
                             vlm=AgentVLM(model_name=model_name, parameters=parameters),
-                            domain=ENV_SPECS[env_name].domain, out_attempts_dir=paths.attempts_dir,
+                            domain=ENV_SPECS[env_name].domain, out_attempts_dir=practice.attempts_dir,
                             max_new_tokens=max_new_tokens, outlier_threshold=outlier_threshold, z_min=z_min,
                             max_groups=max_groups, rescore_text_alpha=rescore_text_alpha, seed=parameters["random_seed"],
                             parameters=parameters)
-    log_info(f"curiosity tasks: {stats} -> {paths.attempts_dir}", parameters=parameters)
+    log_info(f"curiosity tasks: {stats} -> {practice.attempts_dir}", parameters=parameters)
 
 
 @main.command(name="world_model")
@@ -153,11 +141,12 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
     from cusi.explore.world_model import train_world_model
     from cusi.state import build_image_embedder
     dirs = _run_dirs(obj, run_names)
-    out = os.path.join(obj["root"], "world_model", name or run_names.replace(",", "+").replace("/", "_"))
+    out = paths.world_model_dir(parameters=obj["parameters"], env=obj["env_name"],
+                                name=name or paths.runs_label(run_names=run_names))
     embedder = None if image_embedder is None else build_image_embedder(
         image_embedder=image_embedder, env_name=obj["env_name"], encoder_model=encoder_model,
         embedder_load_path=embedder_load_path, parameters=obj["parameters"])
-    train_world_model(replay_dirs=[os.path.join(d, "replay") for d in dirs], out_dir=out, action_space_dir=dirs[0],
+    train_world_model(replay_dirs=[paths.explore_replay(run_dir=d) for d in dirs], out_dir=out, action_space_dir=dirs[0],
                       epochs=epochs, embedder=embedder, seed=obj["parameters"]["random_seed"],
                       parameters=obj["parameters"])
 
@@ -174,10 +163,11 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
 @click.option("--max_frames", default=50_000)
 @click.pass_obj
 def train_embedder(obj, embedder, run_names, name, encoder_model, epochs, steps, max_minutes, max_frames):
-    """Train a cnn embedder / fine-tune SigLIP on replay frames (curiosity_plan §3.2b)."""
+    """Train a cnn embedder / fine-tune SigLIP on replay frames."""
     from cusi.explore.train_embedder import train_cnn, train_siglip
-    dirs = [os.path.join(d, "replay") for d in _run_dirs(obj, run_names)]
-    out = os.path.join(obj["root"], "embedder", f"{embedder}_{name or run_names.replace(',', '+').replace('/', '_')}")
+    dirs = [paths.explore_replay(run_dir=d) for d in _run_dirs(obj, run_names)]
+    out = paths.embedder_dir(parameters=obj["parameters"], env=obj["env_name"], embedder=embedder,
+                             name=name or paths.runs_label(run_names=run_names))
     if embedder == "cnn":
         train_cnn(env_name=obj["env_name"], replay_dirs=dirs, out_dir=out, epochs=epochs, max_minutes=max_minutes,
                   max_frames=max_frames, seed=obj["parameters"]["random_seed"], parameters=obj["parameters"])
@@ -199,8 +189,9 @@ def decoder(obj, run_names, name, epochs, max_frames):
     """Train the embedding -> pixels decoder on replay frames."""
     from cusi.explore.decoder import train_decoder
     dirs = _run_dirs(obj, run_names)
-    out = os.path.join(obj["root"], "decoder", name or run_names.replace(",", "+"))
-    summary = train_decoder(env_name=obj["env_name"], replay_dirs=[os.path.join(d, "replay") for d in dirs],
+    out = paths.decoder_dir(parameters=obj["parameters"], env=obj["env_name"],
+                            name=name or paths.runs_label(run_names=run_names))
+    summary = train_decoder(env_name=obj["env_name"], replay_dirs=[paths.explore_replay(run_dir=d) for d in dirs],
                             out_dir=out, epochs=epochs, max_frames=max_frames, seed=obj["parameters"]["random_seed"],
                             parameters=obj["parameters"])
     log_info(f"decoder -> {out}: {summary}", parameters=obj["parameters"])
@@ -212,20 +203,18 @@ def decoder(obj, run_names, name, epochs, max_frames):
 @click.option("--n_examples", default=6)
 @click.pass_obj
 def wm_eval(obj, name, run_names, n_examples):
-    """Show world-model predictions as decoded frames: for sampled transitions, the current frame,
-    the real next frame, and the decoded prediction for the action taken and for a few other
-    actions; plus the decoder's round-trip of the real next frame."""
+    """Render decoded world-model predictions for sampled transitions and score the model."""
     import torch
     from PIL import Image
     from cusi.explore.decoder import EmbeddingDecoder
     from cusi.explore.world_model import transitions_from_replay
     from cusi.state.scorers.world_model import WorldModel
     from cusi.explore.replay import load_episodes
-    root = obj["root"]
-    wm_dir, dec_dir = os.path.join(root, "world_model", name), os.path.join(root, "decoder", name)
+    wm_dir = paths.world_model_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
+    dec_dir = paths.decoder_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
     summary = json.load(open(os.path.join(wm_dir, "train_summary.json")))["summary"]
     replay_dirs = summary["replay_dirs"] if run_names is None else \
-        [os.path.join(d, "replay") for d in _run_dirs(obj, run_names)]
+        [paths.explore_replay(run_dir=d) for d in _run_dirs(obj, run_names)]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     wm, dec = WorldModel.load(directory=wm_dir, device=device), EmbeddingDecoder.load(directory=dec_dir, device=device)
     rng = np.random.default_rng(0)
@@ -269,14 +258,14 @@ def wm_eval(obj, name, run_names, n_examples):
 @click.option("--run_names", required=True)
 @click.pass_obj
 def elements(obj, run_names):
-    """Element counts per screen and the share of indexed actions >= K (decision 18's check)."""
+    """Element counts per screen and the share of indexed actions >= K."""
     from cusi.envs.action_vocab import ActionVocab
     from cusi.state import element_lines
     from cusi.explore.replay import iter_replay
     vocab = ActionVocab(env_name=obj["env_name"])
     counts, overflow, indexed = [], 0, 0
     for d in _run_dirs(obj, run_names):
-        for row in iter_replay(directory=os.path.join(d, "replay"), load_frames=False):
+        for row in iter_replay(directory=paths.explore_replay(run_dir=d), load_frames=False):
             counts.append(len(element_lines(texts=row["texts"])))
             name = vocab.names[row["action_index"]] if row["action_index"] is not None else ""
             if "[" in name:
@@ -291,7 +280,7 @@ def elements(obj, run_names):
              "share_screens_over_K": float((c > (vocab.k or 1e9)).mean()), "indexed_actions": indexed,
              "overflow_actions": overflow}
     log_info(f"elements: {stats}", parameters=obj["parameters"])
-    with open(os.path.join(obj["root"], f"elements_{run_names.replace(',', '+')}.json"), "w") as f:
+    with open(paths.elements_file(parameters=obj["parameters"], env=obj["env_name"], run_names=run_names), "w") as f:
         json.dump(stats, f, indent=1)
 
 

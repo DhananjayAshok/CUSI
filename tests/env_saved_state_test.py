@@ -1,17 +1,6 @@
 """
-Check save_state / load_state / delete_state on a real env, and time them. From the CUSI root:
-
-    source scripts/utils.sh && python tests/env_saved_state_test.py --env gameboy
-    bash scripts/container.sh python tests/env_saved_state_test.py --env web
-    sbatch --output="$results_dir/logs/env_saved_state_%j.out" slurm/env_saved_state.sh   # android (needs /dev/kvm)
-
-Steps: reset, take random actions, save state A; take more actions (recorded); load A and
-compare the observation with the one at save time; replay the recorded actions and compare
-the frames with the first pass; then delete A and check that loading it errors.
-
-GameBoy must match exactly. Android should match up to small screen differences (status bar
-clock); the web restores only the browser's side of a live page (see webvoyager.py), so its
-numbers are reported, not asserted.
+Checks and times save_state / load_state / delete_state on a real env.
+    python tests/env_saved_state_test.py --env gameboy
 """
 import glob
 import os
@@ -28,7 +17,6 @@ def check(*, cond: bool, msg: str) -> None:
 
 
 def frame_diff(*, a: np.ndarray, b: np.ndarray) -> float:
-    """Fraction of pixels that differ (1.0 if the shapes differ)."""
     if a.shape != b.shape:
         return 1.0
     return float(np.mean(np.any(a != b, axis=-1)))

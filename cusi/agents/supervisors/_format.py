@@ -1,22 +1,17 @@
-"""Rendering an executor attempt as text for a supervisor prompt (GameBoyRL
-execution/supervisors/_format.py) over our LegReport.
-
-The reasoning line is the executor's own: GameBoy "Reasoning:", M3A "Reason:", WebVoyager
-"Thought:" (SupervisorDomain.reasoning_key). An Android / Web step the env rejected is shown with
-its error; a finishing action that ended the leg without reaching the env is shown as FINISH.
+"""
+Rendering an executor attempt as text for a supervisor prompt.
 """
 from typing import Optional
 from cusi.agents.records import StepRecord
 from cusi.utils.parsing import parse_completion, parse_key_value
 
-#: Tags of the calls that ask for an action (GameBoyRL's ACTION_TAGS; M3A and WebVoyager use "action").
+#: Tags of the calls that ask for an action.
 ACTION_TAGS = {"action", "score"}
 DONE_CHECK_TAG = "done_check"
 
 
 def step_name(step, domain) -> str:
-    """GameBoyRL report.action_name for one of our steps (plus the env's error on Android / Web;
-    GameBoyRL shows an unavailable GameBoy action by its name alone)."""
+    """A step's action name, with the env's error where the domain shows step failures."""
     if isinstance(step, StepRecord):
         name = step.action_label()
         if domain.show_step_failures and not step.valid:

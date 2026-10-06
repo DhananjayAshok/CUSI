@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/explore.sh (all logic lives there). Submit from the CUSI root:
-#   sbatch --output="$results_dir/logs/explore_%j.out" slurm/explore.sh --env gameboy --scene viridian --run dev \
-#       --policy_model Qwen/Qwen3.5-0.8B --curiosity_module combinationbuffer --image_embedder random_patch \
-#       --text_embedder none [--extra "--num_steps 16"] [--wm true]
-#   (--tasks true --model <id> also needs GPUs for vLLM: submit with --gres=gpu:rtxa6000:3)
+#   sbatch --output="$results_dir/logs/explore_%j.out" slurm/explore.sh --env <env> --scene <scene> --run <run> \
+#       --policy_model <policy_model> --curiosity_module <curiosity_module> --image_embedder <image_embedder> \
+#       --text_embedder <text_embedder> [--extra <value>] [--wm <value>]
+#   (--tasks <tasks> --model <id> also needs GPUs for vLLM: submit with --gres=gpu:rtxa6000:3)
 # Arguments after the script name are passed through to scripts/slurm/explore.sh.
 #SBATCH --job-name=cusi-explore
 #SBATCH --partition=medium-lg

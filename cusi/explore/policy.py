@@ -1,21 +1,5 @@
-"""The exploration policy: a VLM text policy trained with PPO (RL4VLM-style), plan Part 2.2.
-
-A VLM (curiosity_plan §3.5: Qwen/Qwen3.5-0.8B, or Qwen3-VL-2B; passed in as run_explore.py ppo
---policy_model), loaded with the generic AutoModelForImageTextToText, with LoRA on every linear
-layer of the language model (derived from the loaded model, so Qwen3.5's Gated DeltaNet layers
-are covered), plus a value head on the
-final-layer hidden state at the last prompt token (V(s), shared trunk as in cleanrl's Agent).
-The action is the generated text; its log-probability is the sum over the generated tokens
-under softmax(logits / temperature), the distribution actually sampled from. The reference
-model for the KL penalty is the same network with the LoRA adapter disabled.
-
-Inputs are neutral chats (cusi.agents.records.CallRecord format: content parts
-{"type": "text"} / {"type": "image", "image": <index>} plus an image list), so rollouts store
-the chat and the images and minibatches re-encode them (nothing large is kept on the GPU).
-
-    policy = VLMPolicy(model_name="Qwen/Qwen3.5-0.8B", parameters=parameters)
-    out = policy.act(messages=msgs, images=imgs)       # text, action_ids, logprob, value
-    ev = policy.evaluate(messages=msgs, images=imgs, action_ids=out["action_ids"])   # with grad
+"""
+The exploration policy: a LoRA'd VLM with a value head, whose action is its generated text (PPO).
 """
 import os
 import shutil
@@ -27,10 +11,7 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.agents.records import to_pil
 
 def _disable_fla_without_compiler(*, parameters: dict) -> None:
-    """flash-linear-attention's triton kernels (Qwen3.5's Gated DeltaNet layers) are JIT-compiled and
-    need a C compiler, which the CUSI container lacks. Without one, make transformers believe fla is
-    not installed, so it builds the torch implementation instead. Must run before the model's modeling
-    module is imported (transformers binds the check at import time)."""
+    """Without a C compiler, hide flash-linear-attention from transformers; must run before the modeling module is imported."""
     if os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc"):
         return
     import transformers.utils.import_utils as import_utils
@@ -44,8 +25,7 @@ _NO_LORA = ("visual", "vision", "lm_head", "embed", "merger")
 
 
 def lora_targets(*, model: nn.Module) -> list:
-    """Leaf names of every nn.Linear in the language model (e.g. q_proj, ..., in_proj_qkvz for
-    DeltaNet layers), so LoRA covers whatever layer types the model has."""
+    """Leaf names of every nn.Linear in the language model, so LoRA covers whatever layer types it has."""
     names = set()
     for full_name, module in model.named_modules():
         if isinstance(module, nn.Linear) and not any(part in full_name for part in _NO_LORA):
@@ -103,8 +83,7 @@ class VLMPolicy(nn.Module):
 
     def _encode(self, *, messages: list, images: list, response_ids: Optional[torch.Tensor] = None,
                 response_prefix: Optional[str] = None) -> dict:
-        """Chat -> model inputs (prompt with generation prompt, + response_prefix text (prefilled start of
-        the reply, part of the prompt), optionally + response ids)."""
+        """Chat -> model inputs; response_prefix (prefilled reply start) counts as prompt, response_ids do not."""
         conv = []
         for msg in messages:
             content = msg["content"]
@@ -153,8 +132,7 @@ class VLMPolicy(nn.Module):
 
     @torch.no_grad()
     def act(self, *, messages: list, images: list, response_prefix: Optional[str] = None) -> dict:
-        """Sample an action. Returns {text, action_ids (cpu), logprob, value, ref_logprob, and per action token
-        token_logprobs / ref_token_logprobs (cpu float32)}."""
+        """Sample an action and return its text, token ids, log-probs (policy and reference) and value."""
         self.model.eval()
         inputs = self._encode(messages=messages, images=images, response_prefix=response_prefix)
         prompt_len = inputs.pop("prompt_len")

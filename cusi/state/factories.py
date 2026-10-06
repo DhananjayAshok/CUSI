@@ -1,19 +1,5 @@
-"""Shared factories and flags (curiosity_plan §3.2.4). run_explore.py ppo and
-the pre-exploration search all take the same flag names, so their novelty numbers compare.
-
-    @click.command()
-    @state_options(scorer=True)        # adds the flags below
-    def cmd(..., **kwargs):
-        config = state_config(kwargs)
-        encoder = build_encoder(config=config, env_name=env_name, parameters=parameters)
-        archive = build_archive(config=config, encoder=encoder)
-        scorer = build_scorer_from_config(config=config, env_name=env_name, encoder=encoder)
-
-Flags: --image_embedder {random_patch,cnn,siglip} (required), --encoder_model (siglip),
---embedder_load_path (trained cnn / fine-tuned siglip), --text_embedder {dense,tfidf,overlap,none}
-(required), --text_embedder_model (dense), --w_image, --similarity_metric, and with scorer=True:
---novelty_scorer (required), --region_alpha, --world_model_load_path.
-Models are never defaulted.
+"""
+Shared click flags and factories, so every consumer builds encoders, archives and scorers the same way.
 """
 from typing import Any, Optional
 import click

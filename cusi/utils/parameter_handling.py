@@ -5,36 +5,15 @@ from cusi.utils.fundamental import get_logger
 
 
 def load_yaml(yaml_path: str) -> dict[str, Any]:
-    """
-    Load a YAML file and return its contents as a dictionary.
-
-    :param yaml_path: Absolute path to the YAML file.
-    :type yaml_path: str
-    :return: Parsed YAML contents.
-    :rtype: dict[str, Any]
-    """
     with open(yaml_path, "r") as f:
         return yaml.load(f, Loader=yaml.FullLoader)
 
 
 def compute_secondary_parameters(params: dict[str, Any]) -> None:
-    """
-    Derive and create secondary parameters from the base configuration in-place.
-
-    Derives the following keys from ``storage_dir``: ``data_dir``, ``model_dir``,
-    ``tmp_dir``, ``sync_dir``. Derives the following from ``results_dir``:
-    ``log_dir``, ``figure_dir``. All derived directories are created if they do
-    not exist. Also sets ``log_file`` (defaulting to ``<log_dir>/log.txt`` if not
-    already present) and initialises the ``logger`` key. Derives ``vLLM_base_url``
-    (``http://localhost:<vllm_port>/v1/``) from ``vllm_port``, so the port is set in one place.
-
-    :param params: The parameters dictionary to extend in-place.
-    :type params: dict[str, Any]
-    """
+    """Derive (and create) directories, log_file, logger and vLLM_base_url in-place from the base config."""
     params["data_dir"] = os.path.join(params["storage_dir"], "data")
     params["model_dir"] = os.path.join(params["storage_dir"], "models")
     params["tmp_dir"] = os.path.join(params["storage_dir"], "tmp")
-    params["sync_dir"] = os.path.join(params["storage_dir"], "sync")
     params["log_dir"] = os.path.join(params["results_dir"], "logs")
     params["figure_dir"] = os.path.join(params["results_dir"], "figures")
     params["vLLM_base_url"] = f"http://localhost:{params['vllm_port']}/v1/"
@@ -44,7 +23,6 @@ def compute_secondary_parameters(params: dict[str, Any]) -> None:
         "log_dir",
         "figure_dir",
         "tmp_dir",
-        "sync_dir",
     ]:
         if not os.path.exists(params[dirname]):
             os.makedirs(params[dirname])
@@ -52,7 +30,7 @@ def compute_secondary_parameters(params: dict[str, Any]) -> None:
         log_file = os.path.join(params["log_dir"], "log.txt")
         params["log_file"] = log_file
     else:
-        # check if log_file is a child of log_dir, but handle silly // vs / cases
+        # normalise // so the log_dir prefix check is reliable
         log_dir_str = params["log_dir"].replace("//", "/")
         log_file_str = params["log_file"].replace("//", "/")
         if not log_file_str.startswith(log_dir_str):
@@ -63,17 +41,7 @@ def compute_secondary_parameters(params: dict[str, Any]) -> None:
 
 
 def load_parameters(parameters: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """
-    Loads the parameters for the project from configs/private_vars.yaml and any other yaml files in the configs directory.
-
-    That is, unless a non None parameters dictionary is passed through, in which case we assume all is good and just return it.
-
-    :param parameters: An already-loaded parameters dict, or None to load from disk.
-        Passing an existing dict is a no-op (safe to call repeatedly).
-    :type parameters: dict[str, Any] or None
-    :return: A dictionary of fully loaded and validated parameters.
-    :rtype: dict[str, Any]
-    """
+    """Merge every configs/*.yaml into the parameters dict; an already-loaded dict is returned as is."""
     if parameters is not None:
         if (
             "logger" not in parameters
@@ -112,7 +80,6 @@ def load_parameters(parameters: Optional[dict[str, Any]] = None) -> dict[str, An
     for essential_key in essential_keys:
         if essential_key not in params:
             error(f"Please set {essential_key} in one of the config yamls")
-    # check if there are any .py files in storage_dir, if so, log error
     if os.path.exists(params["storage_dir"]):
         if any([f.endswith(".py") for f in os.listdir(params["storage_dir"])]):
             logger.warning(

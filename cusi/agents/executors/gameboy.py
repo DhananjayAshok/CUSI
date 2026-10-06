@@ -1,23 +1,5 @@
-"""GameBoyRL's executor on a GameBoyPlayEnv: every arm, with GameBoyRL's own policy objects.
-
-An arm is `<action>_<history>` as in GameBoyRL (execution/registry.py):
-    action   single | scored | sequence   (execution/executors/policies/action.py)
-    history  none | actions | visual      (execution/executors/policies/history.py)
-CUSI's default everywhere is single_visual.
-
-The action and history policies are GameBoyRL's own classes, used as is: they build the
-instruction / response format, parse replies, and remember steps (the history policy is fed
-GameBoyRL EnvironmentStepRecords, and the visual history makes its own batched frame-diff
-calls through this executor). The prompt is assembled as PolicyExecutor._build_prompt and the
-loop in run() follows PolicyExecutor._execute / _run_decision line for line: a decision may
-carry several actions (sequence), an unrecognised action string invalidates and aborts the
-decision, a failed high-level action aborts a multi-action decision, terminated/truncated are
-checked after every action, the history sees a decision's steps once at its end, and the
-completion check (allow_done_check) runs only after a decision that ran to the end.
-An action the controller reports unavailable is a normal step, as GameBoyRL's loop never reads
-that flag. tests/practice_gameboy_prompt_test.py checks the prompts against GameBoyRL's.
-
-[GB-OCR] GameBoy has no text channel yet, so the prompt has no element/text block.
+"""
+GameBoyRL's executor arms on a GameBoyPlayEnv, built from GameBoyRL's own policy objects.
 """
 import os
 import sys
@@ -52,7 +34,6 @@ STUCK_HINT = _gb_history.STUCK_HINT
 DEFAULT_HISTORY_K = _gb_history.DEFAULT_HISTORY_K
 ACTION_POLICIES = _gb_action.AVAILABLE_ACTION_POLICIES
 HISTORY_POLICIES = _gb_history.AVAILABLE_HISTORY_POLICIES
-#: Every GameBoyRL arm, "<action>_<history>".
 ARMS = tuple(f"{a}_{h}" for a in ACTION_POLICIES for h in HISTORY_POLICIES)
 DEFAULT_ARM = "single_visual"
 
@@ -65,7 +46,7 @@ def split_arm(arm: str) -> tuple:
 
 
 def hint_block(*, hint: Optional[str], steps_taken: int) -> str:
-    """Executor._hint_block, verbatim."""
+    """GameBoyRL's Executor._hint_block, verbatim."""
     if hint is None:
         return ""
     step_info = f"""
@@ -74,7 +55,7 @@ def hint_block(*, hint: Optional[str], steps_taken: int) -> str:
 
 
 def action_line(*, step: StepRecord) -> str:
-    """history._action_line for one of our StepRecords."""
+    """GameBoyRL's history._action_line for one of our StepRecords."""
     name = step.action_label()
     changed = step.extra.get("frame_changed", True)
     if step.extra.get("low_level", True):
@@ -85,8 +66,7 @@ def action_line(*, step: StepRecord) -> str:
 
 
 def render_history(*, steps: list, history_k: int = DEFAULT_HISTORY_K) -> str:
-    """ActionHistoryPolicy.render over our StepRecords (for prompters that keep StepRecords,
-    e.g. cusi.explore's). Same slicing as GameBoyRL, including history_k = 0 (all steps)."""
+    """GameBoyRL's ActionHistoryPolicy.render over our StepRecords; history_k = 0 means all steps."""
     if not steps:
         return ""
     recent = steps[-history_k:]
@@ -97,7 +77,7 @@ def render_history(*, steps: list, history_k: int = DEFAULT_HISTORY_K) -> str:
 
 def build_step_prompt(*, task: str, hint: Optional[str], steps_taken: int, error: Optional[str],
                       action_strings: dict, history: str, action_policy=None) -> str:
-    """PolicyExecutor._build_prompt. action_policy: a GameBoyRL action policy (default single)."""
+    """GameBoyRL's PolicyExecutor._build_prompt."""
     policy = action_policy or ACTION_POLICIES["single"]()
     return (
         STEP_PROMPT
@@ -113,7 +93,7 @@ def build_step_prompt(*, task: str, hint: Optional[str], steps_taken: int, error
 
 
 class GameBoyExecutor(Executor):
-    """A GameBoyRL executor arm on a GameBoyPlayEnv (see the module docstring)."""
+    """A GameBoyRL executor arm, `<action>_<history>`, on a GameBoyPlayEnv."""
 
     def __init__(self, *, arm: str = DEFAULT_ARM, history_k: int = DEFAULT_HISTORY_K, game: str = "",
                  **kwargs) -> None:
@@ -128,15 +108,13 @@ class GameBoyExecutor(Executor):
         self._last_reasoning: Optional[str] = None
 
     def reset_memory(self) -> None:
-        # A fresh history policy per leg, as GameBoyRL builds one per executor (and resets it).
         self._history_policy = HISTORY_POLICIES[self.history_name](call=self._gb_call, game=self.game,
                                                                    history_k=self.history_k)
         self._history_policy.reset()
         self._last_reasoning = None
 
     def history(self):
-        """The history policy's records (ActionHistoryPolicy._records / VisualHistoryPolicy._entries,
-        the latter with their frame-diff descriptions already computed) and the last reasoning."""
+        """The history policy's records and the last reasoning."""
         policy = self._history_policy
         for attr in ("_records", "_entries"):
             if hasattr(policy, attr):
@@ -151,8 +129,7 @@ class GameBoyExecutor(Executor):
     # ------------------------------------------------------------ calls
 
     def _gb_call(self, tag: str, *, texts, images, max_new_tokens: Optional[int] = None):
-        """Executor._vlm_call for the history policy's auxiliary calls: a list of prompts is one
-        batched request, recorded one CallRecord per prompt, owning no steps."""
+        """The history policy's auxiliary calls; a list of prompts is one batched request, one record per prompt."""
         if not isinstance(texts, list):
             return self.call(tag=tag, prompt=texts, images=images, max_new_tokens=max_new_tokens)
         t0 = time.time()
@@ -174,8 +151,7 @@ class GameBoyExecutor(Executor):
                                  action_policy=self._policy)
 
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
-        """One deciding call. Decision.action_text holds the decision's actions joined by newlines
-        (run() dispatches them one by one); invalid on a parse failure."""
+        """One deciding call; action_text holds the decision's actions joined by newlines."""
         call_kwargs = {}
         if self._policy.max_new_tokens is not None:
             call_kwargs["max_new_tokens"] = self._policy.max_new_tokens
@@ -195,8 +171,7 @@ class GameBoyExecutor(Executor):
             allow_done_check: bool = False, env_name: str = "",
             max_consecutive_invalid: Optional[int] = MAX_CONSECUTIVE_INVALID, finish_through_env: bool = False,
             stop_on_model_error: bool = False) -> LegReport:
-        """PolicyExecutor._execute. finish_through_env is moot (GameBoy has no finishing action:
-        success is the test tracker terminating)."""
+        """GameBoyRL's PolicyExecutor._execute; finish_through_env is ignored (GameBoy has no finishing action)."""
         limit = max_consecutive_invalid if max_consecutive_invalid is not None else float("inf")
         self.task = task
         self.report = LegReport(env_name=env_name, task=task, hint=hint, max_steps=max_steps,
@@ -240,8 +215,7 @@ class GameBoyExecutor(Executor):
         return self.report
 
     def _run_decision(self, *, obs, info, n_steps, max_steps, consecutive_invalid, limit, hint, allow_done_check):
-        """PolicyExecutor._run_decision. Returns (outcome or None, obs, info, n_steps,
-        consecutive_invalid, error)."""
+        """GameBoyRL's PolicyExecutor._run_decision."""
         gb_steps, last_step = [], None
         error, aborted = None, False
         for action_str in self._actions:
@@ -276,8 +250,7 @@ class GameBoyExecutor(Executor):
             if terminated or truncated:
                 self._history_policy.observe(gb_steps)
                 return ("terminated" if terminated else "truncated"), obs, info, n_steps, consecutive_invalid, error
-            # A failed high-level action ends a multi-action decision (low-level actions report
-            # success 0 by convention, so they never do).
+            # Low-level actions report success 0 by convention, so only high-level failures abort.
             if len(self._actions) > 1 and not info_after["low_level"] and info_after["action_success"] == 0:
                 error = f"Action '{action_str}' failed (blocked or invalid). Re-plan."
                 aborted = True
@@ -299,7 +272,7 @@ class GameBoyExecutor(Executor):
         return len(self.report.env_steps) % k == 0 or n_steps >= max_steps
 
     def done_check(self, *, step: StepRecord, hint: Optional[str]) -> bool:
-        """Executor._check_task_complete."""
+        """GameBoyRL's Executor._check_task_complete."""
         env_steps = self.report.env_steps
         history = ""
         if env_steps:

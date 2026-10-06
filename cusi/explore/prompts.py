@@ -1,21 +1,5 @@
-"""Policy prompts for exploration: each benchmark's native executor prompt (Part 1), so what
-the policy learns is in the evaluation format. Free play has no goal, so the goal slot holds
-EXPLORE_GOAL.
-
-    GameBoy  GameBoyRL's STEP_PROMPT with the `actions` history (as the practice executor).
-    Android  M3A's action-selection prompt (raw + set-of-mark screenshots, element list). M3A's
-             history is its own step summaries; to keep one model call per step, the policy's
-             history lines are "Action selected: <action>" without the summary.
-    Web      WebVoyager's system prompt + its first-turn observation message (screenshot +
-             element list). No chat history: each step is a fresh first turn, which keeps
-             training sequences short (three screenshots per step otherwise).
-
-reply_format (curiosity_plan §8 Q6): "native" keeps each benchmark's reply format (reasoning +
-action, ~150 tokens); "action_only" appends ACTION_ONLY[env] to the prompt, asking for the action
-alone, and caps max_new_tokens at MAX_NEW_TOKENS[env] (sized to the longest valid action; typed
-text makes Android/Web actions the longest). Every env parser accepts a bare action.
-
-A PolicyPrompter keeps the per-episode memory and returns neutral chats (cusi.practice format).
+"""
+Exploration policy prompts: each benchmark's native executor prompt with an exploration goal.
 """
 import json
 from typing import Optional
@@ -31,10 +15,7 @@ ACTION_ONLY = {
                 "and nothing else: no reasoning."),
     "web": "Reply with only one line, `Action: <one action in the format above>`, and nothing else: no Thought.",
 }
-# Prefilled start of the reply in action_only mode. Qwen3.5-0.8B follows the native prompts' formats
-# over the appended instruction: on Web it wrote "Thought: ..." and never reached the action within the
-# token cap (0% valid in the first Web smoke run); on Android it wrote M3A's "Reason: ..." (79-96
-# tokens). So the reply starts at the action itself.
+# Prefilled reply start in action_only mode: small models otherwise follow the native format and never reach the action.
 RESPONSE_PREFIX = {"action_only": {"web": "Action:", "android": '{"action_type": "'}, "native": {}}
 MAX_NEW_TOKENS = {"action_only": {"gameboy": 16, "android": 96, "web": 64},
                   "native": {"gameboy": 256, "android": 256, "web": 256}}

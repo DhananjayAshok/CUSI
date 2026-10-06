@@ -1,16 +1,5 @@
-"""What the three runners share for --supervisor (plans/agents.md section 3) and --workers.
-
-    @supervisor_options                    --supervisor, --supervisor_model, --supervisor_backend,
-                                           --supervisor_vllm_base_url, --max_leg_steps, --info_docs
-    run_episode(...)                       builds the arm's supervisor over a fresh-executor factory
-                                           and runs it; returns (SupervisorReport, extras)
-    supervisor_extra(report, extras)       the results-row fields every arm adds
-    run_pool(...)                          tasks in worker processes (each its own env and model
-                                           client), results handed back to the parent in order of
-                                           completion; workers=1 runs inline
-
-The supervisor model defaults to the executor's (the value given to --model_name, as GameBoyRL's
-run_benchmark.py does), on the same server.
+"""
+Supervisor arms and worker pools shared by the eval runners.
 """
 import functools
 import multiprocessing as mp
@@ -27,7 +16,7 @@ SUPERVISED_ARMS = tuple(SUPERVISORS)
 def supervisor_options(command):
     for option in reversed([
         click.option("--supervisor", default="baseline", type=click.Choice(SUPERVISED_ARMS), show_default=True,
-                     help="GameBoyRL supervisor arm wrapping the executor (plans/agents.md)."),
+                     help="GameBoyRL supervisor arm wrapping the executor."),
         click.option("--supervisor_model", default=None,
                      help="The supervisor's model. Default: the executor's (--model_name), same server."),
         click.option("--supervisor_backend", default=None, help="Default: the executor's backend."),
@@ -43,7 +32,7 @@ def supervisor_options(command):
 def supervisor_settings(*, supervisor: str, supervisor_model: Optional[str], supervisor_backend: Optional[str],
                         supervisor_vllm_base_url: Optional[str], max_leg_steps: int, info_docs: Optional[str],
                         model_name: str, model_backend: str, vllm_base_url: Optional[str]) -> dict:
-    """The resolved supervisor settings (for config.json and the workers)."""
+    """Supervisor settings, defaulting to the executor's model and server."""
     return {"supervisor": supervisor, "supervisor_model": supervisor_model or model_name,
             "supervisor_backend": supervisor_backend or model_backend,
             "supervisor_vllm_base_url": supervisor_vllm_base_url or vllm_base_url,
@@ -63,7 +52,7 @@ def model(*, model_name: str, model_backend: str, vllm_base_url: Optional[str]):
 
 def run_episode(*, env_name: str, settings: dict, task: str, env, obs: dict, info: dict, make_executor: Callable,
                 max_steps: int, run_kwargs: dict, game: str = "", parameters: dict) -> tuple:
-    """Build the arm's supervisor and run it. Returns (supervisor, result dict)."""
+    """Build the arm's supervisor and run it -> (supervisor, result dict)."""
     name = settings["supervisor"]
     vlm = None
     if name != "baseline":
@@ -82,7 +71,7 @@ def run_episode(*, env_name: str, settings: dict, task: str, env, obs: dict, inf
 
 
 def supervisor_extra(*, report, result: dict) -> dict:
-    """Results-row fields every arm adds: counts, tokens split, timings, and the arm's state."""
+    """Results-row fields every arm adds."""
     state = {k: v for k, v in result.items() if k != "report"}
     step_log = state.get("step_log") or []
     attempts = [a for r in step_log for a in r.get("attempts", [])]
@@ -101,8 +90,7 @@ def supervisor_state(*, result: dict) -> dict:
 
 
 def run_pool(*, jobs: list, worker: Callable, workers: int, on_result: Callable) -> None:
-    """worker(**job) for every job; on_result(job, result) in the parent. A worker that raises hands
-    the exception back as the result."""
+    """worker(**job) per job, on_result(job, result) in the parent; exceptions come back as results."""
     if workers <= 1:
         for job in jobs:
             try:

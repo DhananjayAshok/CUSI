@@ -1,27 +1,5 @@
-"""Layer 2 of cusi.state: NoveltyArchive (curiosity_plan §3.2.2), GameBoyRL's EmbedBuffer storage
-generalised to StateEmbedding. It knows nothing about episodes or searches: consumers decide its
-lifetime (curiosity: restore the prior every episode; search: one archive, never reset).
-
-    archive = NoveltyArchive(metric="cosine", text_embedder=encoder.text, w_image=encoder.w_image)
-    archive.novelty(e)          # 1 - max similarity (w_image = 1: EmbedBuffer's per-metric score)
-    archive.add(e)              # skipped if a stored state is a near-duplicate
-    snap = archive.copy(); ...; archive.restore(snap)
-    archive.save(directory=d, merge=True); archive = NoveltyArchive.load(directory=d, ...)
-    cell = archive.cell_of(e)   # needs cell_threshold; per-cell visit counts in archive.cell_counts
-
-- Dedup: a state is not stored if a stored one is within dedup_threshold (0.001) in every image
-  dimension and has an identical text representation.
-- Compaction: above max_size (10,000) the store is reduced to compact_to (max_size // 2) by
-  KMeans on the image vectors (random_state 42, n_init 1). With no text part the KMeans centres
-  are kept (renormalised for cosine), exactly as EmbedBuffer; with a text part, each cluster
-  keeps its member nearest the centre (a medoid), so image and text stay paired.
-- Cells: cell_of assigns a state to the most similar existing cell if the similarity passes
-  cell_threshold, else opens a new cell represented by that state. Cells are not compacted.
-- regions: named region-novelty stores (cusi.state.regions) for the `region` scorer, copied,
-  restored and saved with the archive.
-
-Save format: <dir>/archive.pt (images, texts, cells) + the region stores' files. load() also reads
-the pre-migration prior format (embed_buffer.pt + text_buffer.txt).
+"""
+The novelty archive: a deduplicated, compacting store of visited states, with cells and region stores.
 """
 import copy
 import os
@@ -83,8 +61,7 @@ class NoveltyArchive:
         return i, float(sims[i])
 
     def novelty(self, e: StateEmbedding) -> float:
-        """1.0 if empty. w_image = 1: EmbedBuffer.score (cosine 1 - max dot, distance min distance,
-        hinge 1 - max share within 0.01). Else 1 - max combined similarity."""
+        """1 - max similarity to a stored state (1.0 if empty)."""
         if len(self) == 0:
             return 1.0
         if self.w_image == 1.0:
@@ -187,8 +164,7 @@ class NoveltyArchive:
     # ------------------------------------------------------------ files
 
     def save(self, *, directory: str, merge: bool = False) -> None:
-        """Write the archive; merge=True first adds the entries of an archive already saved there that
-        this one does not have (GameBoyRL's iterative_save)."""
+        """Write the archive; merge=True also keeps entries already saved there that this one lacks."""
         os.makedirs(directory, exist_ok=True)
         images, texts = self.images, list(self.texts)
         path = os.path.join(directory, ARCHIVE_FILE)
@@ -208,7 +184,7 @@ class NoveltyArchive:
             buf.save(directory=directory, merge=merge)
 
     def load_from(self, *, directory: str) -> None:
-        """Replace this archive's contents with the one saved in `directory` (new or pre-migration format)."""
+        """Replace this archive's contents with the one saved in `directory`."""
         path = os.path.join(directory, ARCHIVE_FILE)
         if os.path.exists(path):
             data = torch.load(path, weights_only=False)

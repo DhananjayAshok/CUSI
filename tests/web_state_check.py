@@ -1,8 +1,6 @@
 """
-Web live check of the cusi.state text side (curiosity_plan §9: text embedders, option A region
-novelty, the unlabelled screenshot), a few random steps on arXiv. From the CUSI root:
-
-    bash scripts/container.sh python tests/web_state_check.py --text_embedder_model sentence-transformers/all-MiniLM-L6-v2
+Live check of the cusi.state text embedders and region novelty over a few random steps on arXiv.
+    bash scripts/container.sh python tests/web_state_check.py --text_embedder_model <sentence model>
 """
 import click
 import numpy as np

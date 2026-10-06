@@ -1,14 +1,5 @@
-"""`cnn`: GameBoyRL's CNNEmbedder (a small per-patch conv autoencoder) generalised to any canvas and
-channel count. Inference here; training is cusi.explore.train_embedder (`run_explore.py
-train_embedder --embedder cnn`).
-
-Each k x k x C patch (k = 8) -> BatchNorm (no affine) -> 3 convs -> Linear -> Sigmoid -> LayerNorm
--> patch_dim (4) numbers, each patch's vector unit-normalised; the concatenation is L2-normalised
-(GameBoy: 360 patches -> 1440-d). The decoder mirrors it, so decode() maps an embedding back to
-the canvas (used by world-model visualisations).
-
-Checkpoint: a directory with embedder.pt (state dict + architecture) and embedder_meta.json
-(embedder "cnn", env, canvas, kernel_size, patch_dim), checked on load.
+"""
+Trained embedder: GameBoyRL's per-patch conv autoencoder, generalised to any canvas.
 """
 import os
 from typing import Optional
@@ -28,8 +19,6 @@ def _init(layer, std=np.sqrt(2)):
 
 
 class PatchAutoencoder(nn.Module):
-    """The trainable network: per-patch encoder + decoder."""
-
     def __init__(self, *, channels: int, kernel_size: int = 8, patch_dim: int = 4) -> None:
         super().__init__()
         self.channels, self.kernel_size, self.patch_dim = channels, kernel_size, patch_dim
@@ -48,7 +37,7 @@ class PatchAutoencoder(nn.Module):
                                      nn.ReLU(), _init(nn.ConvTranspose2d(w1, channels, 1)))
 
     def encode_patches(self, patches: torch.Tensor) -> tuple:
-        """patches (N, P, C*k*k) in [0, 255] -> (unit patch vectors (N, P, patch_dim), normed patches (N*P, C, k, k))."""
+        """patches (N, P, C*k*k) in [0, 255] -> (unit patch vectors, BatchNorm-normed patches)."""
         n, p, _ = patches.shape
         x = self.patch_norm(patches.reshape(n * p, self.channels, self.kernel_size, self.kernel_size))
         z = nn.functional.normalize(self.encoder(x), dim=-1)

@@ -1,5 +1,6 @@
-"""`combination`: region_alpha * region + (1 - region_alpha) * embedding (GameBoyRL's
-CombinationBuffer with ocr_alpha). A part with weight 0 is neither computed nor stored."""
+"""
+Weighted mix of region and embedding novelty; a part with weight 0 is neither computed nor stored.
+"""
 from cusi.state.scorers.base import Scorer
 from cusi.state.scorers.embedding import frame_novelty
 from cusi.state.scorers.region import region_novelty

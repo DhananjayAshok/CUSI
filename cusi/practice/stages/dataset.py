@@ -1,16 +1,5 @@
-"""Stage 6: build the training dataset (GameBoyRL create_dataset).
-
-One row per kept model call = a chat (role/content messages, images as file paths) + the
-target response. GameBoy rows are one user turn (text, then the frame, as the call was sent);
-Android rows are M3A's action calls and summary calls (call_type); WebVoyager rows are the
-chat up to that call. Hint/guidance blocks are stripped, so inputs match what the evaluation
-agent sees. Kept: successful episodes, calls before the judge's safe-success cutoff (+margin),
-not REJECTed by clean, and accepted by the environment (stored `valid`, or a finishing action).
-
-Split by episode per task (val_frac, seeded); train rows are augmented with all but the last
-paraphrase, validation rows use the reserved last one.
-
-Output in dataset/: train.jsonl, validation.jsonl, images/, stats.json.
+"""
+Stage 6: build the train/validation chat dataset from the kept practice calls.
 """
 import json
 import os
@@ -21,7 +10,8 @@ import pandas as pd
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.agents.executors.base import strip_hint_blocks, strip_hint_messages
 from cusi.practice.stages.clean import candidate_calls, episode_cutoff, select_successful
-from cusi.practice.stages.common import PracticePaths, atomic_json, load_json
+from cusi.practice.stages.common import atomic_json, load_json
+from cusi.utils.paths import PracticePaths
 
 
 def _replace_task(messages: list, task: str, new: str) -> list:
@@ -54,7 +44,7 @@ def call_to_messages(*, call, image_paths: list) -> list:
 
 
 def split_episodes(*, episodes_by_task: dict, val_frac: float, seed: int) -> set:
-    """_split_episodes_by_task."""
+    """The validation episodes: a seeded val_frac of each task's episodes."""
     rng = np.random.default_rng(seed)
     val = set()
     for task, episodes in episodes_by_task.items():

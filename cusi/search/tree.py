@@ -1,12 +1,5 @@
-"""The search tree (plans/skill_discovery.md §1.4 B).
-
-A Node is a restorable state: the env that holds it (env_key, one env per root scene) and its
-saved state id, its observation (unlabelled frame + texts), StateEmbedding and cell, its parent,
-the segment that reached it, and its statistics (times expanded, yields received, VLM prior).
-An Expansion is one run of the exploration policy from a node: every step (action, frame,
-texts, info, novelty) is kept, including steps that did not become nodes, and the children it
-created. Children within one expansion are chained: each child's parent is the previous child
-of that expansion (or the start node), and its segment is the steps since that parent.
+"""
+The search tree: restorable state nodes and the expansions (kept step by step) that created them.
 """
 from dataclasses import dataclass, field
 from typing import Any, Optional

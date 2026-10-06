@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/practice_small.sh (all logic lives there). Submit from the CUSI root:
-#   sbatch --output="$results_dir/logs/practice_small_%j.out" slurm/practice_small.sh --model google/gemma-4-26b-a4b-it [--envs "gameboy web"]
+#   sbatch --output="$results_dir/logs/practice_small_%j.out" slurm/practice_small.sh --model <model> [--envs <value>]
 # Arguments after the script name are passed through to scripts/slurm/practice_small.sh.
 #SBATCH --job-name=cusi-practice-small
 #SBATCH --partition=medium-lg

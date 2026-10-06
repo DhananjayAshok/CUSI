@@ -1,18 +1,5 @@
-"""The supervisor contract: GameBoyRL's Supervisor (execution/supervisors/base.py) over our envs
-and executors.
-
-A supervisor owns the env, the task, a factory for fresh executors and (if it reasons) a model.
-call_executor() runs one leg: a fresh executor object started from the env's current observation,
-given the previous leg's memory (its history(): M3A summaries, WebVoyager chat, GameBoyRL
-history records) as previous_history, so memory is never reset within an episode (a change from
-GameBoyRL, which starts every leg with empty memory). It files the leg's LegReport.
-
-Leg endings (GameBoyRL's allow_self_termination):
-    GameBoy        allow_self_termination turns on the executor's done-check, as native.
-    Android / Web  the agent's own finishing action (M3A status, WebVoyager ANSWER). On a leg that
-                   may end itself it ends the leg without reaching the env (the supervisor's judge
-                   decides); on any other leg (the final target, baseline) it goes through env.step,
-                   so the benchmark scores it and the episode ends there, as the native harness.
+"""
+The supervisor contract, GameBoyRL's Supervisor over our envs and executors.
 """
 import time
 from abc import ABC, abstractmethod
@@ -23,18 +10,12 @@ from cusi.agents.records import EncodedImage, per_prompt_token_counts
 from cusi.agents.supervisors.prompts import SupervisorDomain, prompts_for
 from cusi.agents.supervisors.report import LegEvent, SupervisorCall, SupervisorReport
 
-#: Termination reasons that end the episode whatever the supervisor would do next. "model_error"
-#: is ours (WebVoyager's run.py ends the task on a model error); GameBoy never produces it.
+#: Termination reasons that end the episode whatever the supervisor would do next.
 EPISODE_ENDINGS = ("terminated", "truncated", "model_error")
 
 
 class Supervisor(ABC):
-    """:param make_executor: () -> a fresh Executor for one leg.
-    :param run_kwargs: extra Executor.run arguments (env_name, max_consecutive_invalid, ...).
-    :param obs, info: the env's observation after reset (legs chain from the latest one).
-    :param game: GameBoy's game name, filled into GameBoyRL's [GAME]; unused elsewhere.
-    :param vlm: the supervisor's model (a AgentVLM); None for a supervisor that makes no calls.
-    :param max_new_tokens: token budget for every supervisor call (GameBoyRL: 5000)."""
+    """Runs executor legs on one episode; make_executor builds a fresh executor per leg, vlm may be None."""
 
     def __init__(self, *, task: str, env, domain: SupervisorDomain, make_executor: Callable[[], Any],
                  obs: dict, info: dict, max_steps: int, run_kwargs: Optional[dict] = None, game: str = "",
@@ -53,11 +34,8 @@ class Supervisor(ABC):
         self._temperature = temperature
         self._parameters = load_parameters(parameters)
         self.obs, self.info = obs, info
-        #: Every leg's executor, in order (WebVoyager's native artefacts need each leg's chat and
-        #: screenshots).
         self.executors: list = []
-        #: The executor memory carried from leg to leg: the last leg's history(), passed to the next
-        #: leg's executor as previous_history. Never reset within an episode (replans included).
+        #: The last leg's history(); never reset within an episode, unlike GameBoyRL.
         self._carried_history = None
         self.report = SupervisorReport(task=task, supervisor_name=self.__class__.__name__, env=domain.env,
                                        init_kwargs=self._run_config())
@@ -78,13 +56,13 @@ class Supervisor(ABC):
         return self._vlm_instance
 
     def _vlm_call(self, stage: str, **kwargs: Any) -> Any:
-        """One supervisor call (a prompt, or a batch of prompts), recorded on the report."""
+        """One supervisor call or batch, recorded on the report."""
         result, records = self._vlm_infer(stage, **kwargs)
         self.report.event_log.extend(records)
         return result
 
     def _vlm_infer(self, stage: str, **kwargs: Any) -> tuple:
-        """The call, returning (result, records) without filing them (for thread pools)."""
+        """As _vlm_call, but returns the records instead of filing them (for thread pools)."""
         kwargs.setdefault("max_new_tokens", self._max_new_tokens)
         t0 = time.time()
         inferred = self._vlm.infer(texts=kwargs["texts"], images=kwargs.get("images"),
@@ -117,7 +95,7 @@ class Supervisor(ABC):
     # ------------------------------------------------------------ state
 
     def current_frame(self):
-        """The screen now: GameBoy's core frame (as GameBoyRL), else the unlabelled screenshot."""
+        """GameBoy's core frame, else the unlabelled screenshot."""
         if self._domain.env == "gameboy":
             return self._env._env.get_info()["core"]["current_frame"]
         return self.info.get("raw_frame", self.obs["frame"])
@@ -138,7 +116,7 @@ class Supervisor(ABC):
 
     def call_executor(self, task: str, *, hint: Optional[str] = None, allow_self_termination: bool = False,
                       max_steps: Optional[int] = None, target: Optional[str] = None, final: bool = True) -> Any:
-        """Run one leg from the current state and file it. See the module docstring for the endings."""
+        """Run one leg and file it; unless self-terminating, the agent's finish goes through env.step and is scored."""
         executor = self._make_executor(previous_history=self._carried_history)
         t0 = time.time()
         report = executor.run(task=task, hint=hint, max_steps=self._max_steps if max_steps is None else max_steps,

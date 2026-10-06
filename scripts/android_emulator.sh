@@ -2,31 +2,26 @@
 # Start or stop a headless Android emulator. Runs inside the container (see
 # scripts/container.sh) on a node with KVM.
 #
-#   bash scripts/android_emulator.sh --action start [--port 5554] [--grpc_port 8554] [--read_only true]
-#   bash scripts/android_emulator.sh --action stop  [--port 5554]
+#   bash scripts/android_emulator.sh --action <action> [--port <value>] [--grpc_port <value>] [--read_only <value>]
+#   bash scripts/android_emulator.sh --action <action>  [--port <value>]
 #
 # start returns once Android has booted; the emulator keeps running in the
-# background of the same container session. --read_only true discards all changes
-# on exit and lets several emulators share one AVD (use distinct --port and
-# --grpc_port each). Use --read_only false only for one-time setup of the AVD.
+# background of the same container session. --read_only <read_only> discards all changes
+# on exit and lets several emulators share one AVD (use distinct --port <port>
+# --grpc_port <grpc_port> Use --read_only <read_only> only for one-time setup of the AVD.
 #
-# --snapshots true allows manual snapshots (`adb emu avd snapshot save/load`), which
+# --snapshots <snapshots> allows manual snapshots (`adb emu avd snapshot save/load`), which
 # cusi.envs' AndroidPlayEnv uses for fast full resets. The emulator refuses snapshots
 # with -read-only, so instead it runs on a private writable copy of the AVD in /tmp
-# (--read_only is then ignored); the shared AVD is never modified, the copy is
+# (--read_only <read_only> then ignored); the shared AVD is never modified, the copy is
 # removed on stop, and several such emulators can still run side by side.
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["avd"]="AndroidWorldAvd"
-ARGS["port"]="5554"
-ARGS["grpc_port"]="8554"
-ARGS["read_only"]="true"
-ARGS["snapshots"]="false"
-ARGS["gpu"]="off"
-ARGS["boot_timeout"]="600"
-REQUIRED_ARGS=("action")
+populate_dict ANDROID_EMULATOR_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array ANDROID_EMULATOR_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

@@ -184,3 +184,174 @@ function parse_args() {
     echo "Script: $0 Active variables:"
     for opt in "${!_pa_args[@]}"; do echo "  -$opt = ${_pa_args[$opt]}"; done
 }
+
+################################################################################
+# Script defaults: every bash script's optional arguments (<NAME>_DEFAULTS) and required ones
+# (<NAME>_ESSENTIALS). Scripts load them with populate_dict / populate_array before parse_args.
+################################################################################
+
+# scripts/android_emulator.sh
+ANDROID_EMULATOR_ESSENTIALS=("action")
+declare -A ANDROID_EMULATOR_DEFAULTS=(
+    ["avd"]="AndroidWorldAvd"
+    ["port"]="5554"
+    ["grpc_port"]="8554"
+    ["read_only"]="true"
+    ["snapshots"]="false"
+    ["gpu"]="off"
+    ["boot_timeout"]="600"
+)
+
+# scripts/commit_all.sh
+COMMIT_ALL_ESSENTIALS=()
+declare -A COMMIT_ALL_DEFAULTS=(
+    ["message"]="Update"
+    ["push"]="true"
+)
+
+# scripts/serve_vllm.sh
+SERVE_VLLM_ESSENTIALS=("model")
+declare -A SERVE_VLLM_DEFAULTS=(
+    ["served_model_name"]="none"
+    ["port"]="$vllm_port"
+    ["tp"]="none"
+    ["max_model_len"]="$vllm_max_model_len"
+    ["max_images"]="$vllm_max_images"
+    ["gpu_memory_utilization"]="0.90"
+    ["extra"]="none"
+)
+
+# scripts/stop_vllm.sh
+STOP_VLLM_ESSENTIALS=()
+declare -A STOP_VLLM_DEFAULTS=(
+    ["port"]="$vllm_port"
+)
+
+# scripts/submit_ablation.sh
+SUBMIT_ABLATION_ESSENTIALS=("models" "judge_model")
+declare -A SUBMIT_ABLATION_DEFAULTS=(
+    ["prefix"]="abl"
+    ["time"]="24:00:00"
+    ["time_min"]="2:00:00"   # Slurm may shorten a job's limit to this, e.g. to fit before a maintenance window
+    ["envs"]="gameboy android web"
+    ["supervisors"]="baseline revision subgoal"
+    ["gameboy_workers"]="8"
+    ["web_workers"]="4"
+    ["android_emulators"]="3"
+    ["partition"]="medium-lg"
+)
+
+# scripts/slurm/curiosity_practice.sh
+CURIOSITY_PRACTICE_ESSENTIALS=("env" "run" "model")
+declare -A CURIOSITY_PRACTICE_DEFAULTS=(
+    ["max_groups"]="6"
+    ["z_min"]="3.0"
+    ["outlier"]="2.5"
+    ["rescore"]="none"
+)
+
+# scripts/slurm/eval.sh
+EVAL_ESSENTIALS=("env" "model" "run")
+declare -A EVAL_DEFAULTS=(
+    ["supervisor"]="baseline"
+    ["workers"]="1"
+    ["n_tasks"]="none"
+    ["tasks"]="none"
+    ["task_file"]="cusi"
+    ["judge_model"]="none"
+    ["judge_only"]="false"
+    ["n_emulators"]="1"
+    ["vllm_port"]="none"
+    ["overwrite"]="false"
+    ["ignore_config_violation"]="false"
+)
+
+# scripts/slurm/eval_parity_android.sh
+EVAL_PARITY_ANDROID_ESSENTIALS=("model" "run")
+declare -A EVAL_PARITY_ANDROID_DEFAULTS=(
+    ["tasks"]="CameraTakePhoto,ClockStopWatchRunning,ClockTimerEntry,ContactsAddContact,ExpenseDeleteSingle,MarkorCreateFolder,MarkorDeleteNewestNote,OpenAppTaskEval,RecipeDeleteSingleRecipe,SimpleCalendarNextEvent,SystemBluetoothTurnOff,SystemBluetoothTurnOn,SystemBrightnessMax,SystemWifiTurnOff,SystemWifiTurnOn,TasksDueOnDate"
+    ["runs"]="native ours native2"
+    ["vllm_port"]="8037"
+)
+
+# scripts/slurm/eval_parity_gameboy.sh
+EVAL_PARITY_GAMEBOY_ESSENTIALS=("model")
+declare -A EVAL_PARITY_GAMEBOY_DEFAULTS=(
+    ["n_tasks"]="20"
+    ["max_steps"]="50"
+    ["run"]="parity"
+    ["greedy"]="true"
+    ["self_check"]="false"
+)
+
+# scripts/slurm/eval_parity_web.sh
+EVAL_PARITY_WEB_ESSENTIALS=("model")
+declare -A EVAL_PARITY_WEB_DEFAULTS=(
+    ["sites"]="ArXiv,GitHub,Huggingface"
+    ["per_site"]="8"
+    ["native_runs"]="2"
+    ["port"]="8011"
+)
+
+# scripts/slurm/explore.sh
+EXPLORE_ESSENTIALS=("env" "scene" "run" "policy_model" "curiosity_module" "image_embedder" "text_embedder")
+declare -A EXPLORE_DEFAULTS=(
+    ["total_steps"]="1536"
+    ["wm"]="false"
+    ["tasks"]="false"
+    ["extra"]="none"
+    ["model"]="none"
+)
+
+# scripts/slurm/policy_model_check.sh
+POLICY_MODEL_CHECK_ESSENTIALS=("models")
+declare -A POLICY_MODEL_CHECK_DEFAULTS=(
+)
+
+# scripts/slurm/practice_small.sh
+PRACTICE_SMALL_ESSENTIALS=("model")
+declare -A PRACTICE_SMALL_DEFAULTS=(
+    ["envs"]="gameboy web android"
+)
+
+# scripts/slurm/vllm_smoke.sh
+VLLM_SMOKE_ESSENTIALS=("model")
+declare -A VLLM_SMOKE_DEFAULTS=(
+)
+
+# setup/android/app_setup.sh
+ANDROID_APP_SETUP_ESSENTIALS=()
+declare -A ANDROID_APP_SETUP_DEFAULTS=(
+    ["avd"]="AndroidWorldAvd"
+    ["force"]="false"
+)
+
+# setup/android/create_avd.sh
+ANDROID_CREATE_AVD_ESSENTIALS=()
+declare -A ANDROID_CREATE_AVD_DEFAULTS=(
+    ["avd"]="AndroidWorldAvd"
+    ["force"]="false"
+)
+
+# setup/android/inspect_apps.sh
+ANDROID_INSPECT_APPS_ESSENTIALS=()
+declare -A ANDROID_INSPECT_APPS_DEFAULTS=(
+    ["apps"]="chrome contacts markor"
+    ["wait"]="20"
+    ["out_dir"]="none"
+    # Extended regex; if any app's screen text matches it, exit 1 (after inspecting all).
+    ["fail_on"]="none"
+)
+
+# setup/container/build.sh
+CONTAINER_BUILD_ESSENTIALS=()
+declare -A CONTAINER_BUILD_DEFAULTS=(
+    ["force"]="false"
+)
+
+# setup/verify/e2e.sh
+VERIFY_E2E_ESSENTIALS=()
+declare -A VERIFY_E2E_DEFAULTS=(
+    ["webvoyager"]="true"
+    ["android_world"]="true"
+)

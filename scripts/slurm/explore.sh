@@ -4,23 +4,20 @@
 # (Slurm wrapper: slurm/explore.sh).
 #
 # GPUs: PPO uses the first visible GPU (Qwen3.5-0.8B / Qwen3-VL-2B + LoRA and SigLIP 2 fit on one 48 GB card).
-# With --tasks true, vLLM then serves --model on the remaining visible GPUs, which must hold it
+# With --tasks <tasks> vLLM then serves --model <model> the remaining visible GPUs, which must hold it
 # (so request 1 + however many vLLM needs). Android needs /dev/kvm on the node.
 # gameboy runs on the host; android/web inside the container (GPU via CUSI_CONTAINER_NV=1).
 #
-#   bash scripts/slurm/explore.sh --env gameboy --scene viridian --run dev \
-#       --policy_model Qwen/Qwen3.5-0.8B --curiosity_module combinationbuffer \
-#       --image_embedder random_patch --text_embedder none \
-#       [--total_steps 1536] [--wm true] [--tasks true --model google/gemma-4-26b-a4b-it] \
-#       [--extra "--encoder_model google/siglip2-base-patch16-224 --region_alpha 0.5 --num_steps 16"]
+#   bash scripts/slurm/explore.sh --env <env> --scene <scene> --run <run> \
+#       --policy_model <policy_model> --curiosity_module <curiosity_module> \
+#       --image_embedder <image_embedder> --text_embedder <text_embedder> \
+#       [--total_steps <value>] [--wm <value>] [--tasks <value>] \
+#       [--extra <value>]
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-ARGS["total_steps"]="1536"
-ARGS["wm"]="false"
-ARGS["tasks"]="false"
-ARGS["extra"]="none"
-ARGS["model"]="none"
-REQUIRED_ARGS=("env" "scene" "run" "policy_model" "curiosity_module" "image_embedder" "text_embedder")
+populate_dict EXPLORE_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array EXPLORE_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV="${ARGS["env"]}"

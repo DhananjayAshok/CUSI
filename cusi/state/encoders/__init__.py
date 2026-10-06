@@ -1,4 +1,6 @@
-"""Layer 1 of cusi.state: image and text embedders (curiosity_plan §3.2.1)."""
+"""
+Image and text embedders.
+"""
 from typing import Any, Optional
 from cusi.state.encoders.base import ImageEmbedder, check_meta, write_meta
 from cusi.state.encoders.text import TEXT_EMBEDDERS, TextEmbedder, build_text_embedder

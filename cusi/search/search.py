@@ -1,20 +1,5 @@
-"""The pre-exploration tree search loop (plans/skill_discovery.md §1.4).
-
-    search = TreeSearch(envs={"viridian": env}, encoder=encoder, scorer=scorer, archive=archive,
-                        expander=RandomExpander(), stats=stats, selector=EnergySelector(stats=stats, ...),
-                        k_steps=10, node_threshold=0.05, prior=None, logger=None)
-    reason = search.run(stop=lambda s: "done" if s.iteration >= 20 else None)
-
-One iteration: select a node (selector) -> restore it (env.load_state) -> run the expander for up
-to k_steps -> score every step with the scorer against the ONE archive of the search (never
-reset; every step is added and counted in its cell) -> a step becomes a child node when its score
-passes node_threshold, and the segment end always does (children get a saved state and a VLM
-prior) -> the expansion's yield goes to the stats provider, which propagates it.
-
-Passed in, not decided here: envs (one per root scene, keyed by scene; a node's state lives on
-its env), the stats provider (q(node), n(node), n_total(), expansion_yield(expansion=...),
-record_yield(tree=..., node_id=..., value=...)), the stopping rule (stop(search) -> reason or
-None), and an optional logger (on_iteration(search=..., record=...)).
+"""
+The tree search loop: select a node, restore it, expand it, score the steps against one never-reset archive.
 """
 import time
 from typing import Any, Callable, Optional
@@ -147,6 +132,7 @@ class TreeSearch:
         return record
 
     def run(self, *, stop: Callable) -> str:
+        """Iterate until stop(search) returns a reason (or no node is restorable)."""
         if not self.tree.nodes:
             self.add_roots()
         while True:

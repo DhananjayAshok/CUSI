@@ -4,10 +4,12 @@
 #
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model.
 #
-#   bash scripts/slurm/vllm_smoke.sh --model google/gemma-4-26b-a4b-it
+#   bash scripts/slurm/vllm_smoke.sh --model <model>
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-REQUIRED_ARGS=("model")
+populate_dict VLLM_SMOKE_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array VLLM_SMOKE_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}"

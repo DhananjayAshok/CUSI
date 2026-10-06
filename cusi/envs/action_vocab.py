@@ -1,19 +1,6 @@
-"""Per-environment discrete action vocabularies for the world model (plan Part 2.7, decision 18).
-
-Canonical actions (info["parsed_action"]) map to an index; action_space.json pins the meaning.
-
-    GameBoy  the low-level buttons (UP, DOWN, LEFT, RIGHT, A, B, START).
-    Android  click / long_press / input_text x element index, scroll-<direction> x element index,
-             whole-screen scroll-<direction>, navigate_back, navigate_home, keyboard_enter, wait,
-             open_app, answer, status. Element indices < K = 64 get their own slot; >= K share
-             one overflow slot. Typed text and the app name are not encoded (one index per
-             action type and element).
-    Web      click / type x element index, scroll-<up|down> x element index, window scroll
-             up/down, wait, goback, google, answer; K = 128 plus overflow.
-Every vocabulary ends with "invalid": the action did not parse (a no-op step).
-
-Note (kept as decided): an element index names a different element on every screen, so on
-Android/Web the action embedding carries less information than a GameBoy button does.
+"""
+Per-environment discrete action vocabularies for the world model.
+Element indices >= K share one overflow slot; typed text is not encoded; "invalid" is a no-op.
 """
 import json
 import os

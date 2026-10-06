@@ -1,5 +1,6 @@
-"""`embedding`: 1 - max similarity of next to the archive (EmbedBuffer), with the archive's metric
-and image/text weighting."""
+"""
+Embedding novelty: 1 - max similarity of the next state to the archive.
+"""
 from cusi.state.scorers.base import Scorer
 
 

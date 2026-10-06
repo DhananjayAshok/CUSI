@@ -1,14 +1,5 @@
-"""World model training (plan decision 11, Part 2.7). The model (GameBoyRL's architecture) and its
-loading live in cusi.state.scorers.world_model, with the `world_model` curiosity scorer that runs it;
-this module trains it, with loss MSE to emb(frame_{t+1}), on the replay buffers: for every
-transition t (step >= 1) the inputs are the embeddings of the frames at steps t-2 and t-1 (the first
-transition repeats its frame) and the action index of transition t; the target is the embedding at
-step t. action_space.json (from the run that
-produced the replay) pins the index meaning and is copied next to world_model.pt.
-
-Embeddings: the replay's stored ones, or (curiosity_plan §3.7) re-embedded from the stored frames
-with any cusi.state image embedder (`embedder=`). world_model_meta.json records which embedder (name
-and its metadata), so the `world_model` scorer can check it is used with the same one.
+"""
+World model training on replay buffers: predict the next frame's embedding from two frames and an action.
 """
 import json
 import os
@@ -24,8 +15,7 @@ from cusi.state.scorers.world_model import WORLD_MODEL_META_FILENAME, WorldModel
 
 
 def transitions_from_replay(*, replay_dirs: list, embedder=None) -> dict:
-    """{"obs": (N, 2D), "action": (N,), "next": (N, D), "episode": (N,), "frame_changed": (N,)} float32/int64.
-    embedder: a cusi.state ImageEmbedder to re-embed the frames with (default: the stored embeddings)."""
+    """Transition arrays (obs, action, next, episode, frame_changed); embedder re-embeds frames instead of using stored ones."""
     obs, act, nxt, epi, changed = [], [], [], [], []
     episode_id = 0
     for directory in replay_dirs:
@@ -69,7 +59,7 @@ def evaluate(*, model: WorldModel, data: dict, idx: np.ndarray, device: str) -> 
 def stored_embedder_name(*, replay_dirs: list) -> str:
     for directory in replay_dirs:
         for row in iter_replay(directory=directory, load_frames=False):
-            return row.get("embedder") or "siglip"     # pre-migration replays stored SigLIP 2 vectors
+            return row.get("embedder") or "siglip"     # older replays without the field stored SigLIP 2 vectors
     raise ValueError(f"No replay rows in {replay_dirs}")
 
 

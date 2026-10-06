@@ -1,13 +1,5 @@
-"""Stage 5: clean the practice data (GameBoyRL clean_practice).
-
-Over the successful episodes only:
-  paraphrase  k paraphrases per unique task (the last is reserved for validation).
-  filter      ACCEPT/REJECT each call that would become a dataset row (same episode
-              selection and safe-success cutoff as the dataset stage), erring towards ACCEPT;
-              the after-step frame is appended when the call produced a step.
-
-Output in practice/: paraphrases.json, clean_decisions.csv (group_idx, attempt, call_idx,
-accept, reason). Checkpoints make reruns resume.
+"""
+Stage 5: paraphrase the successful tasks and ACCEPT/REJECT each candidate dataset call.
 """
 import os
 import pickle
@@ -19,27 +11,25 @@ from cusi.utils.parsing import parse_list
 from cusi.practice.prompts import (AUGMENT_PARAPHRASE_PROMPT, CLEAN_PROMPT, CLEAN_PROMPT_TRANSITION,
                                    CLEAN_SUMMARY_PROMPT, fill)
 from cusi.agents.records import SUMMARY_TAG
-from cusi.practice.stages.common import PracticePaths, atomic_json, load_json, run_jobs
+from cusi.practice.stages.common import atomic_json, load_json, run_jobs
+from cusi.utils.paths import PracticePaths
 
 
 def select_successful(df: pd.DataFrame) -> pd.DataFrame:
-    """Episodes usable for the dataset: the ones the judge called successful."""
     if df.empty or "success" not in df.columns:
         return df.iloc[0:0]
     return df[df["success"] == True]   # noqa: E712 (pandas)
 
 
 def episode_cutoff(*, safe_success_point, n_calls: int, safety_margin: int) -> int:
-    """_episode_cutoff: leading calls to keep (safe_success_point is a call-log index)."""
+    """Leading calls to keep; safe_success_point is a call-log index."""
     if safe_success_point is None or pd.isna(safe_success_point):
         return n_calls
     return min(n_calls, int(safe_success_point) + safety_margin)
 
 
 def candidate_calls(*, report, cutoff: int, dataset_tags: tuple) -> list:
-    """(call_idx, call) pairs that may become dataset rows: dataset-tagged calls before the
-    cutoff whose action the environment accepted (or that finished the leg). A summary row is
-    kept when the action call it follows was."""
+    """Dataset-tagged (call_idx, call) pairs before the cutoff whose action the env accepted."""
     out, last_action_ok = [], False
     for call_idx, call in enumerate(report.calls[:cutoff]):
         if call.tag not in dataset_tags:
@@ -55,7 +45,7 @@ def candidate_calls(*, report, cutoff: int, dataset_tags: tuple) -> list:
 
 
 def render_chat(messages: list) -> str:
-    """A chat as text for the reviewer, with <image> where screenshots were."""
+    """A chat as text, with <image> where screenshots were."""
     lines = []
     for msg in strip_hint_messages(messages):
         content = msg["content"]

@@ -1,11 +1,5 @@
-"""A decoder from frozen-encoder embeddings to pixels (plan decision 17, Part 2.8), trained per
-environment on replay-buffer frames at a reduced resolution, so world-model predictions
-(embeddings) can be shown as frames, as GameBoyRL's autoencoder decoder does.
-
-    Linear(D -> 512 * h/16 * w/16) -> 4 x [Upsample x2, Conv3x3, GroupNorm, SiLU] -> Conv3x3 -> sigmoid
-    loss: L1 + MSE on [0, 1] RGB at OUTPUT_SIZES[env]
-
-    decoder = EmbeddingDecoder.load(directory=...); frames = decoder.decode(embeddings)  # uint8 (N, h, w, 3)
+"""
+A decoder from frozen-encoder embeddings to pixels, so world-model predictions can be shown as frames.
 """
 import json
 import os
@@ -16,8 +10,7 @@ import torch.nn as nn
 from cusi.utils.log_handling import log_info
 from cusi.explore.replay import iter_replay
 
-# (height, width), divisible by 16, keeping each environment's aspect ratio roughly:
-# GameBoy 144x160 (native), Android 2400x1080 -> 256x112, Web 768x1024 -> 96x128.
+# (height, width), divisible by 16, roughly keeping each environment's aspect ratio.
 OUTPUT_SIZES = {"gameboy": (144, 160), "android": (256, 112), "web": (96, 128)}
 
 

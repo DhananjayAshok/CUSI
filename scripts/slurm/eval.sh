@@ -3,32 +3,29 @@
 # job starts fresh on its own port (prefix caching off), with the job's timing recorded
 # (plans/agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
 #
-# GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model (and
+# GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model <model>
 # --judge_model). GameBoy runs on the node; Web and Android run in the CUSI container (Chromium;
 # the emulator, which needs /dev/kvm). The supervisor uses the executor's model and server.
 #
-#   bash scripts/slurm/eval.sh --env gameboy --model google/gemma-4-26b-a4b-it --run abl_26b_baseline \
-#       [--supervisor baseline|revision|subgoal|...] [--workers 1] [--n_tasks N] [--tasks a,b] [--vllm_port P]
-#   bash scripts/slurm/eval.sh --env web ... [--task_file cusi] [--judge_model M]   # no --judge_model: agent only
-#   bash scripts/slurm/eval.sh --env android ... [--n_emulators K]   # K emulators, shard i/K -> run <run>_s<i>
-#   bash scripts/slurm/eval.sh --env web --model M --run R --judge_only true --judge_model J   # score a finished run
+#   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> \
+#       [--supervisor <value>] [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--vllm_port <value>]
+#   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
+#   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
+#   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> --judge_only <judge_only> --judge_model <judge_model>   # score a finished run
+#   bash scripts/slurm/eval.sh --env <env> ... [--overwrite <value>] [--ignore_config_violation <value>]
 #
-# --vllm_port defaults to 8100 + (job id mod 800): serve_vllm.sh reuses a healthy server on its port
+# A run may only be resumed with the config it started with. --overwrite deletes the run dir (and its
+# <run>_s<i> shards) first; --ignore_config_violation resumes anyway.
+#
+# --vllm_port <vllm_port> to 8100 + (job id mod 800): serve_vllm.sh reuses a healthy server on its port
 # and stop_vllm.sh stops whatever serves there, so two jobs on a node must not share one.
 # Timing: <run dir>/timing.jsonl gets one line per job (node, GPUs, vLLM start-up, agent and judge
 # wall-clock).
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-ARGS["supervisor"]="baseline"
-ARGS["workers"]="1"
-ARGS["n_tasks"]="none"
-ARGS["tasks"]="none"
-ARGS["task_file"]="cusi"
-ARGS["judge_model"]="none"
-ARGS["judge_only"]="false"
-ARGS["n_emulators"]="1"
-ARGS["vllm_port"]="none"
-REQUIRED_ARGS=("env" "model" "run")
+populate_dict EVAL_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array EVAL_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV_NAME="${ARGS["env"]}"
@@ -40,7 +37,10 @@ if [[ "$PORT" == "none" ]]; then
     PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 800 ))
 fi
 URL="http://127.0.0.1:$PORT/v1/"
-RUN_DIR="${storage_dir%/}/eval/$ENV_NAME/$RUN"
+RUN_DIR=$(python -m cusi.utils.paths eval_run --env "$ENV_NAME" --run "$RUN")
+if [[ "${ARGS["overwrite"]}" == "true" && "${ARGS["judge_only"]}" != "true" ]]; then
+    rm -rf "${RUN_DIR%/}" "${RUN_DIR%/}"_s[0-9]*
+fi
 mkdir -p "$RUN_DIR"
 GPU_NAMES=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort | uniq -c | sed 's/^ *//' | paste -sd ';')
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none} ($GPU_NAMES)  env: $ENV_NAME  model: $MODEL  supervisor: ${ARGS["supervisor"]}  port: $PORT  -> $RUN_DIR"
@@ -53,6 +53,7 @@ serve() {   # serve <model>; prints the start-up seconds
 }
 
 FLAGS=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "$URL" --run_name "$RUN" --supervisor "${ARGS["supervisor"]}")
+[[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)
 [[ "${ARGS["tasks"]}" != "none" ]] && FLAGS+=(--tasks "${ARGS["tasks"]}")
 case "$ENV_NAME" in
     gameboy)

@@ -1,16 +1,5 @@
-"""Training the learned image embedders (curiosity_plan §3.2b); checkpoints in the format
-cusi.state loads (weights + embedder_meta.json).
-
-    cnn     GameBoyRL's train_observation_encoder.py, on replay frames: the per-patch autoencoder
-            (cusi.state.encoders.cnn) trained on reconstruction (MSE in the BatchNorm-normalised
-            patch space).
-    siglip  observation-reconstruction fine-tuning: SigLIP's pooled vector -> the pixel decoder
-            (cusi.explore.decoder.EmbeddingDecoder) -> the env canvas, L1 + MSE, vision tower
-            (low learning rate) and decoder trained together. Writes vision_model.pt +
-            embedder_meta.json (+ decoder.pt), which SiglipEmbedder(load_path=...) loads.
-
-Frames come from replay directories (any embedder's replay: frames are always stored), put on the
-env canvas. Both stop at --epochs or --max_minutes, whichever comes first.
+"""
+Training the learned image embedders (cnn autoencoder, SigLIP reconstruction fine-tuning) on replay frames.
 """
 import json
 import os

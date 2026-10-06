@@ -1,12 +1,6 @@
 """
-Smoke test: WebVoyager's run.py and evaluation/auto_eval.py on CUSI's model interface.
-
-Runs without Chrome or a GPU; a local mock OpenAI-compatible server stands in for vLLM.
-Checks run.py's flags and model setup, the agent's model call, PDF answering, and a full
-auto_eval scoring pass over a fake results dir. Run from the CUSI root with CUSI on
-PYTHONPATH:
-
-    source scripts/utils.sh && python tests/smoke_webvoyager_cusi.py
+Smoke test of WebVoyager's run.py and auto_eval.py against a mock vLLM server, with no Chrome or GPU.
+    python tests/smoke_webvoyager_cusi.py
 """
 import argparse
 import json
@@ -23,7 +17,7 @@ WEBVOYAGER = os.path.join(PROJECT_ROOT, "WebVoyager")
 
 
 def write_pdf(*, path, text):
-    """Write a one-page PDF containing ``text``, with a correct xref table."""
+    """Write a one-page PDF containing text."""
     stream = zlib.compress(f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode())
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -50,8 +44,7 @@ def check_run_py(*, base_url, requests, work):
     sys.path.insert(0, WEBVOYAGER)
     import run as wv_run
 
-    # main() end to end with an empty task file: parses every flag, builds the model
-    # and the Chrome options, and returns without opening a browser.
+    # An empty task file: main() parses every flag and builds the model without opening a browser.
     empty = os.path.join(work, "empty.jsonl")
     open(empty, "w").close()
     sys.argv = ["run.py", "--test_file", empty, "--model_backend", "vllm", "--model_name", "mock-model",

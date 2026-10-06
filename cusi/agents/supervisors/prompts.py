@@ -1,12 +1,5 @@
-"""Every prompt the supervisors send, per env.
-
-GameBoy: GameBoyRL's own texts (execution/supervisors/prompts.py), copied verbatim — only the
-prompts the supervisor arms send (plan, judge, regression, hint, plan-flaw, and the knowledge
-selection of info_subgoal); the checker arm's CRITIQUE_* / DESCRIBE_* / JUDGE_BINARY_* are not
-ported. tests/supervisor_prompts_test.py asserts they equal GameBoyRL's.
-
-Android / Web: GENERIC_* below, the same prompts with games, players and buttons reworded for an
-agent on a phone or in a browser (plans/agents.md decision 1), filled per env by prompts_for().
+"""
+Every prompt the supervisors send, per env: GameBoyRL's texts verbatim, and their phone/browser rewording.
 """
 from dataclasses import dataclass
 
@@ -223,11 +216,7 @@ Relevant: <yes or no>
 
 # ===========================================================================================
 # Android / Web: the same prompts reworded for an agent using a phone or a browser.
-# [WHERE] ("on an Android phone" / "in a web browser"), [SUBJECT] (what knowledge is about),
-# [CONTROLS], [PLAN_EXAMPLE], [REGRESSION_EXAMPLES], [HINT_EXAMPLE] and [STUCK_EXAMPLE] are filled
-# from the env's SupervisorDomain by prompts_for(); every other placeholder is the supervisor's.
-# Structure, rules and response formats are GameBoyRL's; what changes is the wording about
-# games, players and buttons, and the planner rule (element numbers instead of buttons).
+# The domain placeholders ([WHERE], [CONTROLS], ...) are filled by prompts_for(); the rest by the supervisor.
 # ===========================================================================================
 
 GENERIC_PLAN_PROMPT = """You are planning how an agent should complete a task [WHERE].
@@ -449,19 +438,16 @@ PROMPT_NAMES = ("PLAN_PROMPT", "FILTER_INSIGHTS_PROMPT", "DISTILL_INSIGHTS_PROMP
 
 @dataclass(frozen=True)
 class SupervisorDomain:
-    """How the supervisor prompts, and the text the supervisors build around them, name an env.
-
-    GameBoy's values are GameBoyRL's own strings; its prompts are GameBoyRL's texts above and its
-    [GAME] is filled with the game's name at render time, as GameBoyRL does."""
+    """The per-env wording of the supervisor prompts and the text built around them; defaults are GameBoy's."""
     env: str
-    where: str = ""                   # "on an Android phone" (GENERIC_* only)
-    subject: str = ""                 # what recorded knowledge is about (GENERIC_* only)
+    where: str = ""
+    subject: str = ""
     controls: str = ""
     plan_example: str = ""
     regression_examples: str = ""
     stuck_example: str = ""
     hint_example: str = ""
-    # Text the supervisors write around the prompts (_format.py, revising.py, info_subgoal.py).
+    # Text the supervisors write around the prompts.
     trace_heading: str = "what the player pressed, and why they said they pressed it:"
     trace_block_heading: str = "What they pressed, and the reason they gave for each:"
     regression_tail: str = "the player cannot finish this step from a state they have gone backwards into."
@@ -471,10 +457,8 @@ class SupervisorDomain:
                                     "recorded frame of its own — it was written from general knowledge of the game"
                                     " rather than from a playthrough, so judge it against its description and the "
                                     "current screen alone, and be correspondingly more willing to answer no.")
-    #: The reply line each executor gives its reasons on (action_trace).
+    #: The reply line the executor gives its reasons on.
     reasoning_key: str = "Reasoning"
-    #: Show a step the env rejected with its error in action lists (not GameBoy: GameBoyRL lists an
-    #: unavailable action by name).
     show_step_failures: bool = True
 
 
@@ -523,8 +507,7 @@ DOMAINS = {"gameboy": GAMEBOY, "android": ANDROID, "web": WEB}
 
 
 def prompts_for(*, domain: SupervisorDomain) -> dict:
-    """{name: text} for every prompt in PROMPT_NAMES. GameBoy: GameBoyRL's texts unchanged ([GAME]
-    left for the supervisor to fill). Android / Web: the GENERIC_* texts with the domain filled in."""
+    """{name: text} for every prompt in PROMPT_NAMES, with the domain's wording filled in."""
     module = globals()
     if domain.env == "gameboy":
         return {name: module[name] for name in PROMPT_NAMES}

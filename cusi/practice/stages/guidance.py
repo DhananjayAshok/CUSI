@@ -1,15 +1,12 @@
-"""Stage 3: distil guidance from each successful attempt (GameBoyRL infer_guidance).
-
-8-frame slices of the successful leg (initial frame + the frame after each step) become a
-summary, a goal condition and steps, then one consolidation call.
-
-Output: guidance.json, {group: {task, scene, goal_condition, guidance: {summary, steps}}}.
+"""
+Stage 3: distil guidance (summary, goal condition, steps) from each successful attempt.
 """
 import os
 import pickle
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.practice.judging import infer_guidance
-from cusi.practice.stages.common import PracticePaths, atomic_json, load_json, run_jobs
+from cusi.practice.stages.common import atomic_json, load_json, run_jobs
+from cusi.utils.paths import PracticePaths
 
 
 def guidance(*, spec, vlm, paths: PracticePaths, max_new_tokens: int, max_obs_at_once: int, overwrite: bool,

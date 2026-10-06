@@ -1,7 +1,6 @@
-"""Part 0 verification: one text and one image request to the served model through
-cusi.utils (build_model(model_backend="vllm")), plus a rough throughput measurement.
-
-    python tests/vllm_smoke.py --model_name <served name>    (with the server from scripts/serve_vllm.sh up)
+"""
+Checks one text and one image request to the served vLLM model, and measures rough throughput.
+    python tests/vllm_smoke.py --model_name <served name>
 """
 import time
 import click

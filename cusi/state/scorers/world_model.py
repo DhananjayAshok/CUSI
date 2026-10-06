@@ -1,29 +1,5 @@
-"""`world_model`: 1 - cos(predicted next embedding, real next embedding) (GameBoyRL's WorldModel
-curiosity), and the world model itself.
-
-The model has GameBoyRL's architecture (plan decision 11, Part 2.7; cleanrl_utils/
-port_gameboy_worlds/curiosity.py WorldModel, FRAME_STACK = 2), in the frozen encoder's embedding
-space:
-
-    [emb(frame_{t-1}), emb(frame_t)] -> Linear(2*D -> 512)
-    action index -> nn.Embedding(n_actions, 512)
-    concat -> Linear(1024 -> 512) -> ReLU -> LayerNorm(512) -> Linear(512 -> D) -> L2-normalise
-
-The action index comes from cusi.envs.action_vocab. This module holds the model and its loading
-(inference); training on replay buffers is cusi.explore.world_model, as the cnn image embedder's
-architecture is in cusi.state.encoders and its training in cusi.explore.
-
-The scorer loads a trained model from --world_model_load_path, which is required: a randomly
-initialised world model gives a meaningless score. On load it is checked to have been trained with
-the same image embedder (world_model_meta.json) and the env's action vocabulary (action_space.json).
-It is not trained here, and archive resets don't affect it (the archive is not used).
-
-The action is the env's canonical parsed_action (info["parsed_action"]). A step the env rejected
-(next.info["valid"] False) is a no-op (the screen is unchanged) and scores 0, as the archive
-scorers give an unchanged screen: world models trained on random-agent replays never see the
-"invalid" index, and their arbitrary prediction for it rewarded invalid actions (0.57 mean vs 0.06
-for valid steps in the first GameBoy smoke run). The frame before prev is prev.prev_image
-(repeated prev frame if missing, as in training).
+"""
+World-model curiosity: 1 - cos(predicted, real next embedding), and GameBoyRL's world model itself (inference only).
 """
 import json
 import os
@@ -37,8 +13,7 @@ WORLD_MODEL_META_FILENAME = "world_model_meta.json"
 
 
 def read_meta(*, directory: str) -> dict:
-    """world_model_meta.json: the env, the image embedder (name and metadata) and the embedding size
-    the model was trained with."""
+    """The env, image embedder and embedding size the model was trained with."""
     path = os.path.join(directory, WORLD_MODEL_META_FILENAME)
     if not os.path.exists(path):
         raise ValueError(f"{directory} has no {WORLD_MODEL_META_FILENAME} (trained before cusi.state); retrain it")
@@ -80,6 +55,8 @@ class WorldModel(nn.Module):
 
 
 class WorldModelScorer(Scorer):
+    """Needs a trained model; steps the env rejected score 0 (the model never saw them in training)."""
+
     name = "world_model"
 
     def __init__(self, *, load_path: str, env_name: str, encoder, device: str = None) -> None:

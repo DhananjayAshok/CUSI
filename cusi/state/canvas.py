@@ -1,8 +1,5 @@
-"""Per-environment canvas (curiosity_plan §3.1): every image embedder, world model and decoder
-sees the unlabelled frame resized to this fixed H x W x C, so the patch grid is fixed per env.
-
-    canvas = to_canvas(frame=frame, env_name="android")      # (256, 112, 3) uint8
-    frame = frame_for_embedding(obs=obs, info=info)           # info["raw_frame"] if the env has one
+"""
+The fixed per-environment canvas every image embedder, world model and decoder sees.
 """
 import numpy as np
 from PIL import Image

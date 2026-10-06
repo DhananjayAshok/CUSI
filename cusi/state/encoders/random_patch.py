@@ -1,9 +1,5 @@
-"""`random_patch`: GameBoyRL's PatchProjection generalised to any canvas and channel count.
-
-The canvas is cut into non-overlapping k x k patches (k = 8); each k*k*C patch goes through one
-fixed random linear map (seed 42, N(0, 1) weights, no bias) to `patch_dim` = 2 numbers; the
-concatenation is L2-normalised. On GameBoy (144 x 160 x 1) this is exactly GameBoyRL's 720-d
-embedding. No training.
+"""
+Untrained embedder: a fixed random projection of each image patch (GameBoyRL's PatchProjection, any canvas).
 """
 import torch
 import torch.nn as nn
@@ -30,8 +26,7 @@ class RandomPatchEmbedder(ImageEmbedder):
         self.kernel_size, self.patch_dim = kernel_size, patch_dim
         self.n_patches = (h // kernel_size) * (w // kernel_size)
         self.output_dim = self.n_patches * patch_dim
-        # As GameBoyRL's make_network: seed 42, nn.Linear init, then N(0, 1) weights; the global RNG
-        # is left untouched.
+        # Matches GameBoyRL's make_network; the global RNG is left untouched.
         with torch.random.fork_rng(devices=[]):
             torch.manual_seed(42)
             linear = nn.Linear(kernel_size * kernel_size * c, patch_dim, bias=False)

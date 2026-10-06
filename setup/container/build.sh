@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Build the CUSI benchmark container (setup/container/cusi.def) into
 # $storage_dir/containers/cusi.sif. Needs internet; no root (uses --fakeroot).
-# Run from the CUSI root: bash setup/container/build.sh [--force true]
+# Run from the CUSI root: bash setup/container/build.sh [--force <value>]
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["force"]="false"
+populate_dict CONTAINER_BUILD_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array CONTAINER_BUILD_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

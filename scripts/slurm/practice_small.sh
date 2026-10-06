@@ -6,12 +6,13 @@
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model.
 # Android needs /dev/kvm on the node.
 #
-#   bash scripts/slurm/practice_small.sh --model google/gemma-4-26b-a4b-it [--envs "gameboy web android"]
+#   bash scripts/slurm/practice_small.sh --model <model> [--envs <value>]
 # Per-environment logs: $results_dir/logs/practice_small_<jobid>_<env>.log
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-ARGS["envs"]="gameboy web android"
-REQUIRED_ARGS=("model")
+populate_dict PRACTICE_SMALL_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array PRACTICE_SMALL_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 ENVS="${ARGS["envs"]}"

@@ -8,13 +8,7 @@ from cusi.utils.model_factory import build_model
 
 
 class InferenceModelWrapper(infer.LlmWrapper, infer.MultimodalLlmWrapper):
-    """
-    Lets AndroidWorld agents (M3A, T3A) use a cusi.utils InferenceModel.
-
-    Replaces ``infer.Gpt4Wrapper``. ``raw_response`` is the InferenceModel's
-    ``{"output": ..., "meta": ...}`` dict, which AndroidWorld stores in each step's
-    data and pickles into the run's checkpoints.
-    """
+    """Lets AndroidWorld agents (M3A, T3A) use an InferenceModel in place of ``infer.Gpt4Wrapper``."""
 
     def __init__(
         self,
@@ -23,14 +17,6 @@ class InferenceModelWrapper(infer.LlmWrapper, infer.MultimodalLlmWrapper):
         max_new_tokens: int = 1000,
         temperature: float = 0.0,
     ) -> None:
-        """
-        :param model: The model to query.
-        :type model: InferenceModel
-        :param max_new_tokens: Max tokens per response. 1000 matches Gpt4Wrapper.
-        :type max_new_tokens: int
-        :param temperature: Sampling temperature. 0.0 matches Gpt4Wrapper.
-        :type temperature: float
-        """
         self._model = model
         self._max_new_tokens = max_new_tokens
         self._temperature = temperature
@@ -59,9 +45,7 @@ def make_llm_wrapper(
     vllm_base_url: Optional[str] = None,
     parameters: dict[str, Any] = None,
 ) -> InferenceModelWrapper:
-    """
-    Build the wrapper AndroidWorld's run.py hands to M3A/T3A. See ``build_model``.
-    """
+    """Build the wrapper AndroidWorld's run.py hands to M3A/T3A."""
     parameters = load_parameters(parameters)
     model = build_model(
         model_name=model_name,

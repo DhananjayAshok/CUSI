@@ -1,27 +1,20 @@
-"""Stage 4: practise each successful task (GameBoyRL practice_tasks).
-
-Each (group, attempt) episode: reset with a deterministic seed, perturb the start with
-n_random_actions random actions (env.sample_action), run the executor with the guidance as its
-hint and the goal condition for the judge only; on failure derive a critique hint, replay the
-same perturbation and retry once with "guidance + Specific hint". Every executor call (prompt,
-images, response) is pickled per episode as the LegReport of the final try.
-
-Output in practice/: <group>_<attempt>.pkl, results.csv, config.json (checkpoint.json resumes).
+"""
+Stage 4: practise each successful task from randomly perturbed starts, with guidance as the hint.
 """
 import os
 import pandas as pd
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.practice.judging import derive_critique_hint, format_guidance, judge_leg
-from cusi.practice.stages.common import PracticePaths, atomic_json, atomic_pickle, load_json, run_jobs
+from cusi.practice.stages.common import atomic_json, atomic_pickle, load_json, run_jobs
+from cusi.utils.paths import PracticePaths
 
 
 def episode_seed(*, base_seed: int, group_index: int, attempt: int) -> int:
-    """_episode_seed's layout (decimal place values), on the group's position."""
     return base_seed + group_index * 100 + attempt
 
 
 def perturb(*, env, seed: int, n_random_actions: int) -> tuple:
-    """reset(seed) then n random actions. Returns (obs, info, actions)."""
+    """reset(seed) then n random actions; returns (obs, info, actions)."""
     obs, info = env.reset(seed=seed)
     actions = []
     for _ in range(n_random_actions):
@@ -62,7 +55,7 @@ def practice(*, spec, pool, vlm, paths: PracticePaths, n_attempts: int, n_random
     rows = [] if overwrite else load_json(ckpt, [])
     done = {(r["group_idx"], r["attempt"]) for r in rows}
     groups = list(guidance_data)
-    # Grouped by scene: switching scene rebuilds the environment (about 30 s on Android).
+    # Grouped by scene: switching scene rebuilds the environment.
     jobs = sorted([(g, a) for g in groups for a in range(n_attempts) if (g, a) not in done],
                   key=lambda j: (guidance_data[j[0]]["scene"], j[0], j[1]))
     atomic_json({"env": spec.name, "model_name": vlm.model_name, "n_tasks": len(groups), "n_attempts": n_attempts,

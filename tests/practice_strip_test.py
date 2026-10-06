@@ -1,6 +1,5 @@
-"""Check that stripping the guidance block from M3A's and WebVoyager's prompts gives exactly the
-prompt each native agent builds without guidance (what create_dataset trains on).
-
+"""
+Checks that stripping guidance from M3A's and WebVoyager's prompts gives the native no-guidance prompt.
     python tests/practice_strip_test.py
 """
 from cusi.agents.executors.base import strip_hint_blocks

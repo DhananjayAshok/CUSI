@@ -1,10 +1,6 @@
 """
-curiosity_plan §3.5 step 0: does a policy model load and train through cusi.explore.policy.VLMPolicy?
-Loads it (generic AutoModelForImageTextToText + LoRA on the derived targets), generates with an
-image (non-thinking template), runs one evaluate + backward, and times generation. From the root,
-on a GPU node:
-
-    python tests/policy_model_check.py --policy_model Qwen/Qwen3.5-0.8B --policy_model Qwen/Qwen3-VL-2B-Instruct
+Checks that a policy model loads, generates, and backpropagates through VLMPolicy, and times it (GPU).
+    python tests/policy_model_check.py --policy_model <model> [--policy_model <model> ...]
 """
 import time
 import click
@@ -46,8 +42,7 @@ def main(policy_models, n_generate):
         print(f"  act(): {np.mean(times):.2f}s per call, {np.mean(tokens):.1f} tokens, "
               f"{np.sum(tokens) / np.sum(times):.1f} tokens/s (generate + scoring + ref)", flush=True)
         assert "<think>" not in out["text"], "thinking block in the reply: the non-thinking template was not used"
-        # A longer reply: act's per-token log-probs (eval mode) must match evaluate's (train mode), or the
-        # PPO ratio is off before any update.
+        # act's per-token log-probs must match evaluate's, or the PPO ratio is off before any update.
         long_msgs = [{"role": "user", "content": [{"type": "text", "text": "Describe this image in detail."},
                                                   {"type": "image", "image": 0}]}]
         policy.max_new_tokens = 48

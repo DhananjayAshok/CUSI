@@ -1,11 +1,6 @@
 """
-Smoke test: AndroidWorld's run.py -> *_cusi agent -> CUSI vLLMModel -> HTTP -> agent.
-
-Runs without an emulator or GPU. A local mock OpenAI-compatible server stands in for
-vLLM, AndroidWorld's FakeAsyncEnv stands in for the emulator, and a stub adb satisfies
-run.py's import-time adb lookup. Run from the CUSI root with CUSI on PYTHONPATH:
-
-    source scripts/utils.sh && python tests/smoke_android_world_cusi.py
+Smoke test of AndroidWorld's *_cusi agents against a mock vLLM server, with no emulator or GPU.
+    python tests/smoke_android_world_cusi.py
 """
 import os
 import sys

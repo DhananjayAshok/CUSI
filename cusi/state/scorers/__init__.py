@@ -1,4 +1,6 @@
-"""Layer 3 of cusi.state: novelty scorers (curiosity_plan §3.2.3)."""
+"""
+Novelty scorers.
+"""
 from typing import Any, Optional
 from cusi.state.scorers.base import Scorer
 

@@ -1,11 +1,5 @@
-"""Energy-based selection over all nodes (plans/skill_discovery.md §1.4 C).
-
-    E(n) = Q(n) + c * P(n) * sqrt(N_total) / (1 + N(n)),   p(n) ∝ exp(E(n) / τ)
-
-τ -> 0 is greedy PUCT; large τ is uniform. roots_only=True is the "always restart from the scene
-start" special case. Q, N and N_total come from a stats provider (any object with
-q(node), n(node), n_total()); P(n) is the node's VLM prior (default_prior when it has none).
-Unrestorable nodes are never selected.
+"""
+Energy-based node selection: p(n) ∝ exp(E(n) / τ), E(n) = Q(n) + c * P(n) * sqrt(N_total) / (1 + N(n)).
 """
 from dataclasses import dataclass
 from typing import Optional

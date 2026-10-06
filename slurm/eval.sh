@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/eval.sh (all logic lives there). Submit from the CUSI root:
 #   sbatch --output="$results_dir/logs/eval_%j.out" slurm/eval.sh \
-#       --env gameboy --model google/gemma-4-26b-a4b-it --run abl_gameboy_26b_subgoal --supervisor subgoal
+#       --env <env> --model <model> --run <run> --supervisor <supervisor>
 # Arguments after the script name are passed through to scripts/slurm/eval.sh.
 #SBATCH --job-name=cusi-eval
 #SBATCH --partition=medium-lg

@@ -1,7 +1,5 @@
-"""Stage 1: propose tasks from each scene's first frame (GameBoyRL propose_tasks_zeroshot).
-
-Output: proposals.jsonl, one {"scene", "tasks", "all_tasks", "response"} line per scene.
-`tasks` is the first n_tasks of the parsed list (the scale decision: 3 per scene).
+"""
+Stage 1: propose tasks from each scene's first frame.
 """
 import json
 import os
@@ -9,7 +7,8 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.agents.specs import EnvPool, proposal_context
 from cusi.utils.parsing import parse_list
 from cusi.practice.prompts import PROPOSE_PROMPT, PROPOSE_TEXTS_BLOCK, fill
-from cusi.practice.stages.common import PracticePaths, run_jobs
+from cusi.practice.stages.common import run_jobs
+from cusi.utils.paths import PracticePaths
 
 
 def propose(*, spec, pool: EnvPool, vlm, paths: PracticePaths, n_tasks: int, max_new_tokens: int,

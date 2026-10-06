@@ -1,8 +1,6 @@
 """
-The cusi.search core runs with cusi.search.toy made unimportable (the strip-out check of
-plans/skill_discovery.md §1.5), on a fake env with saved states and an inline stats provider. CPU:
-
-    python -m tests.search_core_test      (from the repo root)
+Checks that the cusi.search core runs on a fake env with cusi.search.toy unimportable.
+    python -m tests.search_core_test
 """
 import importlib.abc
 import sys
@@ -17,7 +15,7 @@ class BlockToy(importlib.abc.MetaPathFinder):
 
 
 class FakeEnv:
-    """A 1-D corridor of 30 positions; each position has its own frame. Actions: L, R, X (no-op)."""
+    """A 1-D corridor of 30 positions, each with its own frame; actions L, R, X (no-op)."""
     env_description = "a fake corridor"
 
     def __init__(self, seed: int) -> None:

@@ -1,27 +1,6 @@
-"""GameBoy test-set evaluation through GameBoyPlayEnv(mode="test") (plans/eval_plan.md §3.2), under any
-GameBoyRL supervisor arm (plans/agents.md).
-
---supervisor baseline (default) reproduces GameBoyRL's `baseline` arm (run_benchmark.py baseline ->
-DummySupervisor -> one executor leg per task, no hint, no self-termination), with any GameBoyRL
-executor arm:
-    tasks      the first --n_tasks rows of get_benchmark_tasks(game) (a prefix, as native)
-    env        get_test_environment(row) with headless, max_steps (175, the shell wrapper's
-               default) and wait_ticks 20 (benchmark_scripts/common.py forces it)
-    executor   any <action>_<history> arm (cusi.agents.executors.gameboy.ARMS), default
-               single_visual (CUSI's choice; run_benchmark.py defaults to single_none); max_new_tokens 2000
-               (executor_vlm_max_new_tokens), temperature unset (server default), no hint, no
-               self-termination check, 4 consecutive invalid decisions end the leg; the
-               executor's decision budget is the same max_steps
-    success    the episode ended "terminated" (the task's test tracker)
---supervisor revision / subgoal / info_subgoal_*: GameBoyRL's benchmark_scripts/<arm>.py settings:
-    executor max_new_tokens 8000 (its --executor_max_new_tokens), supervisor calls 5000, legs of
-    --max_leg_steps 5, the episode budget max_steps, the same env.
-Recorded per task: emulator steps (info["core"]["steps"]), invalid decisions, tokens, subgoals,
-the action sequence across legs, the supervisor's counts / plan; episodes/<task_id>/ (cusi.eval.episode)
-and trajectories/<task_id>.pkl.gz (the SupervisorReport).
-
-    python run_eval.py gameboy --model_name google/gemma-4-26b-a4b-it --run_name dev --n_tasks 20 \
-        [--supervisor subgoal] [--workers 4]
+"""
+GameBoy test-set evaluation through GameBoyPlayEnv test mode, under any GameBoyRL supervisor arm.
+Settings mirror GameBoyRL's benchmark scripts.
 """
 import gzip
 import os
@@ -29,7 +8,8 @@ import pickle
 import time
 import click
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.eval.records import EvalRow, EvalRun
+from cusi.eval.records import EvalRow, EvalRun, run_options
+from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
 from cusi.eval.supervision import (run_episode, run_pool, supervisor_extra, supervisor_options, supervisor_settings,
                                    supervisor_state)
 from cusi.agents.executors.gameboy import ARMS, DEFAULT_ARM   # imports GameBoyRL: run in its own process
@@ -50,16 +30,14 @@ def select_tasks(*, game: str, n_tasks) -> list:
 
 
 def action_sequence(*, reports: list) -> list:
-    """Every leg's steps in order: each env step's action name (as GameBoyRL's report.action_name gives
-    it, e.g. "UP"), "INVALID" for an invalid decision."""
+    """Every leg's action names in order, "INVALID" for an invalid decision."""
     from cusi.agents.records import InvalidRecord
     return ["INVALID" if isinstance(s, InvalidRecord) else s.action_label() for r in reports for s in r.steps]
 
 
 def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, temperature,
-             executor: str, max_steps: int, controller_variant: str, save_video: bool, session_name: str,
+             executor: str, max_steps: int, controller_variant: str, session_name: str,
              out_dir: str, settings: dict, parameters=None) -> EvalRow:
-    """One task (in the parent or a worker process)."""
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.episode import write_episode
@@ -72,7 +50,7 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
         SUPERVISED_EXECUTOR_MAX_NEW_TOKENS
     t0 = time.time()
     env = GameBoyPlayEnv(game=row["game"], mode="test", controller_variant=controller_variant, max_steps=max_steps,
-                         wait_ticks=GAMEBOY_WAIT_TICKS, save_video=save_video, session_name=session_name,
+                         wait_ticks=GAMEBOY_WAIT_TICKS, session_name=session_name,
                          benchmark_row=row, parameters=parameters)
     try:
         obs, info = env.reset()
@@ -98,9 +76,9 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
     extra = {"init_state": row["init_state"], "subgoals_reached": list(subgoals.get("completed", [])),
              "subgoals_all": list(subgoals.get("all", [])), "n_decisions": report.n_steps,
              "actions": action_sequence(reports=legs), **supervisor_extra(report=report, result=result)}
-    with gzip.open(os.path.join(out_dir, "trajectories", f"{task_id}.pkl.gz"), "wb") as f:
+    with gzip.open(os.path.join(eval_trajectories(run_dir=out_dir), f"{task_id}.pkl.gz"), "wb") as f:
         pickle.dump(report, f)
-    write_episode(directory=os.path.join(out_dir, "episodes", task_id), report=report, gameboy=True, meta={
+    write_episode(directory=eval_episode(run_dir=out_dir, task_id=task_id), report=report, gameboy=True, meta={
         "task_id": task_id, "task": row["task"], "env": "gameboy", "game": row["game"], "model": model_name,
         "executor": executor, "executor_max_new_tokens": max_new_tokens, "supervisor": settings["supervisor"],
         "supervisor_model": settings["supervisor_model"] if settings["supervisor"] != "baseline" else None,
@@ -131,15 +109,15 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
                    " CUSI uses single_visual.")
 @click.option("--controller_variant", default="low_level", show_default=True)
 @click.option("--temperature", default=None, type=float, help="Default: unset (server default), as native.")
-@click.option("--save_video", default=False, type=bool,
-              help="GameBoyWorlds' own emulator video (every frame). The step video is always written.")
 @click.option("--rerun_failed", default=True, type=bool)
 @click.option("--workers", default=1, show_default=True, help="Tasks run in parallel (one emulator each).")
 @supervisor_options
+@run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, game, n_tasks, max_steps, executor,
-            controller_variant, temperature, save_video, rerun_failed, workers, supervisor, supervisor_model,
-            supervisor_backend, supervisor_vllm_base_url, max_leg_steps, info_docs):
+            controller_variant, temperature, rerun_failed, workers, supervisor, supervisor_model,
+            supervisor_backend, supervisor_vllm_base_url, max_leg_steps, info_docs, overwrite,
+            ignore_config_violation):
     """GameBoy benchmark through GameBoyPlayEnv test mode, under a GameBoyRL supervisor arm."""
     settings = supervisor_settings(supervisor=supervisor, supervisor_model=supervisor_model,
                                    supervisor_backend=supervisor_backend,
@@ -151,9 +129,10 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
                   temperature=temperature, wait_ticks=GAMEBOY_WAIT_TICKS, workers=workers,
                   max_new_tokens=EXECUTOR_MAX_NEW_TOKENS if supervisor == "baseline" else
                   SUPERVISED_EXECUTOR_MAX_NEW_TOKENS, **settings)
-    out_dir = os.path.join(parameters["storage_dir"], "eval", "gameboy", run_name)
-    run = EvalRun(directory=out_dir, config=config)
-    os.makedirs(os.path.join(out_dir, "trajectories"), exist_ok=True)
+    out_dir = eval_run(parameters=parameters, env="gameboy", run=run_name)
+    run = EvalRun(directory=out_dir, config=config, overwrite=overwrite,
+                  ignore_config_violation=ignore_config_violation)
+    os.makedirs(eval_trajectories(run_dir=out_dir), exist_ok=True)
     tasks = select_tasks(game=game, n_tasks=n_tasks)
     log_info(f"GameBoy eval {run_name}: {len(tasks)} tasks, {executor} under {supervisor}, max_steps {max_steps}, "
              f"{workers} worker(s) -> {out_dir}", parameters=parameters)
@@ -166,7 +145,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
         session = f"cusi_eval_{tag}_{controller_variant}_{model_name.split('/')[-1].lower()}_{run_name}/{i:03d}/"
         jobs.append(dict(row=row, task_id=task_id, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, temperature=temperature, executor=executor, max_steps=max_steps,
-                         controller_variant=controller_variant, save_video=save_video, session_name=session,
+                         controller_variant=controller_variant, session_name=session,
                          out_dir=out_dir, settings=settings, parameters=parameters if workers <= 1 else None))
 
     def on_result(job, result):

@@ -1,29 +1,12 @@
-"""Episode artifacts: one supervised episode (any arm, baseline included) as JSON + PNG + a step
-video, readable by a debug panel without our classes (plans/agents.md section 5). The content and
-structure of GameBoyRL's archived SupervisorReport, minus the pickle.
-
-    episodes/<task_id>/
-      meta.json        task, env, models, executor arm, supervisor and its settings, outcome,
-                       budget used, tokens and timings (supervisor / executor), answer, error,
-                       supervisor state (plan, original_plan, step_log, ...) and env extras
-      events.jsonl     the episode in order: {"kind": "supervisor", ...} and {"kind": "leg", ...}
-      legs/<n>.jsonl   one line per executor call of leg n (prompt or chat, images, reply, tokens,
-                       decision, and the steps it caused with their frames)
-      frames/<k>.png   every image any call saw or any step produced, deduplicated
-      episode.mp4      the step video
-
-Image fields hold paths relative to the episode directory ("frames/12.png").
-
-The step video: the leg's first frame, then the frame after every env step, in episode order across
-legs, one frame per step (1 fps by default). Under each frame a caption bar: leg and target, step
-number, the action, and INVALID / the env's error when the step failed. A decision that never
-reached the env repeats the current screen with its INVALID caption, so gaps show. Frames are the
-judge frames (Android / Web: the unlabelled screenshot); GameBoy's are upscaled 3x.
+"""
+Episode artifacts: one supervised episode as JSON, deduplicated frames in frames.zip and a captioned step video.
 """
 import hashlib
+import io
 import json
 import os
 import textwrap
+import zipfile
 from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -32,29 +15,46 @@ from cusi.agents.supervisors.report import LegEvent, SupervisorCall, SupervisorR
 
 VIDEO_FPS = 1
 GAMEBOY_SCALE = 3
-#: StepRecord.extra keys worth keeping in the leg files (the rest are env internals).
+#: StepRecord.extra keys kept in the leg files.
 STEP_EXTRA_KEYS = ("action_name", "frame_changed", "action_success", "low_level", "warning", "pdf", "url", "stale")
 
 
+FRAMES_FILE = "frames.zip"
+WEBP_METHOD = 2
+
+
 class FrameStore:
-    """Writes each distinct image once, as frames/<k>.png; returns its relative path."""
+    """Each distinct image once, as lossless WebP in frames.zip (stored); returns its reference "frames.zip/<k>.webp"."""
 
     def __init__(self, *, directory: str) -> None:
-        self.directory = directory
-        os.makedirs(os.path.join(directory, "frames"), exist_ok=True)
-        self._paths: dict = {}
+        self.path = os.path.join(directory, FRAMES_FILE)
+        self._tmp = self.path + ".tmp"
+        self._zip = zipfile.ZipFile(self._tmp, "w", compression=zipfile.ZIP_STORED)
+        self._refs: dict = {}
 
     def __call__(self, image) -> Optional[str]:
         if image is None:
             return None
         encoded = EncodedImage.of(image)
         key = hashlib.sha1(encoded.png).hexdigest()
-        if key not in self._paths:
-            rel = f"frames/{len(self._paths)}.png"
-            with open(os.path.join(self.directory, rel), "wb") as f:
-                f.write(encoded.png)
-            self._paths[key] = rel
-        return self._paths[key]
+        if key not in self._refs:
+            member = f"{len(self._refs)}.webp"
+            buf = io.BytesIO()
+            encoded.pil().save(buf, format="WEBP", lossless=True, quality=100, method=WEBP_METHOD)
+            self._zip.writestr(member, buf.getvalue())
+            self._refs[key] = f"{FRAMES_FILE}/{member}"
+        return self._refs[key]
+
+    def close(self) -> None:
+        self._zip.close()
+        os.replace(self._tmp, self.path)
+
+
+def read_frame(*, path: str) -> Image.Image:
+    """The image at <dir>/frames.zip/<member>, e.g. os.path.join(episode_dir, reference)."""
+    archive, member = path.rsplit("/", 1)
+    with zipfile.ZipFile(archive) as z:
+        return Image.open(io.BytesIO(z.read(member))).convert("RGB")
 
 
 def _step_json(step, frames: FrameStore) -> dict:
@@ -78,10 +78,11 @@ def _call_json(call, frames: FrameStore) -> dict:
 
 
 def write_episode(*, directory: str, meta: dict, report: SupervisorReport, gameboy: bool = False,
-                  video: bool = True) -> None:
-    """Write one episode's artifacts (see the module docstring)."""
+                  video: bool = True, named_images: Optional[dict] = None) -> dict:
+    """Returns {name: frame reference} for named_images, which are stored alongside the episode's frames."""
     os.makedirs(os.path.join(directory, "legs"), exist_ok=True)
     frames = FrameStore(directory=directory)
+    named = {name: frames(image) for name, image in (named_images or {}).items()}
     leg = 0
     with open(os.path.join(directory, "events.jsonl"), "w") as events:
         for i, event in enumerate(report.event_log):
@@ -104,6 +105,7 @@ def write_episode(*, directory: str, meta: dict, report: SupervisorReport, gameb
                        "final_reward": rep.final_reward, "error": rep.error, "seconds": event.seconds,
                        "initial_frame": frames(rep.initial_frame), "calls": rel}
             events.write(json.dumps(row, default=str) + "\n")
+    frames.close()
     full_meta = {**meta, "supervisor_name": report.supervisor_name, "supervisor_settings": report.init_kwargs,
                  **report.counts(), **report.timing(), "n_steps": report.n_steps, "n_invalid": report.n_invalid}
     with open(os.path.join(directory, "meta.json"), "w") as f:
@@ -111,12 +113,13 @@ def write_episode(*, directory: str, meta: dict, report: SupervisorReport, gameb
     if video:
         write_step_video(path=os.path.join(directory, "episode.mp4"), report=report,
                          scale=GAMEBOY_SCALE if gameboy else 1)
+    return named
 
 
 # --------------------------------------------------------------------------- the step video
 
 def video_frames(*, report: SupervisorReport) -> list:
-    """[(image, caption lines)] in episode order (see the module docstring)."""
+    """[(image, caption lines)] in episode order; a decision that never reached the env repeats the screen."""
     out = []
     legs = report.legs
     n_legs = len(legs)

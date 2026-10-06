@@ -1,9 +1,5 @@
-"""Judging a finished leg, deriving a critique hint, and distilling guidance from frames.
-
-Ported from GameBoyRL: AttemptCheckerSupervisor.process_executor_return + _describe_trajectory
-+ _frame_to_call_cutoff (execution/supervisors/checker.py), derive_critique_hint (same file),
-and infer_guidance_for_trajectory (vlm_scripts/infer_guidance.py). All work from frames (the
-raw screenshot where the environment has one), plus the agent's final answer when it gave one.
+"""
+Judging a finished leg, deriving a critique hint, and distilling guidance from frames.
 """
 from typing import Any, Optional
 from cusi.utils.parsing import parse_key_value
@@ -33,7 +29,7 @@ def _single(vlm: AgentVLM, *, prompt: str, images: Optional[list], max_new_token
 
 
 def describe_trajectory(*, frames: list, vlm: AgentVLM, domain: Domain, max_new_tokens: int, log: list) -> str:
-    """AttemptCheckerSupervisor._describe_trajectory over the post-step frames."""
+    """Describe the post-step frames, in slices consolidated into one description."""
     total = len(frames)
     if total <= DESCRIBE_SLICE_SIZE:
         output = _single(vlm, prompt=fill(DESCRIBE_SLICE_PROMPT, domain=domain, START_IDX=1, END_IDX=total, TOTAL=total),
@@ -52,7 +48,7 @@ def describe_trajectory(*, frames: list, vlm: AgentVLM, domain: Domain, max_new_
 
 
 def frame_to_call_cutoff(*, calls: list, safe_frame: Optional[int]) -> Optional[int]:
-    """_frame_to_call_cutoff: a 1-based frame number -> how many leading calls to keep."""
+    """A 1-based frame number -> how many leading calls to keep."""
     if safe_frame is None:
         return None
     env_frames = 0
@@ -65,8 +61,7 @@ def frame_to_call_cutoff(*, calls: list, safe_frame: Optional[int]) -> Optional[
 
 def judge_leg(*, report: LegReport, vlm: AgentVLM, domain: Domain, lookback: int = DEFAULT_LOOKBACK,
               goal_condition: Optional[str] = None, max_new_tokens: int = 2000) -> dict:
-    """The checker's verdict on a leg: {success, safe_success_point (a call-log cutoff),
-    description, reasoning, termination_reason, n_env_steps, max_steps, judge_calls}."""
+    """The judge's verdict on a leg; safe_success_point is a call-log cutoff."""
     steps = report.env_steps
     log: list = []
     meta = {"termination_reason": report.termination_reason, "n_env_steps": len(steps),
@@ -90,7 +85,7 @@ def judge_leg(*, report: LegReport, vlm: AgentVLM, domain: Domain, lookback: int
 
 def derive_critique_hint(*, report: LegReport, vlm: AgentVLM, domain: Domain, max_new_tokens: int = 2000,
                          previous_hint: str = "", max_frames_per_slice: int = 8) -> str:
-    """derive_critique_hint: critique each window of the failed leg, then consolidate."""
+    """Critique each window of the failed leg, then consolidate into one hint."""
     steps = report.env_steps
     if not steps:
         return previous_hint
@@ -118,7 +113,7 @@ def derive_critique_hint(*, report: LegReport, vlm: AgentVLM, domain: Domain, ma
 
 
 def parse_guidance(text: str) -> Optional[dict]:
-    """infer_guidance._parse_guidance (lowercases, as GameBoyRL does)."""
+    """{summary, goal_condition, steps} from a guidance response (lowercased), or None."""
     text_lower = text.lower()
     stop = text_lower.find("[stop]")
     if stop != -1:
@@ -140,8 +135,7 @@ def parse_guidance(text: str) -> Optional[dict]:
 
 def infer_guidance(*, frames: list, task: str, vlm: AgentVLM, domain: Domain, max_new_tokens: int = 2000,
                    max_obs_at_once: int = 8) -> Optional[dict]:
-    """infer_guidance_for_trajectory over a trajectory's frames (initial + after each step).
-    Returns {summary, goal_condition, steps} or None."""
+    """Guidance from a trajectory's frames (initial + after each step), or None."""
     total = len(frames)
     log: list = []
     ranges = [(s, min(s + max_obs_at_once, total)) for s in range(0, total, max_obs_at_once)]
@@ -165,7 +159,6 @@ def infer_guidance(*, frames: list, task: str, vlm: AgentVLM, domain: Domain, ma
 
 
 def format_guidance(guidance: dict) -> str:
-    """practice_tasks._format_guidance."""
     lines = []
     if guidance.get("summary"):
         lines.append(f"Summary: {guidance['summary']}")

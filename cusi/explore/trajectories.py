@@ -1,26 +1,5 @@
-"""High-novelty trajectories from the replay buffer, grouped, then turned into tasks
-(plan Part 2.6): the curiosity task source for the Part 1 pipeline.
-
-Ported from GameBoyRL:
-  save_outliers / save_outlier_trajectories (cleanrl_utils/port_gameboy_worlds/visualization.py):
-      z-score every transition's reward over the run; for each transition with z > threshold,
-      back-trace up to 30 steps within its episode.
-  group_trajectories (cleanrl_utils/group_trajectories.py): keep z >= z_min, group by
-      final-frame similarity (cosine >= 1 - 0.05, recursive halving merge comparing up to 5
-      sampled final frames), snip cycles (revisited frames outside the protected last 3).
-      Similarity is now in the frozen encoder's space, using the stored embeddings.
-  infer_tasks (vlm_scripts/infer_tasks.py): per group, up to 3 trajectories -> INFER (last
-      8 frames) -> REFINE (validity gate + imperative rewrite) -> DISTILL across the group;
-      groups with identical tasks are merged.
-
-The tasks are written as an "attempts" directory (success.json + legs.pkl of LegReports
-holding the trajectory frames) under storage_dir/practice/<env>/<model>/curiosity/, so the
-Part 1 guidance -> practice -> clean -> dataset stages run on them unchanged
-(run_practice.py --source curiosity).
-
-The original replaced the rewards of each episode's first and last transitions by the mean,
-the last because of the stale-reward bug (fixed in cusi.explore.ppo); only the reset rows
-(step 0, not transitions) are excluded here.
+"""
+Curiosity tasks: high-novelty replay trajectories, grouped and turned into a practice attempts directory.
 """
 import os
 from typing import Optional
@@ -37,9 +16,7 @@ SIMILARITY_THRESHOLD = 0.05
 # --------------------------------------------------------------------------- outliers
 
 def rescore(*, episodes: list, text_alpha: float, has_text: bool) -> list:
-    """Recompute the intrinsic rewards of a replay with the current curiosity code (the buffer
-    reset every episode and seeded with the reset frame, as in cusi.explore.ppo), in place.
-    For replays recorded before a curiosity fix."""
+    """Recompute a replay's intrinsic rewards in place with the current curiosity code."""
     import torch
     from cusi.explore.curiosity import CuriosityModule
     from cusi.state import NoveltyArchive, StateEmbedding, StateRecord, build_scorer
@@ -61,7 +38,7 @@ def rescore(*, episodes: list, text_alpha: float, has_text: bool) -> list:
 
 def high_novelty_trajectories(*, episodes: list, outlier_threshold: float = 2.5,
                               max_trajectory_length: int = 30) -> list:
-    """[{"steps": [step dicts, the first is the state before the first action], "z": float}]."""
+    """Back-traced trajectories ending at each transition whose reward z-score exceeds outlier_threshold."""
     transitions = [(e, t) for e, ep in enumerate(episodes) for t in range(1, len(ep))]
     if not transitions:
         return []
@@ -293,7 +270,7 @@ def curiosity_tasks(*, replay_dir: str, scene: str, env_name: str, vlm, domain: 
             continue
         task = distill(tasks=tasks, vlm=vlm, domain=domain, max_new_tokens=max_new_tokens)
         key = canonical(task)
-        if key in seen:      # _dedup_task_groups: identical tasks share one group
+        if key in seen:      # identical tasks share one group
             continue
         group_idx = f"cur{gi}"
         seen[key] = group_idx

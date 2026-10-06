@@ -1,12 +1,5 @@
-"""Image embedder interface (curiosity_plan §3.2.1). Inference only.
-
-    emb = SomeEmbedder(env_name="gameboy", ...)
-    canvas = emb.preprocess(frame)            # the env's canvas (cusi.state.canvas)
-    vecs = emb.embed(frames=[f1, f2])         # torch float32 (N, output_dim), unit norm, on CPU
-
-Embeddings are returned on the CPU so archives and replays never hold device tensors.
-Checkpoints (trained cnn, fine-tuned siglip) carry metadata (embedder, env, canvas, base model),
-checked on load by check_meta.
+"""
+The image embedder interface and checkpoint metadata checks.
 """
 import json
 import os
@@ -36,7 +29,7 @@ class ImageEmbedder(ABC):
 
     @abstractmethod
     def embed(self, *, frames: list) -> torch.Tensor:
-        """float32 (N, output_dim), L2-normalised, on the CPU."""
+        """float32 (N, output_dim), L2-normalised, on the CPU (archives never hold device tensors)."""
 
     def meta(self) -> dict:
         return {"embedder": self.name, "env": self.env_name, "canvas": list(self.canvas)}

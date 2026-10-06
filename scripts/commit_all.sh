@@ -7,9 +7,9 @@
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["message"]="Update"
-ARGS["push"]="true"
+populate_dict COMMIT_ALL_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array COMMIT_ALL_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

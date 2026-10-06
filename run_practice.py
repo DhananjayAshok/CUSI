@@ -1,19 +1,14 @@
-"""Practice pipeline (plans/plan.md Part 1): propose -> attempt -> guidance -> practice -> clean -> dataset,
-for one environment per process.
+"""
+The practice pipeline: propose, attempt, guidance, practice, clean, dataset.
 
-    python run_practice.py --env gameboy --model_name <served name> propose
-    python run_practice.py --env android --model_name <served name> all --n_tasks 3
-    python run_practice.py --env web --model_name <served name> attempt --max_attempts 5
-
-Outputs: storage_dir/practice/<env>/<model>/ (see cusi/practice/stages/common.py).
-Needs the vLLM server (scripts/serve_vllm.sh); Android and web run inside the container
-(scripts/container.sh), Android with emulators started (scripts/android_emulator.sh).
+    python run_practice.py --env gameboy --model_name <served name> all
 """
 import click
 from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
 from cusi.utils.log_handling import log_info
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS, EnvPool
-from cusi.practice.stages.common import TASK_SOURCES, PracticePaths
+from cusi.practice.stages.common import TASK_SOURCES
+from cusi.utils.paths import PracticePaths
 from cusi.agents.vlm import AgentVLM
 
 loaded_parameters = load_parameters()

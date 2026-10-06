@@ -5,12 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 def start_mock_vllm(*, reply: str, prompt_tokens: int = 11, completion_tokens: int = 7):
-    """
-    Start the server on a free local port in a background thread.
-
-    :return: ``(server, base_url, requests)``. ``requests`` fills with ``{"path", "body"}``
-        dicts as calls arrive; call ``server.shutdown()`` when done.
-    """
+    """Serve on a free local port in a thread; returns (server, base_url, requests), shut down with server.shutdown()."""
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -39,7 +34,6 @@ def start_mock_vllm(*, reply: str, prompt_tokens: int = 11, completion_tokens: i
 
 
 if __name__ == "__main__":
-    # Standalone: print the base url, then serve until killed.
     import sys
     import time
 

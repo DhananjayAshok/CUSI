@@ -1,23 +1,5 @@
-"""Curiosity modules (curiosity_plan §3.3): thin wrappers around a cusi.state scorer, with the
-PPO-side lifetime and shaping. GameBoyRL's interface on the outside.
-
-    module = get_curiosity_module(curiosity_module="combinationbuffer", env_name=..., encoder=encoder,
-                                  region_alpha=0.5, buffer_load_path=None, save_path=..., ...)
-    module.reset()                                        # every episode: back to the prior
-    r = module.get_reward(prev=prev_record, action=text, next=next_record, valid=info["valid"], done=done)
-    r["total"], r["frame"], r["region"], r["novelty"], r["penalty"]
-    module.save()                                         # merge this archive into save_path
-
-Modules: embedbuffer = the `embedding` scorer, combinationbuffer = `combination`,
-world_model = `world_model` (a loaded model; not trained during PPO).
-
-Lifetime (not in cusi.state): reset() restores the archive to its prior (--buffer_load_path, or
-empty) via copy()/restore(); first_add as GameBoyRL (after a reset into an empty archive, the
-first two frames score 0: the first seeds it, the second is stored without scoring).
-Shaping: --invalid_action_penalty (an action the env rejects gets -penalty on top of its novelty,
-which is 0 for the unchanged screen) and --normalize_curiosity_reward (divide by a running std of
-the discounted curiosity return, as gym's NormalizeReward does for env rewards; GameBoyRL keeps
-the intrinsic reward raw).
+"""
+Curiosity modules: a cusi.state scorer plus the PPO-side archive lifetime and reward shaping.
 """
 from typing import Any, Optional
 import numpy as np
@@ -64,6 +46,7 @@ class CuriosityModule:
         self._ret, self._rms = 0.0, RunningStd()
 
     def reset(self) -> None:
+        """Restore the archive to its prior; call every episode."""
         self.archive.restore(self._prior)
         self.first_add = False
 

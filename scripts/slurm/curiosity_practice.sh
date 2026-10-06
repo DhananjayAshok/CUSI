@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # plans/plan.md Part 2.6 -> Part 1: infer tasks from an exploration run's high-novelty trajectories,
-# then guidance -> practice -> clean -> dataset on them (run_practice.py --source curiosity).
+# then guidance -> practice -> clean -> dataset on them (run_practice.py --source <source>
 # Run from the CUSI root (Slurm wrapper: slurm/curiosity_practice.sh).
 #
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model.
 # Android needs /dev/kvm on the node.
 #
-#   bash scripts/slurm/curiosity_practice.sh --env gameboy --run dev_viridian --model google/gemma-4-26b-a4b-it \
-#       [--max_groups 6] [--z_min 3.0] [--outlier 2.5] [--rescore <text_alpha>]
-# --z_min / --outlier are the outlier thresholds (lower them for short runs); --rescore
+#   bash scripts/slurm/curiosity_practice.sh --env <env> --run <run> --model <model> \
+#       [--max_groups <value>] [--z_min <value>] [--outlier <value>] [--rescore <value>]
+# --z_min <z_min> --outlier <outlier> the outlier thresholds (lower them for short runs); --rescore
 # recomputes the replay's intrinsic rewards with the current curiosity code.
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
-ARGS["max_groups"]="6"
-ARGS["z_min"]="3.0"
-ARGS["outlier"]="2.5"
-ARGS["rescore"]="none"
-REQUIRED_ARGS=("env" "run" "model")
+populate_dict CURIOSITY_PRACTICE_DEFAULTS ARGS
+REQUIRED_ARGS=()
+populate_array CURIOSITY_PRACTICE_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV="${ARGS["env"]}"

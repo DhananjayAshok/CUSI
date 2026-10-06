@@ -1,15 +1,5 @@
-"""The retry engine (GameBoyRL execution/supervisors/revising.py): attempt a target, judge it,
-critique what happened, revise the hint, try again.
-
-RevisingSupervisor is the `revision` arm and the base of `subgoal` / `info_subgoal_*`. A list of
-targets is attempted in order; each is judged and retried until it clears, runs out of attempts,
-or the budget ends — except the last, which only the environment can clear. `_resolve_targets()`
-returning [None] (this class) gives one target, the task itself, and nothing is judged.
-
-Logic and texts as GameBoyRL; per-env wording from the SupervisorDomain. Two additions for the
-envs with a finishing action: a leg that ended on the agent's finish (without reaching the env)
-charges that decision to the budget too, and a model error ends the episode (EPISODE_ENDINGS).
-Success is the environment's verdict in every arm; the judge only advances a plan.
+"""
+The retry engine: attempt a target, judge it, critique what happened, revise the hint, try again.
 """
 from typing import List, Optional, Tuple
 from cusi.utils.log_handling import log_info, log_warn
@@ -21,13 +11,7 @@ from cusi.utils.parsing import parse_completion, parse_key_value
 
 
 class RevisingSupervisor(Supervisor):
-    """:param max_leg_steps: step cap for one executor attempt.
-    :param max_attempts_per_target: failed attempts at one intermediate target before moving on.
-    :param final_attempt_multiplier: the last target's cap, as a multiple of max_attempts_per_target
-        (never below the episode's step budget).
-    :param max_frames_per_slice: frames per judging call.
-    :param max_history_attempts: past attempts shown to _diagnose_failure (default
-        max_attempts_per_target)."""
+    """Targets attempted in order and judged; only the environment can clear the last one."""
 
     def __init__(self, *, max_leg_steps: int = 5, max_attempts_per_target: int = 3, final_attempt_multiplier: int = 3,
                  max_frames_per_slice: int = 8, max_history_attempts: Optional[int] = None, verbose: bool = False,
@@ -97,14 +81,12 @@ class RevisingSupervisor(Supervisor):
 
     @staticmethod
     def _budget_spent(report) -> int:
-        """Every recorded step (env steps and invalid decisions), plus a finishing decision that
-        ended the leg without reaching the env (Android / Web). Floored at 1."""
+        """Recorded steps plus any finish that never reached the env; at least 1."""
         unrecorded_finishes = sum(1 for c in report.calls if c.decision == "finish" and not c.steps)
         return max(1, len(report.steps) + unrecorded_finishes)
 
     def _leg_spec(self, target: Optional[str], is_last: bool, hint: Optional[str]) -> Tuple[str, Optional[str], bool]:
-        """(task, hint, allow_self_termination): an intermediate target is the leg's task; the last
-        target reverts to the real task (the step text as its hint) with self-termination off."""
+        """(task, hint, allow_self_termination); the last target reverts to the real task, hinted with the step."""
         if target is None:
             return self._task, hint, False
         if is_last:
@@ -112,8 +94,7 @@ class RevisingSupervisor(Supervisor):
         return target, hint, True
 
     def judge_step(self, env_steps: list, target: str, stop_reason: str) -> Tuple:
-        """Windowed judgement of whether target was reached, against the current screen.
-        Returns (complete, reasoning, segment_summaries)."""
+        """(complete, reasoning, segment_summaries) for whether target was reached."""
         if not env_steps:
             return False, "No environment steps were taken in this attempt.", []
 
@@ -135,7 +116,7 @@ class RevisingSupervisor(Supervisor):
 
     def write_resume_hint(self, summaries: List[str], target: str, judgement: str, previous_hint: str = "",
                           report=None, regression: Optional[str] = None) -> Optional[str]:
-        """The hint for the next attempt, anchored on the current screen (None if none was written)."""
+        """The hint for the next attempt, anchored on the current screen."""
         prior_block = (f'Previous hint, which did not work (do not simply repeat it):\n'
                        f'"{previous_hint}"\n\n' if previous_hint else "")
         trace_block = (f"\n\n{self._domain.trace_block_heading}\n"
@@ -165,8 +146,7 @@ class RevisingSupervisor(Supervisor):
                                report, env_steps: list, summaries: List[str], verdict: str, hint_target: str,
                                hint_reason: str, hint: Optional[str], attempts_at_target: int,
                                attempt_cap: int) -> Tuple:
-        """Regression check, failure history, plan-flaw check, then (if attempts remain) the next
-        hint. Returns (replacement targets or None, hint, exhausted)."""
+        """(replacement targets or None, next hint, exhausted) after a failed attempt."""
         regression = self._check_regression(summaries)
         if regression:
             attempt["regression"] = regression

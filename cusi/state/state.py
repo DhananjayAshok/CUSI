@@ -1,15 +1,5 @@
-"""StateEmbedding, the similarity between states, and StateEncoder (curiosity_plan §3.2.1).
-
-    encoder = StateEncoder(image=build_image_embedder(...), text=build_text_embedder(...), w_image=0.5)
-    [e1, e2] = encoder.encode(obs_list=[obs1, obs2], info_list=[info1, info2])
-    encoder.similarity(a=e1, b=e2)
-
-similarity(a, b) = w_image * sim_image(a, b) + (1 - w_image) * sim_text(a, b), w_image forced to 1
-when the text embedder is `none`. sim_image by metric (as GameBoyRL's EmbedBuffer):
-    cosine    dot product of the unit vectors
-    distance  1 - ||a - b|| / 2  (unit vectors: in [0, 1]; novelty with w_image = 1 is the raw min
-              distance, exactly as EmbedBuffer)
-    hinge     share of dimensions within 0.01
+"""
+State embeddings, the weighted image/text similarity between them, and the encoder that makes them.
 """
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -32,8 +22,7 @@ class StateEmbedding:
 
 @dataclass
 class StateRecord:
-    """What a scorer sees of one state: the observation, its info, and its embedding.
-    prev_image: the image vector of the state before it (world-model frame stack), if any."""
+    """What a scorer sees of one state; prev_image is the previous state's image vector (world-model frame stack)."""
     obs: dict
     info: dict
     embedding: Optional[StateEmbedding] = None
@@ -56,8 +45,7 @@ def image_similarities(*, query: torch.Tensor, matrix: torch.Tensor, metric: str
 
 
 def image_novelty(*, query: torch.Tensor, matrix: torch.Tensor, metric: str) -> float:
-    """EmbedBuffer.score for one frame, bit for bit: cosine 1 - max dot, distance min distance,
-    hinge 1 - max share-within-0.01."""
+    """GameBoyRL's EmbedBuffer.score for one frame, bit for bit."""
     q = query.unsqueeze(0)
     if metric == "cosine":
         return float((1 - (q @ matrix.T).max(dim=-1).values).mean())

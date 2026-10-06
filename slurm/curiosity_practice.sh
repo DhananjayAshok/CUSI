@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/curiosity_practice.sh (all logic lives there). Submit from the CUSI root:
-#   sbatch --output="$results_dir/logs/curiosity_practice_%j.out" slurm/curiosity_practice.sh --env gameboy --run dev_viridian --model google/gemma-4-26b-a4b-it
+#   sbatch --output="$results_dir/logs/curiosity_practice_%j.out" slurm/curiosity_practice.sh --env <env> --run <run> --model <model>
 # Arguments after the script name are passed through to scripts/slurm/curiosity_practice.sh.
 #SBATCH --job-name=cusi-curiosity-practice
 #SBATCH --partition=medium-lg

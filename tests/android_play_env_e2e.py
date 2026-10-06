@@ -1,16 +1,6 @@
 """
-End-to-end check of cusi.envs.android_world.AndroidPlayEnv on a real emulator.
-
-Run inside the container on a KVM node, with an emulator already started with
-snapshots allowed (setup/android/play_env_test.sbatch does all of this):
-
-    bash scripts/android_emulator.sh --action start --read_only true --snapshots true
-    python tests/android_play_env_e2e.py
-
-Checks, for test and free_play modes and both reset modes: observation contents,
-invalid / out-of-range / valid actions, `status` handling per mode, and that reset()
-returns to the initial state (snapshot mode: including changes outside the task's apps,
-and the clock).
+End-to-end check of AndroidPlayEnv's observations, actions and resets on a real emulator.
+    python tests/android_play_env_e2e.py   (in the container, emulator started with --snapshots true)
 """
 import collections
 import re
@@ -18,15 +8,13 @@ import subprocess
 import time
 from cusi.envs.android_world import AndroidPlayEnv, MSG_PARSE_FAILED, MSG_OUT_OF_RANGE, MSG_NO_STATUS
 
-# Status-bar items change on their own (the emulator cycles its simulated signal
-# strength; notifications linger), in evaluation too, so they are not part of the scene.
+# Status-bar items change on their own, so they are not part of the scene.
 STATUS_BAR = re.compile(r"signal|bars|[Bb]attery|Wifi|Wi-Fi|notification|Android System|"
                         r"\"text\": \"\d{1,2}:\d{2}\"|No SIM|Airplane|Do Not Disturb", re.IGNORECASE)
 
 
 def element_diff(*, before: str, after: str) -> tuple[list[str], list[str]]:
-    """Elements only in `before` / only in `after`, ignoring index numbers (one
-    extra element shifts every later index)."""
+    """Elements only in `before` / only in `after`, ignoring index numbers."""
     def strip(text):
         return collections.Counter(re.sub(r'^UI element \d+: \{"index": \d+, ', "{", line)
                                    for line in text.splitlines() if line.strip())

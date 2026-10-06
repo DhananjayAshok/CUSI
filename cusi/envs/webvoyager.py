@@ -1,41 +1,6 @@
-"""WebVoyager as a TextActionEnv (see cusi/envs/base.py).
-
-    env = WebVoyagerPlayEnv(task_id="Allrecipes--0", mode="test")
-    env = WebVoyagerPlayEnv(url="https://www.allrecipes.com/", mode="free_play")
-    obs, info = env.reset()
-    obs, reward, terminated, truncated, info = env.step("Thought: search\\nAction: Type [3]; lasagna")
-
-The scene is a start URL (a WebVoyager task's `web`, or any URL), fixed at
-construction. reset() quits the browser and opens a fresh one, with a fresh profile,
-on that URL. The sites are live, so a reset restores the browser, not the page
-content: sites change, rate-limit, and may show cookie banners or CAPTCHAs.
-
-Everything that touches the browser is WebVoyager's own code from run.py/utils.py:
-driver_config + _make_driver (browser), open_start_page (page open), get_web_element_rect
-(set-of-mark labels + element text), extract_information (action parsing) and
-exec_action (action execution, with eval's failure/warning feedback).
-
-Observation: frame = the set-of-mark screenshot (HxWx3 uint8); texts =
-{"web_elements": WebVoyager's labelled element list}; actions = the action list from
-WebVoyager's system prompt; goal = the task question in "test" mode, "" otherwise.
-info["raw_frame"] is the same page without the set-of-mark labels (a second screenshot after
-the labels are removed, ~0.1 s), as AndroidPlayEnv's, for embedders (labels are not content).
-
-Modes (base.py):
-    test       ANSWER ends the episode, with the answer in info["answer"]; reward 0.
-               WebVoyager's success signal is its LLM judge (evaluation/auto_eval.py),
-               applied afterwards to the answer and final screenshots, as evaluation
-               does now. Truncates at max_steps (default 15, run.sh's --max_iter).
-    free_play  no goal, ANSWER rejected, reward 0, no step limit.
-
-As in evaluation, an action that cannot be executed returns the previous observation
-(same labels, info["stale"] = True) with WebVoyager's failure message; it does not
-re-observe the page.
-
-fast_waits=True replaces run.py's fixed post-action sleeps (2-10 s) with "wait until the
-page has loaded", capped at the original duration (sets run.FAST_WAITS for the process).
-
-Needs the CUSI container (Chromium + chromedriver): run via scripts/container.sh. No KVM.
+"""
+WebVoyager as a TextActionEnv, driving the browser with WebVoyager's own run.py code.
+Sites are live, so reset restores the browser, not the page content. Reward is 0: the LLM judge scores afterwards.
 """
 import argparse
 import importlib.util
@@ -66,8 +31,7 @@ MSG_NO_ANSWER = "The ANSWER action is not available: there is no task to answer.
 
 
 def load_webvoyager(*, project_root: str):
-    """Import WebVoyager's run.py (a script, which imports its siblings `utils` and
-    `prompts` by bare name) as the module `webvoyager_run`."""
+    """Import WebVoyager's run.py script (which imports its siblings by bare name) as `webvoyager_run`."""
     # Locked: a second thread must not see the module in sys.modules half-executed.
     with _LOAD_LOCK:
         if "webvoyager_run" in sys.modules:
@@ -83,8 +47,7 @@ def load_webvoyager(*, project_root: str):
 
 
 def action_menu(*, system_prompt: str, mode: str) -> str:
-    """The action descriptions and formats from WebVoyager's system prompt. free_play
-    drops ANSWER."""
+    """The action list from WebVoyager's system prompt; free_play drops ANSWER."""
     numbered = re.search(r"\n(1\. Click.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     formats = re.search(r"STRICTLY follow the format:\n(.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     lines = numbered.splitlines() + ["", "Action format:"] + formats.splitlines()
@@ -113,21 +76,21 @@ def canonical_action(*, action_key: str, info: Any) -> dict:
 
 
 def excluded_sites(*, parameters: dict) -> list:
-    """The WebVoyager web_name values excluded from train and test (configs/project_vars.yaml)."""
+    """The WebVoyager web_name values excluded from train and test."""
     return [s.strip() for s in str(parameters.get("web_excluded_sites") or "").split(",") if s.strip()]
 
 
 def filtered_task_file(*, parameters: dict) -> str:
-    """WebVoyager_data.cusi.jsonl: WebVoyager's task file without the excluded sites, written from
-    the config list (never edited by hand) under storage_dir/eval/web/. Returns its path."""
+    """Writes WebVoyager's task file without the excluded sites; returns its path."""
     excluded = set(excluded_sites(parameters=parameters))
-    source = os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
+    from cusi.utils.paths import web_source_task_file, web_task_file
+    source = web_source_task_file(parameters=parameters)
     with open(source) as f:
         rows = [json.loads(line) for line in f if line.strip()]
     unknown = excluded - {r["web_name"] for r in rows}
     if unknown:
         raise ValueError(f"web_excluded_sites names sites not in {source}: {sorted(unknown)}")
-    path = os.path.join(parameters["storage_dir"], "eval", "web", "WebVoyager_data.cusi.jsonl")
+    path = web_task_file(parameters=parameters)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         for row in rows:
@@ -146,7 +109,7 @@ def load_task(*, task_id: str, data_file: str) -> dict:
 
 
 class WebVoyagerPlayEnv(TextActionEnv):
-    """A WebVoyager start page as a text-action gym.Env. See the module docstring."""
+    """A WebVoyager start page as a text-action gym.Env."""
 
     env_description = "a web browser"
 
@@ -168,17 +131,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         work_dir: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """
-        :param task_id: A WebVoyager task id, e.g. "Allrecipes--0" (needed for test mode).
-        :param url: free_play only: a start URL instead of a task.
-        :param data_file: Task file. Default WebVoyager/data/WebVoyager_data.jsonl.
-        :param max_steps: Truncate after this many steps. None: 15 in test mode, unlimited
-            in free_play.
-        :param fast_waits: See the module docstring.
-        :param chrome_binary, chromedriver: Default: the container's ($CUSI_CHROME_BINARY,
-            $CUSI_CHROMEDRIVER).
-        :param work_dir: Browser profile + downloads. Default: a new /tmp directory.
-        """
+        """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS)."""
         self._parameters = load_parameters(parameters)
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
         self._wv.FAST_WAITS = fast_waits
@@ -206,7 +159,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._last_obs = None
         self._raw_frame = None
         self._url = self.start_url
-        self._states: dict[str, dict] = {}   # saved state_id -> browser state (see _save_state_impl)
+        self._states: dict[str, dict] = {}   # saved state_id -> browser state
         self.browser_restarts = 0
 
         frame = self._open(url=self.start_url)
@@ -229,8 +182,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         shutil.rmtree(self._download_dir, ignore_errors=True)
         os.makedirs(self._download_dir)
         self._args.chrome_profile_dir = profile
-        # Chrome sessions started at the same moment from one process sometimes fail with
-        # "DevToolsActivePort file doesn't exist"; start one at a time, and retry.
+        # Simultaneous Chrome starts can fail ("DevToolsActivePort file doesn't exist"): serialise and retry.
         with _BROWSER_START_LOCK:
             for attempt in range(3):
                 shutil.rmtree(profile, ignore_errors=True)
@@ -255,13 +207,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self._driver = None
 
     def _open(self, *, url: str) -> np.ndarray:
-        """Fresh browser on `url`; returns the first frame (and sets the observation)."""
+        """Fresh browser on url; returns the first frame."""
         self._new_browser()
         self._wv.open_start_page(self._driver, url)
         return self._observe()[0]
 
     def _observe(self):
-        """Set-of-mark screenshot + labelled element text, as run.py builds them."""
+        """Set-of-mark screenshot and element text as run.py builds them, plus the unlabelled raw frame."""
         rects, web_eles, web_eles_text = self._wv.get_web_element_rect(self._driver,
                                                                         fix_color=self._args.fix_box_color)
         png = self._driver.get_screenshot_as_png()
@@ -290,9 +242,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 "actions": self.actions_text, "goal": self._goal}
 
     def sample_action(self) -> str:
-        """A random WebVoyager action on the current page: click a labelled element, or
-        scroll the window up/down (3:1). Never Type/GoBack/Google/ANSWER, which would leave
-        the scene or need content."""
+        """Click a labelled element or scroll the window; never actions that leave the scene or need content."""
         rng = self.np_random
         if self._web_eles and rng.random() < 0.75:
             return f"Thought: random action.\nAction: Click [{int(rng.integers(len(self._web_eles)))}]"
@@ -354,7 +304,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
             if warn_obs:
                 extra["warning"] = warn_obs
             if fail_obs:
-                # As in evaluation: no re-observation; the agent retries on the same labels.
+                # As run.py: no re-observation; the agent retries on the same labels.
                 info = self.make_info(valid=False, error=fail_obs, parsed_action=parsed, step=self._steps,
                                       scene_id=self.scene_id, stale=True, **extra)
                 return self._obs(), 0.0, False, truncated, info
@@ -376,11 +326,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         return self._obs(), 0.0, False, truncated, info
 
     # ------------------------------------------------------------ saved states
-    # The sites are live, so a saved state is the browser's side only: the URL, all
-    # cookies, the page origin's localStorage/sessionStorage and the scroll position.
-    # Loading it opens a fresh browser with those restored. Not restored: anything not
-    # reflected in these (typed but unsubmitted text, open menus/modals, in-page app
-    # state with no URL change, other tabs), and of course server-side content changes.
+    # A saved state is URL, cookies, origin storage and scroll; in-page state and other tabs are not restored.
 
     # Pages without storage access (e.g. some error pages) throw; they save/restore none.
     _STORAGE_JS = ("try { return {local: Object.assign({}, window.localStorage),"
@@ -416,8 +362,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         try:
             self._new_browser()
             self._driver.execute_cdp_cmd("Storage.setCookies", {"cookies": cookies})
-            # Storage belongs to the page's origin: open it once to write storage, then open
-            # the page as reset does, so its scripts start with the restored storage.
+            # Open the origin once to write storage, then reopen so page scripts start with it.
             self._driver.get(state["url"])
             self._driver.execute_script(self._SET_STORAGE_JS, state["storage"])
             self._wv.open_start_page(self._driver, state["url"])
@@ -432,8 +377,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         return self._obs()
 
     def _wait_for_stable_layout(self, *, timeout: float = 8.0, stable_for: float = 1.0) -> None:
-        """Wait until the page height stops changing (late images and ads shift the layout
-        after readyState is complete), so the restored scroll lands where it was saved."""
+        """Wait until the page height stops changing, so the restored scroll lands where it was saved."""
         deadline = time.time() + timeout
         last, since = None, time.time()
         while time.time() < deadline:

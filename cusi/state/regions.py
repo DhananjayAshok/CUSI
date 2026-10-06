@@ -1,19 +1,5 @@
-"""Region-novelty stores kept inside a NoveltyArchive (archive.regions), used by the `region` scorer.
-
-    TextLineBuffer   Android / Web (curiosity_plan §4, option A): the set of seen element lines
-                     (cusi.state.text); score = share of the screen's lines never seen. Above
-                     max_size, a random half is kept. (Was cusi.explore's TextNoveltyBuffer.)
-                     TODO (OCR channel for Android/Web): option A may have to change to element
-                     crops (B) or real OCR (C), e.g. if tree/DOM text misses text drawn into
-                     images or canvases, or if a channel uniform with GameBoy is wanted.
-    OCRRegionBuffer  GameBoy: GameBoyRL's OCRBuffer, ported unchanged. Not text recognition:
-                     GameBoyWorlds returns pixel crops of fixed screen regions
-                     (info["text_regions"]["ocr_regions"], e.g. dialogue / menu). Each crop is cut
-                     into 8 vertical strips; a strip is novel if no stored strip of that region is
-                     within 0.001 per pixel; region score = share of novel strips (1.0 the first time
-                     a region appears); reward = max over regions. Random subsampling at 10,000.
-
-Both: score(...) scores and adds; copy(); save(directory) / load(directory).
+"""
+Region-novelty stores kept inside a NoveltyArchive: seen element lines (Android / Web) and OCR-region strips (GameBoy).
 """
 import copy
 import os
@@ -28,6 +14,8 @@ TEXT_FILE = "text_buffer.txt"
 
 
 class TextLineBuffer:
+    """Seen element lines; score is the share of a screen's lines never seen."""
+
     def __init__(self, *, max_size: int = 50_000, seed: int = 42) -> None:
         self.max_size = max_size
         self._rng = np.random.default_rng(seed)
@@ -82,6 +70,8 @@ def chunk_ocr_frame(frame: np.ndarray, n_chunks: int = 8) -> list:
 
 
 class OCRRegionBuffer:
+    """GameBoyRL's OCRBuffer: novelty of pixel strips of fixed screen regions (no text recognition)."""
+
     def __init__(self, *, n_chunks: int = 8, max_size: int = 10_000) -> None:
         self.n_chunks, self.max_size = n_chunks, max_size
         self.buffers: dict = {}          # region -> (n, strip_size) float32

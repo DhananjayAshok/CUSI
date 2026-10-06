@@ -1,10 +1,5 @@
-"""`region`: novelty of text regions (curiosity_plan §3.2.3, §4).
-
-    GameBoy        GameBoyRL's OCRBuffer on info["text_regions"] (cusi.state.regions.OCRRegionBuffer).
-    Android / Web  option A: share of new element lines of obs["texts"] (TextLineBuffer).
-                   TODO (OCR channel for Android/Web): option A may change to element crops (B) or
-                   real OCR (C); see cusi/state/regions.py.
-Which one is fixed by the env: GameBoy -> OCR, others -> text lines.
+"""
+Region novelty: OCR regions on GameBoy, new element lines on Android / Web.
 """
 from cusi.state.regions import OCR, TEXT_LINES
 from cusi.state.scorers.base import Scorer

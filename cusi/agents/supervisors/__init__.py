@@ -1,11 +1,5 @@
-"""GameBoyRL's supervisor arms, ported to run any of our executors on any of the three envs
-(plans/agents.md). See base.py for the contract and the per-env leg endings, prompts.py for the wording.
-
-    baseline                  DummySupervisor        one leg, whole budget
-    revision                  RevisingSupervisor     short legs, judged / critiqued / re-hinted
-    subgoal                   SubgoalSupervisor      a plan of visually checkable steps
-    info_subgoal_retrieval    InfoSubgoalSupervisor  subgoal + knowledge from info documents
-    info_subgoal_parametric   InfoSubgoalSupervisor  subgoal + a document from the model's priors
+"""
+The supervisor arms: which supervisor wraps the executor, and with what settings.
 """
 from cusi.agents.supervisors.dummy import DummySupervisor
 from cusi.agents.supervisors.info_subgoal import InfoSubgoalSupervisor
@@ -19,9 +13,8 @@ SUPERVISORS = {
     "info_subgoal_retrieval": InfoSubgoalSupervisor,
     "info_subgoal_parametric": InfoSubgoalSupervisor,
 }
-#: GameBoyRL's defaults (run_benchmark.py, benchmark_scripts/{revision,subgoal}.py).
 SUPERVISOR_MAX_NEW_TOKENS = 5000
-DEFAULT_MAX_LEG_STEPS = 10   # GameBoyRL: 5
+DEFAULT_MAX_LEG_STEPS = 10   # GameBoyRL uses 5
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_MAX_REPLANS = 2
 DEFAULT_MAX_FRAMES_PER_SLICE = 8

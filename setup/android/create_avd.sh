@@ -2,14 +2,14 @@
 # Create the AndroidWorld AVD (Pixel 6, API 33) under $ANDROID_AVD_HOME
 # ($storage_dir/android/avd). Runs inside the container; needs no KVM.
 #
-#   bash scripts/container.sh bash setup/android/create_avd.sh [--avd AndroidWorldAvd] [--force false]
+#   bash scripts/container.sh bash setup/android/create_avd.sh [--avd <value>] [--force <value>]
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["avd"]="AndroidWorldAvd"
-ARGS["force"]="false"
+populate_dict ANDROID_CREATE_AVD_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array ANDROID_CREATE_AVD_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

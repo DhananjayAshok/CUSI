@@ -1,10 +1,6 @@
 """
-Check cusi.envs.webvoyager.WebVoyagerPlayEnv in the CUSI container (needs Chromium,
-not KVM). From the CUSI root:
-
+Checks WebVoyagerPlayEnv on a local two-page site, and with --live on a real WebVoyager task.
     bash scripts/container.sh python tests/webvoyager_play_env_test.py [--live]
-
-A local two-page site gives deterministic checks; --live also runs a real WebVoyager task.
 """
 import os
 import re

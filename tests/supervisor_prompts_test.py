@@ -1,7 +1,6 @@
-"""cusi.agents.supervisors' prompts: GameBoy equals GameBoyRL's texts; Android / Web have no game wording
-left and every placeholder the supervisors fill is still there.
-
-    python tests/supervisor_prompts_test.py      (imports GameBoyRL: run apart from WebVoyager)
+"""
+Checks the supervisor prompts: GameBoy's equal GameBoyRL's; Android/web keep placeholders and drop game wording.
+    python tests/supervisor_prompts_test.py
 """
 import os
 import re
@@ -14,7 +13,7 @@ sys.path.insert(0, os.path.join(ROOT, "GameBoyRL"))
 from cusi.agents.supervisors import prompts                      # noqa: E402
 from execution.supervisors import prompts as gb_prompts   # noqa: E402
 
-#: Placeholders the supervisor code fills, per prompt (the same for every env, minus [GAME]).
+# Placeholders the supervisor code fills, per prompt.
 FILLED = {
     "PLAN_PROMPT": {"[TASK]", "[INSIGHTS]"},
     "FILTER_INSIGHTS_PROMPT": {"[TASK]", "[CANDIDATES]"},

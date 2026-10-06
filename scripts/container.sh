@@ -3,7 +3,7 @@
 # with the CUSI venv and config active. Run from the CUSI root:
 #
 #   bash scripts/container.sh <command> [args...]
-#   bash scripts/container.sh python android_world/run.py --agent_name m3a_cusi ...
+#   bash scripts/container.sh python android_world/run.py --agent_name <agent_name> ...
 #
 # Takes the command verbatim rather than --flags, so it does not use the ARGS template.
 #

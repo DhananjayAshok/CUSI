@@ -1,14 +1,6 @@
-"""Run all six practice stages on one environment with a scripted model (no GPU, no server).
-
-The fake model answers by prompt type (propose, executor, done check, judge, critique,
-guidance, paraphrase, clean), so every stage runs on real environments and produces real
-files under storage_dir/tmp/practice_mock_test/. Then checks: files exist, the dataset rows
-have no hint markers, images exist, and the M3A/WebVoyager guidance strips to the no-guidance
-prompt.
-
+"""
+Runs all six practice stages on a real environment with a scripted model and checks the dataset.
     python tests/practice_pipeline_mock_test.py --env gameboy
-    bash scripts/container.sh python tests/practice_pipeline_mock_test.py --env web
-    (android: inside the container with an emulator started with --snapshots true)
 """
 import json
 import os
@@ -18,7 +10,7 @@ import click
 from cusi.utils import load_parameters
 from cusi.agents.specs import ENV_SPECS, EnvPool
 from cusi.agents.executors.base import GUIDANCE_START, strip_hint_blocks
-from cusi.practice.stages.common import PracticePaths
+from cusi.utils.paths import PracticePaths
 
 ACTION_REPLY = {
     "gameboy": "Reasoning: I should walk up.\nAction: UP",
@@ -63,7 +55,7 @@ class ScriptedVLM:
                     if kind == "judge":
                         self._judge_calls += 1
                         n = self._judge_calls
-                if kind == "judge":   # alternate failure/success so retries and both paths run
+                if kind == "judge":   # mix failures in so the retry path runs
                     ok = n % 3 != 1
                     return f"Reasoning: looks done.\nSuccess: {'yes' if ok else 'no'}\nSafe success point: 2"
                 return reply

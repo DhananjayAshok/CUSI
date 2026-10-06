@@ -5,14 +5,14 @@
 #   AndroidWorld: boot the AVD read-only and run one task with m3a_cusi (needs KVM).
 # Mock models give fixed answers, so tasks "fail"; the check is that every stage runs.
 #
-#   bash scripts/container.sh bash setup/verify/e2e.sh [--webvoyager true] [--android_world true]
+#   bash scripts/container.sh bash setup/verify/e2e.sh [--webvoyager <value>] [--android_world <value>]
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["webvoyager"]="true"
-ARGS["android_world"]="true"
+populate_dict VERIFY_E2E_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array VERIFY_E2E_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

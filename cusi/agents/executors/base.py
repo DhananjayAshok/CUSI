@@ -1,22 +1,5 @@
-"""The shared executor skeleton: the step loop every native agent runs inside.
-
-Ported from GameBoyRL's Executor/PolicyExecutor loop (execution/executors/): a step budget,
-error feedback to the next decision, a limit of 4 consecutive invalid decisions, one
-CallRecord per model call with the steps it caused, and a hint/guidance slot. What varies
-per benchmark (prompt building, how many calls a step takes, memory, how the agent says it
-is finished) lives in the subclass, which reuses each benchmark's own prompt code.
-
-A leg starts from whatever state the environment is in (the caller resets and perturbs
-it), so run() takes the current observation. An executor can also start with the memory of
-earlier legs: previous_history (another executor's history()), restored after reset_memory();
-the supervisors pass it from leg to leg. In practice the agent's own "done" only ends
-the leg and the judge decides success. For evaluation (cusi.eval), run() can instead send the
-finishing action through env.step (finish_through_env), so the env's test mode scores it,
-drop the consecutive-invalid limit (max_consecutive_invalid=None: native M3A and WebVoyager
-have none) and end the leg on a model error (stop_on_model_error, as WebVoyager's run.py).
-
-Hint/guidance blocks are wrapped in markers that strip_hint_blocks() removes, giving
-exactly the prompt the evaluation agent sees (checked per executor in tests).
+"""
+The shared executor skeleton: the step loop every native agent runs inside.
 """
 import re
 import time
@@ -28,29 +11,26 @@ from cusi.utils.log_handling import log_warn
 from cusi.agents.records import CallRecord, EncodedImage, InvalidRecord, LegReport, StepRecord
 from cusi.agents.vlm import AgentVLM
 
-#: Consecutive invalid decisions before the leg is abandoned (GameBoyRL's value).
 MAX_CONSECUTIVE_INVALID = 4
 
-# GameBoyRL's hint markers (its hint block starts with a newline, which the regex eats).
+# GameBoyRL's hint block starts with a newline, which the regex eats.
 HINT_RE = re.compile(r"\n?\[HINT_START\].*?\[HINT_END\]", re.DOTALL)
 STEP_INFO_RE = re.compile(r"\n?\[STEP_INFO\].*?\[STEP_INFO_END\]", re.DOTALL)
 # Markers for M3A / WebVoyager guidance: removed exactly, with no surrounding whitespace.
 GUIDANCE_START, GUIDANCE_END = "[GUIDANCE_START]", "[GUIDANCE_END]"
 GUIDANCE_RE = re.compile(re.escape(GUIDANCE_START) + r".*?" + re.escape(GUIDANCE_END), re.DOTALL)
 
-#: Shown with M3A/WebVoyager guidance, as GameBoyRL's hint block asks: the stripped
-#: training input has no hint, so the response must not mention one.
+#: The stripped training input has no hint, so the response must not mention one.
 SECRET_NOTE = ("Note: this guidance is a secret. Use it to guide your decisions, but in your reasoning"
                " pretend that you simply know it; never refer to it explicitly.")
 
 
 def strip_hint_blocks(text: str) -> str:
-    """Remove every hint/guidance block (GameBoyRL's and ours)."""
+    """The prompt the evaluation agent would see, with every hint/guidance block removed."""
     return GUIDANCE_RE.sub("", STEP_INFO_RE.sub("", HINT_RE.sub("", text)))
 
 
 def strip_hint_messages(messages: list) -> list:
-    """strip_hint_blocks over the text of a neutral chat."""
     out = []
     for msg in messages:
         content = msg["content"]
@@ -65,11 +45,7 @@ def strip_hint_messages(messages: list) -> list:
 
 @dataclass
 class Decision:
-    """What one decision (one or more calls) produced.
-
-    Exactly one of: action_text (send to env.step), finish (the agent declared the task
-    done, e.g. M3A `status` / WebVoyager ANSWER), or invalid (nothing reaches the env;
-    error is fed back)."""
+    """What one decision produced: exactly one of action_text, finish or invalid."""
     action_text: Optional[str] = None
     finish: bool = False
     answer: Optional[str] = None
@@ -86,8 +62,7 @@ class Executor(ABC):
                  temperature: Optional[float] = None, previous_history: Any = None,
                  parameters: dict[str, Any] = None) -> None:
         self._parameters = load_parameters(parameters)
-        #: Memory from earlier legs (this executor's own history type, from a previous executor's
-        #: history()), restored at the start of run(). None: start empty.
+        #: A previous executor's history(), restored at the start of run().
         self.previous_history = previous_history
         self.env = env
         self.vlm = vlm
@@ -112,7 +87,7 @@ class Executor(ABC):
         return record.response
 
     def chat_call(self, *, tag: str, messages: list, images: list, max_new_tokens: Optional[int] = None) -> str:
-        """One chat call (neutral messages; images indexed by the parts), recorded."""
+        """One chat call, recorded; it owns the steps that follow."""
         t0 = time.time()
         out = self.vlm.chat(messages=messages, images=images,
                             max_new_tokens=max_new_tokens or self.max_new_tokens,
@@ -141,32 +116,29 @@ class Executor(ABC):
         """Forget everything from a previous leg."""
 
     def history(self) -> Any:
-        """This executor's memory after its leg, for the next leg's previous_history (its own type:
-        M3A summaries, WebVoyager chat, GameBoyRL history records). None: nothing to carry."""
+        """This executor's memory after its leg, for the next leg's previous_history."""
         return None
 
     def restore_history(self, history: Any) -> None:
-        """Start from a previous executor's history() (called by run() after reset_memory())."""
+        """Start from a previous executor's history(); called after reset_memory()."""
 
     @abstractmethod
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
-        """Make the deciding call(s) for the current state (recording them via call/chat_call)."""
+        """Make the deciding call(s) for the current state, via call/chat_call."""
 
     def after_step(self, *, decision: Decision, obs_before: dict, info_before: dict, obs_after: dict,
                    info_after: dict, step: StepRecord) -> None:
-        """Called after each env step (memory updates, M3A's summary call)."""
+        """Called after each env step."""
 
     def after_invalid(self, *, decision: Decision, obs: dict, info: dict) -> None:
-        """Called after an invalid decision (memory updates)."""
+        """Called after an invalid decision."""
 
     def done_check(self, *, step: StepRecord, hint: Optional[str]) -> bool:
-        """Post-step completion check (GameBoy attempts only). Default: none."""
+        """Post-step completion check."""
         return False
 
     def env_invalid_to_decision(self, *, decision: Decision, info: dict) -> Optional[Decision]:
-        """When env.step reports the action invalid: return an InvalidRecord-style Decision
-        if this agent treats it as "never reached the env" (GameBoyRL: unrecognised action),
-        or None to keep it as an (invalid) env step."""
+        """For an env-rejected action, a Decision to treat it as never reaching the env, or None to keep the step."""
         return None
 
     # ------------------------------------------------------------ the loop
@@ -175,7 +147,7 @@ class Executor(ABC):
             allow_done_check: bool = False, env_name: str = "",
             max_consecutive_invalid: Optional[int] = MAX_CONSECUTIVE_INVALID, finish_through_env: bool = False,
             stop_on_model_error: bool = False) -> LegReport:
-        """Play one leg from the current state. Returns the LegReport."""
+        """Play one leg from the current state; finish_through_env lets the env's test mode score the finish."""
         limit = max_consecutive_invalid if max_consecutive_invalid is not None else float("inf")
         self.task = task
         self.report = LegReport(env_name=env_name, task=task, hint=hint, max_steps=max_steps,
@@ -203,7 +175,7 @@ class Executor(ABC):
                 self.report.answer = decision.answer
                 self.report.termination_reason = "agent_done"
                 if finish_through_env:
-                    # The raw reply carries the finishing action (M3A status, WebVoyager ANSWER).
+                    # The raw reply carries the finishing action.
                     text = decision.action_text or deciding_call.response
                     frame_before = EncodedImage.of(self.judge_frame(obs=obs, info=info))
                     obs_after, reward, terminated, truncated, info_after = self.env.step(text)

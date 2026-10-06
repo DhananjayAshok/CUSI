@@ -1,8 +1,6 @@
 """
-Check cusi.envs.gameboy.GameBoyPlayEnv on a real Game Boy emulator (runs anywhere;
-needs the ROMs set up for GameBoyWorlds). From the CUSI root:
-
-    source scripts/utils.sh && python tests/gameboy_play_env_test.py
+Checks GameBoyPlayEnv's observations, actions, resets and truncation on a real emulator.
+    python tests/gameboy_play_env_test.py
 """
 import numpy as np
 from cusi.envs.gameboy import GameBoyPlayEnv, MSG_PARSE_FAILED

@@ -3,14 +3,14 @@
 # boots the AVD writable, installs and configures the apps, then shuts it down cleanly
 # so they persist. Runs inside the container on a node with KVM; needs internet.
 #
-#   bash scripts/container.sh bash setup/android/app_setup.sh [--force false]
+#   bash scripts/container.sh bash setup/android/app_setup.sh [--force <value>]
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["avd"]="AndroidWorldAvd"
-ARGS["force"]="false"
+populate_dict ANDROID_APP_SETUP_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array ANDROID_APP_SETUP_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

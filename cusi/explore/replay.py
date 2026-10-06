@@ -1,18 +1,5 @@
-"""Chunked on-disk replay buffer of exploration steps (plan Part 2.5).
-
-Each transition (one env.step) stores: the frame reached (PNG; Android frames are 7.7 MB raw),
-the active image embedder's embedding (float16) and the embedder's name, the text channels, the
-policy's generated text, the canonical parsed_action, the world-model action index, valid, the
-rewards (extrinsic; the curiosity components frame / region (reward_text is the same value, the
-pre-migration name) / invalid-action penalty; total), and the episode boundaries (episode id,
-step in episode, done). Code that needs another embedder re-embeds from the frames. The
-first observation of every episode is stored as a step with step=0 and no action, so each
-episode is self-contained: frame[t-1] -> action[t] -> frame[t].
-
-    writer = ReplayWriter(directory=..., chunk_size=500)
-    writer.add(**fields); writer.close()
-    for step in iter_replay(directory=...): ...
-    episodes = load_episodes(directory=...)       # list of lists of step dicts
+"""
+Chunked on-disk replay buffer of exploration steps; step 0 of each episode is the reset observation.
 """
 import glob
 import os

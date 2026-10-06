@@ -15,9 +15,6 @@ MAX_PDF_CHARS = 30000
 
 
 def add_model_args(*, parser: argparse.ArgumentParser) -> None:
-    """
-    Add --model_name, --model_backend and --vllm_base_url to a WebVoyager argparse parser.
-    """
     parser.add_argument("--model_name", type=str, required=True, help="Model id.")
     parser.add_argument("--model_backend", type=str, required=True, choices=WEBVOYAGER_BACKENDS,
                         help="Model backend.")
@@ -26,9 +23,7 @@ def add_model_args(*, parser: argparse.ArgumentParser) -> None:
 
 
 def build_model_from_args(*, args: argparse.Namespace, parameters: dict[str, Any] = None) -> InferenceModel:
-    """
-    Build the model named by the flags that ``add_model_args`` added.
-    """
+    """Build the model named by the flags ``add_model_args`` added."""
     parameters = load_parameters(parameters)
     return build_model(
         model_name=args.model_name,
@@ -45,30 +40,13 @@ def chat(
     max_new_tokens: int,
     temperature: Optional[float] = None,
 ) -> tuple[str, int, int]:
-    """
-    Send OpenAI-format chat messages and return the reply with its token counts.
-
-    :param model: The model to query.
-    :type model: InferenceModel
-    :param messages: OpenAI-format chat messages.
-    :type messages: list[dict]
-    :param max_new_tokens: Maximum number of tokens to generate.
-    :type max_new_tokens: int
-    :param temperature: Sampling temperature. None means the backend default.
-    :type temperature: float or None
-    :return: ``(text, input_tokens, output_tokens)``. Counts the backend does not report are 0.
-    :rtype: tuple[str, int, int]
-    """
+    """Send OpenAI-format messages; returns (text, input_tokens, output_tokens), unreported counts as 0."""
     out = model.infer_messages(messages=messages, max_new_tokens=max_new_tokens, temperature=temperature)
     return out["output"], out["meta"]["input_tokens"] or 0, out["meta"]["output_tokens"] or 0
 
 
 def answer_from_pdf(*, model: InferenceModel, pdf_path: str, question: str, parameters: dict[str, Any] = None) -> str:
-    """
-    Answer ``question`` from a downloaded PDF by extracting its text and asking ``model``.
-
-    Replaces WebVoyager's OpenAI Assistants API retrieval.
-    """
+    """Answer ``question`` from a PDF's extracted text (replaces WebVoyager's Assistants API retrieval)."""
     parameters = load_parameters(parameters)
     reader = PdfReader(pdf_path)
     text = "\n".join(page.extract_text() or "" for page in reader.pages)

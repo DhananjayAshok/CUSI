@@ -1,22 +1,13 @@
 """
-Sometimes in bash, there are times when you want to call functions and get string values back. 
-This script is a helper to get those string values from bash functions. It takes in the name of the string and the arguments to pass to that function, and it prints the output of the function to stdout.
-If there is an error at any point of time, it will print the error message to stderr and exit with a non-zero exit code.
+Prints a named string (e.g. an experiment name) built from --key value args, for use from bash.
 
-This script should ONLY print once, as the output of the function. If there are multiple print statements, it will be difficult to parse the output and get the desired string value.
+Must print exactly once to stdout; errors go to stderr with a non-zero exit.
 """
 import sys
 from abc import ABC, abstractmethod
 
 def depathify(string) -> str:
-    """
-    Helper function to convert a path-like string to a string that can be used as a filename or an experiment name.
-
-    :param string: the string to depathify
-    :type string: str
-    :return: the depathified string
-    :rtype: str
-    """
+    """Make a path-like string safe to use as a filename or experiment name."""
     return (
         string.replace("/", "_")
         .replace("\\", "_")
@@ -24,21 +15,15 @@ def depathify(string) -> str:
     )
 
 def log(message: str) -> None:
-    """
-    Helper function to log a message to stderr. This is useful for debugging and error messages.
-
-    :param message: the message to log
-    :type message: str
-    """
     print(message, file=sys.stderr)
 
 
 class StringFunction(ABC):
-    NAME = None # name of the string function, used to call it from bash.
-    # By convention, all args are case insensitive and are not allowed to use ' '
-    REQUIRED_ARGS = [] # list of required arguments that the function needs to run. If any of these are missing, the function will raise an error.
-    OPTIONAL_ARGS = {} # dict of optional arguments that the function can take, with the key as the argument name and the value as the default value. If any of these are missing, the function will use the default value. If any unexpected arguments are passed, they will be ignored.
-    # You typically do NOT want to be using optional args. Instead, make a common set of optional args in the bash utils.sh file and source that in your bash script. This way, you can easily update the optional args without having to change the python code.
+    NAME = None # name used to call it from bash
+    # Arg names are case insensitive and may not contain ' '
+    REQUIRED_ARGS = []
+    OPTIONAL_ARGS = {} # name -> default; unexpected args are ignored
+    # Prefer shared optional args in scripts/utils.sh over OPTIONAL_ARGS here.
 
     def __init__(self):
         if self.NAME is None:
@@ -63,14 +48,12 @@ class StringFunction(ABC):
                 raise ValueError(f"Missing required argument: {arg}")
         for arg in kwargs:
             if arg not in self.REQUIRED_ARGS and arg not in self.OPTIONAL_ARGS:
-                pass # unexpected arguments are allowed, just ignored. 
+                pass # unexpected arguments are ignored
 
     @abstractmethod
     def _get_string(self, **kwargs) -> str:
-        """
-        Kwargs is guaranteed to have all keys filled. 
-        """
-        pass # write the logic to return the string you want here. 
+        """Kwargs is guaranteed to have all keys filled."""
+        pass
 
     def get_string(self, **kwargs) -> None:
         self.validate_args(**kwargs)
@@ -78,10 +61,10 @@ class StringFunction(ABC):
             if arg not in kwargs:
                 kwargs[arg] = default_value
         string = self._get_string(**kwargs)
-        print(string) # print the string to stdout, which will be captured by the bash script
+        print(string) # captured by the bash caller
 
 
-# Implement a function below and add it to the STRING_FUNCTIONS list to make it available for use in bash.
+# Add new string functions to STRING_FUNCTIONS to expose them to bash.
 
 class ExampleExperimentName(StringFunction):
     NAME = "exp_name"
@@ -106,7 +89,6 @@ def parse():
     if string_name not in ALL_STRING_FUNCTIONS:
         raise ValueError(f"String function {string_name} not found. Available string functions: {list(ALL_STRING_FUNCTIONS.keys())}")
     args = passed_in_args[1:]
-    # must be an even number, matching --key value pairs
     if len(args) % 2 != 0:
         raise ValueError(f"Arguments must be in the format --key value. Got: {args}")
     arg_dict = {}

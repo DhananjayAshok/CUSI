@@ -1,18 +1,5 @@
-"""Generic records of what an executor did, shared by all three environments.
-
-Mirrors GameBoyRL's execution/report.py (EnvironmentStepRecord, InvalidStepRecord,
-ExecutorVLMCallRecord, ExecutorReport), with environment-specific fields replaced by
-generic ones, so a pickle loads without any environment's classes:
-
-    StepRecord   one env.step: frames before/after, the action text, parsed_action, valid,
-                 error, reward, plus a small `extra` dict (e.g. GameBoy's frame_changed).
-    CallRecord   one model call: tag, images, prompt (single-turn) or messages (chat),
-                 response, token counts, and the steps that call caused.
-    LegReport    one executor run on one task: every call (in order), termination reason,
-                 the agent's answer (if any).
-
-Images are stored PNG-encoded (EncodedImage): Android screenshots are 7.7 MB raw, and an
-episode holds hundreds of them.
+"""
+Environment-agnostic records of what an executor did: steps, model calls and legs.
 """
 import io
 from dataclasses import dataclass, field
@@ -20,16 +7,14 @@ from typing import Any, Optional, Union
 import numpy as np
 from PIL import Image
 
-#: Tags of the calls that choose an action (training rows come from these).
 ACTION_TAGS = {"action"}
-#: M3A's step summary call: kept as a training row too (M3A writes its summaries at test time).
+#: M3A writes its step summaries at test time, so they are training rows too.
 SUMMARY_TAG = "summary"
-#: Tags whose calls become dataset rows.
 DATASET_TAGS = ACTION_TAGS | {SUMMARY_TAG}
 
 
 class EncodedImage:
-    """An RGB image held as PNG bytes. Build with EncodedImage.of(array_or_pil)."""
+    """An RGB image held as PNG bytes (raw screenshots are too big to keep per step)."""
 
     __slots__ = ("png", "size")
 
@@ -61,10 +46,7 @@ class EncodedImage:
 
 
 def to_pil(image: Any) -> Image.Image:
-    """PIL RGB from an HxW, HxWx1, HxWx3 array, a PIL image or an EncodedImage.
-
-    Colour is kept: GameBoyRL's converter (utils/vlm.py) took channel 0 only, which would
-    grey out Android/web screenshots."""
+    """PIL RGB from an array, a PIL image or an EncodedImage, keeping colour."""
     if isinstance(image, EncodedImage):
         return image.pil()
     if isinstance(image, Image.Image):
@@ -82,8 +64,7 @@ def to_pil(image: Any) -> Image.Image:
 
 
 def per_prompt_token_counts(*, meta: dict, n_prompts: int) -> list:
-    """GameBoyRL report.per_prompt_token_counts: a batched call's meta split into one
-    (input_tokens, output_tokens) per prompt (a total that is not per prompt goes on the first)."""
+    """A batched call's (input, output) token counts per prompt; an unsplit total goes on the first."""
     def spread(value):
         if isinstance(value, list) and len(value) == n_prompts:
             return list(value)
@@ -96,8 +77,7 @@ def per_prompt_token_counts(*, meta: dict, n_prompts: int) -> list:
 
 @dataclass
 class StepRecord:
-    """One env.step. frame_before/frame_after are what the judge sees (the raw screenshot
-    where an environment has one, else the observation frame)."""
+    """One env.step; the frames are what the judge sees."""
     frame_before: EncodedImage
     frame_after: EncodedImage
     action_text: str
@@ -108,7 +88,6 @@ class StepRecord:
     extra: dict = field(default_factory=dict)
 
     def action_label(self) -> str:
-        """Short human-readable action name, for prompts that list actions taken."""
         if "action_name" in self.extra:
             return str(self.extra["action_name"])
         if self.parsed_action:
@@ -118,19 +97,14 @@ class StepRecord:
 
 @dataclass
 class InvalidRecord:
-    """A deciding call that did not reach the environment (unparseable, or rejected by the
-    executor before env.step), as GameBoyRL's InvalidStepRecord."""
+    """A deciding call that never reached the environment."""
     response: str
     reason: str
 
 
 @dataclass
 class CallRecord:
-    """One model call.
-
-    Single-turn calls set `prompt` (text) and `images` (in order). Chat calls (WebVoyager)
-    set `messages`: role/content dicts whose content is a str or a list of
-    {"type": "text", "text": ...} / {"type": "image", "image": <index into images>} parts."""
+    """One model call: single-turn sets `prompt`; chat sets `messages`, whose image parts index `images`."""
     tag: str
     images: list
     response: str
@@ -139,10 +113,9 @@ class CallRecord:
     steps: list = field(default_factory=list)
     input_tokens: Optional[int] = None
     output_tokens: Optional[int] = None
-    #: For deciding calls: "step" (sent to the env), "finish" (the agent declared the task
-    #: done), "invalid" (never reached the env). None for auxiliary calls.
+    #: "step", "finish" or "invalid" for deciding calls; None for auxiliary calls.
     decision: Optional[str] = None
-    #: Wall-clock seconds the model call took (a batched call: its total, on the first record).
+    #: A batched call's total goes on its first record.
     seconds: Optional[float] = None
 
     @property
@@ -150,7 +123,7 @@ class CallRecord:
         return [s for s in self.steps if isinstance(s, StepRecord)]
 
     def accepted_by_env(self) -> bool:
-        """The legality filter: a finish, or a step the environment accepted."""
+        """A finish, or a step the environment accepted."""
         if self.decision == "finish":
             return True
         return self.decision == "step" and any(s.valid for s in self.env_steps)
@@ -167,9 +140,8 @@ class LegReport:
     termination_reason: Optional[str] = None
     answer: Optional[str] = None
     initial_frame: Optional[EncodedImage] = None
-    #: The env's reward on the last env step (test mode: the benchmark's success signal).
+    #: In test mode, the benchmark's success signal.
     final_reward: Optional[float] = None
-    #: Set when the leg ended on a model error (Executor.run(stop_on_model_error=True)).
     error: Optional[str] = None
 
     @property
@@ -181,6 +153,6 @@ class LegReport:
         return [s for s in self.steps if isinstance(s, StepRecord)]
 
     def frames(self) -> list:
-        """initial frame + the frame after each env step."""
+        """The initial frame, then the frame after each env step."""
         out = [self.initial_frame] if self.initial_frame is not None else []
         return out + [s.frame_after for s in self.env_steps]

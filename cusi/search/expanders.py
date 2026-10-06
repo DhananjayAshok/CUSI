@@ -1,17 +1,5 @@
-"""Exploration policies for expanding a node (plans/skill_discovery.md §1.4 D). All act through the
-env's text actions; the search loop steps the env.
-
-    expander.start(env=env)                                         # at the start of an expansion
-    action, meta = expander.next_action(env=env, obs=obs, info=info)
-    expander.observe(action=action, changed=<did the state change>) # after the step
-
-RandomExpander   env.sample_action(). With avoid_noops, an action that left the state unchanged
-                 (by the shared similarity, decided by the search loop) is not re-sampled while
-                 the state stays the same (a no-op filter without domain state).
-VLMExplorer      one goal-free policy for all envs: env_description + the env's action text +
-                 the current frame and flattened text + the last few actions; the reply goes to
-                 env.step as is (the env parses it). Minimal; to be replaced by the standardised
-                 agent. Curiosity PPO as an expander is on hold.
+"""
+Exploration policies that expand a node through the env's text actions: random and a goal-free VLM.
 """
 from typing import Optional
 from cusi.state.canvas import frame_for_embedding
@@ -22,13 +10,15 @@ MAX_TEXT_CHARS = 4000
 
 
 def flatten_texts(*, texts: dict) -> str:
-    """The provisional text format: element lines, truncated for prompts."""
+    """Element lines, truncated for prompts."""
     lines = element_lines(texts=texts)[:MAX_TEXT_LINES]
     out = "\n".join(lines)
     return out[:MAX_TEXT_CHARS] if out else "(no text)"
 
 
 class RandomExpander:
+    """Random actions; with avoid_noops, an action that left the state unchanged is not re-sampled until it changes."""
+
     name = "random"
 
     def __init__(self, *, avoid_noops: bool = True, max_resample: int = 10) -> None:
@@ -74,8 +64,7 @@ class VLMExplorer:
 
     def __init__(self, *, vlm, history_k: int = 5, max_new_tokens: int = 256, temperature: float = 1.0,
                  use_raw_frame: bool = False) -> None:
-        """use_raw_frame=False: the VLM sees obs["frame"] (set-of-mark labels on Web/Android, which
-        the action format refers to)."""
+        """use_raw_frame=False shows the set-of-mark frame, whose labels the action format refers to."""
         self.vlm, self.history_k = vlm, history_k
         self.max_new_tokens, self.temperature = max_new_tokens, temperature
         self.use_raw_frame = use_raw_frame

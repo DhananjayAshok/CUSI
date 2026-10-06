@@ -1,16 +1,14 @@
-"""Parsers for model replies: one copy of each, used by the agents, the supervisors and the practice
-stages. Ported from GameBoyRL (utils/lm_inference.py, utils/parsing.py); copied rather than imported
-because GameBoyRL's top-level `utils` package clashes with WebVoyager's `utils` module in one process.
+"""
+Parsers for model replies.
 
-parse_key_value is the superset of the copies that existed before 2026-10-06: GameBoyRL's
-"response:" scoping and bare-key fallback, plus stripping a trailing [STOP] marker.
+Copied from GameBoyRL rather than imported: its top-level `utils` package clashes with WebVoyager's `utils`.
 """
 import re
 from typing import Optional
 
 PLAN_SEPARATOR = "[STEP]"
 
-# The bare "<digits> foo" form — a number with no punctuation after it — is accepted
+# Also accepts a bare "<digits> foo" with no punctuation after the number
 _ITEM_RE = re.compile(r"^(?:[-*•]|\d+[.)]?)\s+(.*)$")
 
 
@@ -19,25 +17,7 @@ _ABSENT = {"NONE", "N/A", "NA"}
 
 
 def parse_key_value(text: str, key: str) -> Optional[str]:
-    """
-    Return the value following ``"Key:"`` on the matching line of ``text``.
-
-    The key is matched case-insensitively; the returned value preserves its
-    original case. A trailing ``[STOP]``/``[stop]`` marker is stripped.
-
-    If ``text`` contains exactly one ``"response:"`` occurrence, only the text
-    after it is searched (avoids matching mentions of ``key`` in a preceding
-    "Reasoning:" section). If no ``"key:"`` line is found but ``key`` (without
-    a colon) appears exactly once, the rest of that occurrence's line is
-    returned instead.
-
-    :param text: The text to search.
-    :type text: str
-    :param key: The key to search for.
-    :type key: str
-    :return: The extracted value, or None if not found or empty.
-    :rtype: Optional[str]
-    """
+    """The value after a case-insensitive ``Key:`` (scoped to after a lone "response:"), or None."""
     key_lower = key.lower()
     marker = f"{key_lower}:"
 
@@ -70,12 +50,7 @@ def parse_key_value(text: str, key: str) -> Optional[str]:
 
 
 def _is_absent(value: str) -> bool:
-    """Whether an extracted item is a "no answer" token or punctuation rather than content.
-    The alphanumeric test catches markdown residue such as a trailing ``**``.
-
-    :return: Whether the item is absent.
-    :rtype: bool
-    """
+    """Whether an item is a "no answer" token or bare punctuation (e.g. markdown residue)."""
     stripped = value.strip()
     return (not stripped
             or stripped.upper() in _ABSENT
@@ -83,15 +58,7 @@ def _is_absent(value: str) -> bool:
 
 
 def _heading_index(lines: list[str], marker: str) -> Optional[int]:
-    """Index of the line carrying ``marker``, preferring a heading over a mention.
-
-    :param lines: The lines of the model's reply.
-    :type lines: list[str]
-    :param marker: The heading to look for, in lowercase and with a trailing colon.
-    :type marker: str
-    :return: The index of the line with the heading, or the first line mentioning it
-    :rtype: Optional[int]
-    """
+    """Index of the line carrying ``marker`` (lowercase, with colon), preferring a heading over a mention."""
     mention = None
     for i, line in enumerate(lines):
         stripped = line.strip().lower().lstrip("*#->•+ \t")
@@ -103,16 +70,7 @@ def _heading_index(lines: list[str], marker: str) -> Optional[int]:
 
 
 def parse_list(text: str, key: Optional[str] = None) -> list[str]:
-    """Items from a model's list answer, optionally scoped to a ``Key:`` heading.
-
-    :param text: The model response.
-    :type text: str
-    :param key: Heading to scope the search to, without a trailing colon (``"Insights"``,
-        not ``"Insights:"``). When ``None``, every item line in the reply is taken.
-    :type key: str or None
-    :return: The items as bare strings — no bullet, no numbering.
-    :rtype: list[str]
-    """
+    """Bare list items from a reply, optionally scoped to a ``key`` heading (given without the colon)."""
     body = text or ""
 
     lowered = body.lower()
@@ -156,15 +114,7 @@ def parse_list(text: str, key: Optional[str] = None) -> list[str]:
 
 def parse_int(text: str, key: str, lo: Optional[int] = None,
               hi: Optional[int] = None) -> Optional[int]:
-    """The integer on a ``Key:`` line, or ``None`` if the model did not give one.
-
-    :param text: The model response.
-    :param key: The key whose value to read.
-    :param lo: Inclusive lower bound, or ``None`` for unbounded.
-    :param hi: Inclusive upper bound, or ``None`` for unbounded.
-    :return: The integer, or ``None`` when the key is absent, answered ``N/A``/``none``/
-        ``unknown``, unparseable, or out of range.
-    """
+    """The integer on a ``Key:`` line within inclusive [lo, hi], or None if absent or unparseable."""
     raw = (parse_key_value(text, key) or "").strip()
     if not raw or raw.lower().startswith(("n/a", "na", "none", "unknown")):
         return None
@@ -187,17 +137,7 @@ def parse_int(text: str, key: str, lo: Optional[int] = None,
 
 
 def parse_yes_no(text: str, key: str) -> Optional[bool]:
-    """
-    Return the yes/no verdict on the ``"Key:"`` line of ``text``.
-
-    :param text: The model response to search.
-    :type text: str
-    :param key: The verdict key, e.g. ``"Complete"``, ``"Relevant"``, ``"Flawed"``.
-    :type key: str
-    :return: ``True`` on an explicit yes, ``False`` on any other answer, ``None``
-        when no answer was given.
-    :rtype: Optional[bool]
-    """
+    """True on an explicit yes, False on any other answer, None when the key is absent."""
     raw = parse_key_value(text, key)
     if raw is None:
         return None
@@ -241,6 +181,6 @@ def parse_plan(text: str) -> list:
 
 
 def parse_completion(response: str) -> Optional[bool]:
-    """report.parse_completion: the "Complete:" verdict."""
+    """The "Complete:" verdict."""
     return parse_yes_no(response, "Complete")
 

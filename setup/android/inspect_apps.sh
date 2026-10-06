@@ -3,17 +3,14 @@
 # screenshot and the on-screen UI text, to see what an agent would face on launch.
 # Runs inside the container on a node with KVM.
 #
-#   bash scripts/container.sh bash setup/android/inspect_apps.sh --apps "chrome contacts markor"
+#   bash scripts/container.sh bash setup/android/inspect_apps.sh --apps <apps>
 
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 
 declare -A ARGS
-ARGS["apps"]="chrome contacts markor"
-ARGS["wait"]="20"
-ARGS["out_dir"]="none"
-# Extended regex; if any app's screen text matches it, exit 1 (after inspecting all).
-ARGS["fail_on"]="none"
+populate_dict ANDROID_INSPECT_APPS_DEFAULTS ARGS
 REQUIRED_ARGS=()
+populate_array ANDROID_INSPECT_APPS_ESSENTIALS REQUIRED_ARGS
 
 # --- Argument parsing (copy verbatim) ---
 ALLOWED_FLAGS=("${REQUIRED_ARGS[@]}" "${!ARGS[@]}")

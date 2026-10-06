@@ -1,17 +1,5 @@
-"""Text embedders (curiosity_plan §3.2.1). Each turns a state's element lines (cusi.state.text)
-into a representation and compares a query against many stored ones.
-
-    none      no text part (GameBoy for now); w_image is forced to 1.
-    overlap   Jaccard overlap of the sets of lines. The cheapest option.
-    tfidf     bag of lower-cased word tokens, tf-idf weighted, cosine. Document frequencies are
-              counted online by the embedder over every state it has represented (so the idf
-              keeps moving; an archive restore does not rewind it).
-    dense     a sentence-embedding model (id required, e.g. sentence-transformers/all-MiniLM-L6-v2)
-              through plain transformers + mean pooling, over the lines joined by newlines;
-              unit vector, dot product.
-
-    t = build_text_embedder(text_embedder="tfidf")
-    rep = t.represent(lines=[...]);  sims = t.similarities(query=rep, reps=[rep1, rep2])   # np (N,)
+"""
+Text embedders: turn a state's element lines into a representation and compare it against stored ones.
 """
 import math
 import re
@@ -57,6 +45,8 @@ class OverlapText(TextEmbedder):
 
 
 class TfidfText(TextEmbedder):
+    """Tf-idf cosine; document frequencies are counted online, so an archive restore does not rewind them."""
+
     name = "tfidf"
 
     def __init__(self) -> None:

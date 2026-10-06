@@ -1,13 +1,5 @@
-"""Planning from retrieved knowledge (GameBoyRL execution/supervisors/info_subgoal.py).
-
-`subgoal` whose planner, hint writer and replanner also read an info document: every entry is
-judged for relevance against the current screen (in parallel), the kept entries' insights are
-filtered and distilled once per episode, and the result fills [INSIGHTS].
-
-Built, not tested (plans/agents.md decision 5): no info documents exist for any env yet. Documents come
-from load_documents() below: GameBoy uses GameBoyRL's own loaders (retrieval: --info_docs paths;
-parametric: GameBoyRL's generated document); Android / Web have no document format yet and stop
-with an error.
+"""
+Subgoal planning informed by the relevant, distilled insights of info documents.
 """
 import os
 import re
@@ -20,27 +12,26 @@ from cusi.agents.supervisors.subgoal import SubgoalSupervisor
 
 def load_documents(*, env: str, mode: str, info_docs: Optional[str], game: str = "", knowledge_vlm=None,
                    parameters: dict) -> list:
-    """The info documents for an info_subgoal arm. mode: "retrieval" or "parametric"."""
+    """The info documents for an info_subgoal arm; mode is "retrieval" or "parametric"."""
     if env != "gameboy":
-        log_error(f"info_subgoal_{mode}: no info documents exist for {env} yet (plans/agents.md decision 5).",
+        log_error(f"info_subgoal_{mode}: no info documents exist for {env} yet.",
                   parameters=parameters)
-    from benchmark_scripts import common    # GameBoyRL (on sys.path in the GameBoy process)
+    from benchmark_scripts import common    # GameBoyRL, on sys.path in the GameBoy process
     if mode == "retrieval":
         if not info_docs:
             log_error("info_subgoal_retrieval needs --info_docs (comma-separated document paths).",
                       parameters=parameters)
         return common.load_documents(info_docs, parameters)
     from execution.parametric_doc import load_or_generate_parametric_document
-    # Generated once from the supervisor model's priors and cached, keyed on the model (as GameBoyRL).
-    path = os.path.join(parameters["storage_dir"], "eval", "info_docs", game,
-                        f"parametric_{knowledge_vlm.model_name.replace('/', '_')}.json")
+    # Generated once from the supervisor model's priors and cached per model.
+    from cusi.utils.paths import parametric_doc_file
+    path = parametric_doc_file(parameters=parameters, game=game, model_name=knowledge_vlm.model_name)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     return [load_or_generate_parametric_document(game=game, path=path, vlm=knowledge_vlm, parameters=parameters)]
 
 
 class InfoSubgoalSupervisor(SubgoalSupervisor):
-    """:param documents: parsed info documents (GameBoyRL's InfoDocument interface).
-    :param max_concurrency: parallel relevance calls."""
+    """The subgoal supervisor with knowledge from info documents (GameBoyRL's InfoDocument interface)."""
 
     def __init__(self, *, documents: Optional[List[Any]] = None, max_concurrency: int = 8, **kwargs) -> None:
         self._documents = documents or []

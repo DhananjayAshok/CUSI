@@ -1,10 +1,5 @@
-"""Check that cusi.practice's GameBoy executor reproduces GameBoyRL's prompts exactly.
-
-Builds GameBoyRL's own PolicyExecutor (single action policy + actions history) without running
-it, feeds its history policy the same steps, and compares PolicyExecutor._build_prompt and
-the done-check prompt with ours, for: no hint / a hint, no error / an error, empty history /
-a history with a [no change] step (which adds STUCK_HINT).
-
+"""
+Checks that our GameBoy executor's step prompts match GameBoyRL's PolicyExecutor exactly.
     python tests/practice_gameboy_prompt_test.py
 """
 import types
@@ -64,7 +59,7 @@ for hint in (None, "Walk up to the Pokemon Center door."):
             mine = our_prompt(task="enter the pokemon center", hint=hint, error=error, n_history=n_history)
             assert theirs == mine, f"prompt mismatch (hint={hint!r}, error={error!r}, n={n_history}):\n" \
                                    f"--- GameBoyRL\n{theirs}\n--- ours\n{mine}"
-            # Stripping the hint gives the no-hint prompt (what create_dataset trains on).
+            # Stripping the hint must give the no-hint prompt (what the dataset trains on).
             if hint is not None:
                 bare = our_prompt(task="enter the pokemon center", hint=None, error=error, n_history=n_history)
                 assert strip_hint_blocks(mine) == bare, "stripped prompt differs from the no-hint prompt"

@@ -47,7 +47,7 @@ All `.yaml` files in `configs/` are automatically loaded and merged into a singl
 
 ### Auto-Derived Parameters (do not set in YAML)
 `compute_secondary_parameters()` derives and creates these directories automatically:
-- From `storage_dir`: `data_dir`, `model_dir`, `tmp_dir`, `sync_dir`
+- From `storage_dir`: `data_dir`, `model_dir`, `tmp_dir`
 - From `results_dir`: `log_dir`, `figure_dir`
 
 You can use these in your code.

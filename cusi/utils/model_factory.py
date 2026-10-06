@@ -20,21 +20,7 @@ def build_model(
     vllm_base_url: Optional[str] = None,
     parameters: dict[str, Any] = None,
 ) -> InferenceModel:
-    """
-    Build an InferenceModel for the given backend.
-
-    :param model_name: Model identifier passed to the backend.
-    :type model_name: str
-    :param model_backend: One of ``MODEL_BACKENDS``.
-    :type model_backend: str
-    :param vllm_base_url: Base url of the vLLM server. Only used by the vllm backend.
-        None uses ``parameters["vLLM_base_url"]``.
-    :type vllm_base_url: str or None
-    :param parameters: Loaded parameters dict. If None, loads from config.
-    :type parameters: dict[str, Any] or None
-    :return: The constructed model.
-    :rtype: InferenceModel
-    """
+    """Build an InferenceModel for one of ``MODEL_BACKENDS``; vllm_base_url is vllm-only (None uses the config's)."""
     parameters = load_parameters(parameters)
     if not model_name:
         log_error("model_name must be given", parameters=parameters)
@@ -50,8 +36,7 @@ def build_model(
         )
     log_info(f"Building {model_backend} model {model_name}", parameters=parameters)
     if model_backend == "vllm":
-        # vLLM ignores the key unless the server was started with --api-key, but the
-        # OpenAI client refuses to start without one.
+        # The OpenAI client refuses to start without a key; vLLM ignores it unless started with --api-key.
         return vLLMModel(
             model=model_name,
             api_key=os.environ.get("OPENAI_API_KEY", "EMPTY"),
