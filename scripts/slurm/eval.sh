@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One test-set evaluation (run_eval.py <env>) under one supervisor arm, against a vLLM server this
 # job starts fresh on its own port (prefix caching off), with the job's timing recorded
-# (agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
+# (plans/agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
 #
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model (and
 # --judge_model). GameBoy runs on the node; Web and Android run in the CUSI container (Chromium;

@@ -1,10 +1,10 @@
 import argparse
 from typing import Any, Optional
 from pypdf import PdfReader
-from cusi_utils.parameter_handling import load_parameters
-from cusi_utils.log_handling import log_info
-from cusi_utils.lm_inference import InferenceModel
-from cusi_utils.model_factory import build_model
+from cusi.utils.parameter_handling import load_parameters
+from cusi.utils.log_handling import log_info
+from cusi.utils.lm_inference import InferenceModel
+from cusi.utils.model_factory import build_model
 
 # WebVoyager builds OpenAI-format chat messages (a system role, image_url parts),
 # which only the OpenAI-compatible backends accept as is.

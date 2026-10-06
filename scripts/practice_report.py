@@ -8,8 +8,8 @@ import json
 import os
 import click
 import pandas as pd
-from cusi_utils import load_parameters, log_info
-from cusi_practice.stages.common import PracticePaths
+from cusi.utils import load_parameters, log_info
+from cusi.practice.stages.common import PracticePaths
 
 
 def _csv(path: str) -> pd.DataFrame:

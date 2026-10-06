@@ -1,5 +1,5 @@
 """
-Check cusi_envs.webvoyager.WebVoyagerPlayEnv in the CUSI container (needs Chromium,
+Check cusi.envs.webvoyager.WebVoyagerPlayEnv in the CUSI container (needs Chromium,
 not KVM). From the CUSI root:
 
     bash scripts/container.sh python tests/webvoyager_play_env_test.py [--live]
@@ -11,7 +11,7 @@ import re
 import sys
 import time
 import numpy as np
-from cusi_envs.webvoyager import WebVoyagerPlayEnv, MSG_FORMAT, MSG_NO_ANSWER
+from cusi.envs.webvoyager import WebVoyagerPlayEnv, MSG_FORMAT, MSG_NO_ANSWER
 
 PAGE = "file://" + os.path.abspath("tests/data/webvoyager_test_page.html")
 

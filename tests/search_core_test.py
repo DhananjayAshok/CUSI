@@ -1,8 +1,8 @@
 """
-The cusi_search core runs with cusi_search.toy made unimportable (the strip-out check of
-skill_discovery.md §1.5), on a fake env with saved states and an inline stats provider. CPU:
+The cusi.search core runs with cusi.search.toy made unimportable (the strip-out check of
+plans/skill_discovery.md §1.5), on a fake env with saved states and an inline stats provider. CPU:
 
-    python tests/search_core_test.py
+    python -m tests.search_core_test      (from the repo root)
 """
 import importlib.abc
 import sys
@@ -11,7 +11,7 @@ import numpy as np
 
 class BlockToy(importlib.abc.MetaPathFinder):
     def find_spec(self, name, path, target=None):
-        if name == "cusi_search.toy" or name.startswith("cusi_search.toy."):
+        if name == "cusi.search.toy" or name.startswith("cusi.search.toy."):
             raise ImportError(f"blocked for the strip-out test: {name}")
         return None
 
@@ -80,12 +80,12 @@ def check(cond, msg):
 
 def main():
     sys.meta_path.insert(0, BlockToy())
-    from cusi_state import build_archive, build_encoder, build_scorer_from_config
-    from cusi_search.expanders import RandomExpander
-    from cusi_search.search import TreeSearch
-    from cusi_search.selection import EnergySelector
+    from cusi.state import build_archive, build_encoder, build_scorer_from_config
+    from cusi.search.expanders import RandomExpander
+    from cusi.search.search import TreeSearch
+    from cusi.search.selection import EnergySelector
     try:
-        import cusi_search.toy  # noqa: F401
+        import cusi.search.toy  # noqa: F401
         check(False, "toy import was not blocked")
     except ImportError:
         pass

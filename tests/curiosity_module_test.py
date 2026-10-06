@@ -22,8 +22,8 @@ def check(cond: bool, msg: str) -> None:
 @click.command()
 @click.option("--world_model_load_path", default=None)
 def main(world_model_load_path):
-    from cusi_explore.curiosity import get_curiosity_module
-    from cusi_state import StateEncoder, StateRecord, build_image_embedder, build_text_embedder
+    from cusi.explore.curiosity import get_curiosity_module
+    from cusi.state import StateEncoder, StateRecord, build_image_embedder, build_text_embedder
     rng = np.random.default_rng(0)
     enc = StateEncoder(image=build_image_embedder(image_embedder="random_patch", env_name="gameboy"),
                        text=build_text_embedder(text_embedder="none"))

@@ -3,9 +3,9 @@ prompt each native agent builds without guidance (what create_dataset trains on)
 
     python tests/practice_strip_test.py
 """
-from cusi_practice.executors.base import strip_hint_blocks
-from cusi_practice.executors.m3a import action_prompt
-from cusi_practice.executors.webvoyager import init_message
+from cusi.agents.executors.base import strip_hint_blocks
+from cusi.agents.executors.m3a import action_prompt
+from cusi.agents.executors.webvoyager import init_message
 from android_world.agents import m3a
 
 guidance = "Summary: open contacts.\nSteps:\n  1. tap the + button\n  2. type the name"

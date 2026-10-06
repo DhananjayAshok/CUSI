@@ -15,10 +15,10 @@ import os
 import shutil
 import threading
 import click
-from cusi_utils import load_parameters
-from cusi_practice.envs import ENV_SPECS, EnvPool
-from cusi_practice.executors.base import GUIDANCE_START, strip_hint_blocks
-from cusi_practice.stages.common import PracticePaths
+from cusi.utils import load_parameters
+from cusi.agents.specs import ENV_SPECS, EnvPool
+from cusi.agents.executors.base import GUIDANCE_START, strip_hint_blocks
+from cusi.practice.stages.common import PracticePaths
 
 ACTION_REPLY = {
     "gameboy": "Reasoning: I should walk up.\nAction: UP",
@@ -28,7 +28,7 @@ ACTION_REPLY = {
 
 
 class ScriptedVLM:
-    """Stands in for PracticeVLM; counts calls per kind."""
+    """Stands in for AgentVLM; counts calls per kind."""
 
     model_name = "scripted/mock-model"
 
@@ -97,12 +97,12 @@ def main(env_name, max_steps):
     os.makedirs(paths.root)
     pool = EnvPool(spec=spec, parameters=parameters)
     ek = {"max_new_tokens": 500, "temperature": None}
-    from cusi_practice.stages.propose import propose
-    from cusi_practice.stages.attempt import attempt
-    from cusi_practice.stages.guidance import guidance
-    from cusi_practice.stages.practice import practice
-    from cusi_practice.stages.clean import clean
-    from cusi_practice.stages.dataset import build_dataset
+    from cusi.practice.stages.propose import propose
+    from cusi.practice.stages.attempt import attempt
+    from cusi.practice.stages.guidance import guidance
+    from cusi.practice.stages.practice import practice
+    from cusi.practice.stages.clean import clean
+    from cusi.practice.stages.dataset import build_dataset
     try:
         propose(spec=spec, pool=pool, vlm=vlm, paths=paths, n_tasks=2, max_new_tokens=500, overwrite=False,
                 parameters=parameters)

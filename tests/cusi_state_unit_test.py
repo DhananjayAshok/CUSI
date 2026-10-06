@@ -1,5 +1,5 @@
 """
-Quick checks of the generalised cusi_state pieces (curiosity_plan §6 step 2) on synthetic data, CPU:
+Quick checks of the generalised cusi.state pieces (curiosity_plan §6 step 2) on synthetic data, CPU:
 
     python tests/cusi_state_unit_test.py
 
@@ -20,7 +20,7 @@ def check(cond: bool, msg: str) -> None:
 
 
 def main():
-    from cusi_state import (NoveltyArchive, StateEmbedding, StateEncoder, StateRecord, build_image_embedder,
+    from cusi.state import (NoveltyArchive, StateEmbedding, StateEncoder, StateRecord, build_image_embedder,
                             build_scorer, build_text_embedder, to_canvas)
     rng = np.random.default_rng(0)
     gb = [np.repeat(rng.integers(0, 255, (144, 160, 1), dtype=np.uint8), 3, axis=2) for _ in range(3)]

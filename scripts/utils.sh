@@ -9,7 +9,7 @@ source setup/.venv/bin/activate || { echo "Virtual environment not found."; exit
 # Model weights come from the user's Hugging Face cache; it must already be configured.
 [[ -n "${HF_HOME:-}" ]] || { echo "HF_HOME is not set; set it (e.g. in ~/.bashrc) to your Hugging Face cache."; exit 1; }
 PROJECT_ROOT=$(pwd) # expects to be run from root, always.
-# Makes CUSI's packages (cusi_utils, benchmark_adapters) importable from submodule
+# Makes CUSI's packages (cusi.utils, benchmark_adapters) importable from submodule
 # scripts such as android_world/run.py.
 export PYTHONPATH="${PROJECT_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
 # uv's standalone Python looks for CA certificates at /etc/ssl/cert.pem, which some

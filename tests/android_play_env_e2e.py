@@ -1,5 +1,5 @@
 """
-End-to-end check of cusi_envs.android_world.AndroidPlayEnv on a real emulator.
+End-to-end check of cusi.envs.android_world.AndroidPlayEnv on a real emulator.
 
 Run inside the container on a KVM node, with an emulator already started with
 snapshots allowed (setup/android/play_env_test.sbatch does all of this):
@@ -16,7 +16,7 @@ import collections
 import re
 import subprocess
 import time
-from cusi_envs.android_world import AndroidPlayEnv, MSG_PARSE_FAILED, MSG_OUT_OF_RANGE, MSG_NO_STATUS
+from cusi.envs.android_world import AndroidPlayEnv, MSG_PARSE_FAILED, MSG_OUT_OF_RANGE, MSG_NO_STATUS
 
 # Status-bar items change on their own (the emulator cycles its simulated signal
 # strength; notifications linger), in evaluation too, so they are not part of the scene.

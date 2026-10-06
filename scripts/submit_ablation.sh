@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Submits the supervisor ablation (agents.md section 7): env x model x supervisor, one Slurm job each
+# Submits the supervisor ablation (plans/agents.md section 7): env x model x supervisor, one Slurm job each
 # (slurm/eval.sh), runs named <prefix>_<model>_<supervisor>. Every runner resumes, so rerunning this
 # script continues unfinished runs (finished tasks are skipped; a finished Web run only re-judges).
 # Run from the CUSI root.

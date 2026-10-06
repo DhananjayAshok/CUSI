@@ -1,20 +1,20 @@
-"""Practice pipeline (plan.md Part 1): propose -> attempt -> guidance -> practice -> clean -> dataset,
+"""Practice pipeline (plans/plan.md Part 1): propose -> attempt -> guidance -> practice -> clean -> dataset,
 for one environment per process.
 
     python run_practice.py --env gameboy --model_name <served name> propose
     python run_practice.py --env android --model_name <served name> all --n_tasks 3
     python run_practice.py --env web --model_name <served name> attempt --max_attempts 5
 
-Outputs: storage_dir/practice/<env>/<model>/ (see cusi_practice/stages/common.py).
+Outputs: storage_dir/practice/<env>/<model>/ (see cusi/practice/stages/common.py).
 Needs the vLLM server (scripts/serve_vllm.sh); Android and web run inside the container
 (scripts/container.sh), Android with emulators started (scripts/android_emulator.sh).
 """
 import click
-from cusi_utils.parameter_handling import load_parameters, compute_secondary_parameters
-from cusi_utils.log_handling import log_info
-from cusi_practice.envs import ENV_NAMES, ENV_SPECS, EnvPool
-from cusi_practice.stages.common import TASK_SOURCES, PracticePaths
-from cusi_practice.vlm import PracticeVLM
+from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
+from cusi.utils.log_handling import log_info
+from cusi.agents.specs import ENV_NAMES, ENV_SPECS, EnvPool
+from cusi.practice.stages.common import TASK_SOURCES, PracticePaths
+from cusi.agents.vlm import AgentVLM
 
 loaded_parameters = load_parameters()
 
@@ -43,7 +43,7 @@ def main(ctx, env_name, model_name, model_backend, max_new_tokens, executor_max_
         "parameters": loaded_parameters, "spec": spec, "overwrite": overwrite, "max_new_tokens": max_new_tokens,
         "paths": PracticePaths(parameters=loaded_parameters, env_name=env_name, model_name=model_name, source=source),
         "source": source,
-        "vlm": PracticeVLM(model_name=model_name, model_backend=model_backend, parameters=loaded_parameters),
+        "vlm": AgentVLM(model_name=model_name, model_backend=model_backend, parameters=loaded_parameters),
         "executor_kwargs": {"max_new_tokens": executor_max_new_tokens, "temperature": temperature},
     }
     log_info(f"run_practice: env={env_name} model={model_name} -> {ctx.obj['paths'].root}",
@@ -62,39 +62,39 @@ def _close(obj) -> None:
 
 
 def do_propose(obj, n_tasks):
-    from cusi_practice.stages.propose import propose
+    from cusi.practice.stages.propose import propose
     propose(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], n_tasks=n_tasks,
             max_new_tokens=obj["max_new_tokens"], overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_attempt(obj, max_attempts, lookback):
-    from cusi_practice.stages.attempt import attempt
+    from cusi.practice.stages.attempt import attempt
     attempt(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], max_attempts=max_attempts,
             lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"], executor_kwargs=obj["executor_kwargs"],
             overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_guidance(obj, max_obs_at_once):
-    from cusi_practice.stages.guidance import guidance
+    from cusi.practice.stages.guidance import guidance
     guidance(spec=obj["spec"], vlm=obj["vlm"], paths=obj["paths"], max_new_tokens=obj["max_new_tokens"],
              max_obs_at_once=max_obs_at_once, overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_practice(obj, n_attempts, n_random_actions, lookback):
-    from cusi_practice.stages.practice import practice
+    from cusi.practice.stages.practice import practice
     practice(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], n_attempts=n_attempts,
              n_random_actions=n_random_actions, lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"],
              executor_kwargs=obj["executor_kwargs"], overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_clean(obj, k, safety_margin):
-    from cusi_practice.stages.clean import clean
+    from cusi.practice.stages.clean import clean
     clean(spec=obj["spec"], vlm=obj["vlm"], paths=obj["paths"], k=k, safety_margin=safety_margin,
           max_new_tokens=obj["max_new_tokens"], overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_dataset(obj, safety_margin, val_frac, seed):
-    from cusi_practice.stages.dataset import build_dataset
+    from cusi.practice.stages.dataset import build_dataset
     build_dataset(spec=obj["spec"], paths=obj["paths"], safety_margin=safety_margin, val_frac=val_frac, seed=seed,
                   overwrite=obj["overwrite"], parameters=obj["parameters"])
 

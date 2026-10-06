@@ -1,5 +1,5 @@
 """Part 0 verification: one text and one image request to the served model through
-cusi_utils (build_model(model_backend="vllm")), plus a rough throughput measurement.
+cusi.utils (build_model(model_backend="vllm")), plus a rough throughput measurement.
 
     python tests/vllm_smoke.py --model_name <served name>    (with the server from scripts/serve_vllm.sh up)
 """
@@ -7,7 +7,7 @@ import time
 import click
 import numpy as np
 from PIL import Image
-from cusi_utils import load_parameters, build_model, log_info
+from cusi.utils import load_parameters, build_model, log_info
 
 parameters = load_parameters()
 

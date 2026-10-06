@@ -1,5 +1,5 @@
 """
-curiosity_plan §3.5 step 0: does a policy model load and train through cusi_explore.policy.VLMPolicy?
+curiosity_plan §3.5 step 0: does a policy model load and train through cusi.explore.policy.VLMPolicy?
 Loads it (generic AutoModelForImageTextToText + LoRA on the derived targets), generates with an
 image (non-thinking template), runs one evaluate + backward, and times generation. From the root,
 on a GPU node:
@@ -16,7 +16,7 @@ import torch
 @click.option("--policy_model", "policy_models", multiple=True, required=True)
 @click.option("--n_generate", default=5)
 def main(policy_models, n_generate):
-    from cusi_explore.policy import VLMPolicy
+    from cusi.explore.policy import VLMPolicy
     try:
         import fla  # noqa: F401
         print("flash-linear-attention: installed", flush=True)

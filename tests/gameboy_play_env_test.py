@@ -1,11 +1,11 @@
 """
-Check cusi_envs.gameboy.GameBoyPlayEnv on a real Game Boy emulator (runs anywhere;
+Check cusi.envs.gameboy.GameBoyPlayEnv on a real Game Boy emulator (runs anywhere;
 needs the ROMs set up for GameBoyWorlds). From the CUSI root:
 
     source scripts/utils.sh && python tests/gameboy_play_env_test.py
 """
 import numpy as np
-from cusi_envs.gameboy import GameBoyPlayEnv, MSG_PARSE_FAILED
+from cusi.envs.gameboy import GameBoyPlayEnv, MSG_PARSE_FAILED
 
 GAME = "pokemon_red"
 MOVES = ["RIGHT", "RIGHT", "DOWN", "Thought: go up\nAction: UP", "A", "LEFT"]

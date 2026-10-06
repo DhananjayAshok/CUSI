@@ -2,14 +2,14 @@ from typing import Any, Optional
 import numpy as np
 from PIL import Image
 from android_world.agents import infer
-from cusi_utils.parameter_handling import load_parameters
-from cusi_utils.lm_inference import InferenceModel
-from cusi_utils.model_factory import build_model
+from cusi.utils.parameter_handling import load_parameters
+from cusi.utils.lm_inference import InferenceModel
+from cusi.utils.model_factory import build_model
 
 
 class InferenceModelWrapper(infer.LlmWrapper, infer.MultimodalLlmWrapper):
     """
-    Lets AndroidWorld agents (M3A, T3A) use a cusi_utils InferenceModel.
+    Lets AndroidWorld agents (M3A, T3A) use a cusi.utils InferenceModel.
 
     Replaces ``infer.Gpt4Wrapper``. ``raw_response`` is the InferenceModel's
     ``{"output": ..., "meta": ...}`` dict, which AndroidWorld stores in each step's

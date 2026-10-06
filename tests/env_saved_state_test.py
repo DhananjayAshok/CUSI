@@ -36,12 +36,12 @@ def frame_diff(*, a: np.ndarray, b: np.ndarray) -> float:
 
 def make_env(*, env_name: str):
     if env_name == "gameboy":
-        from cusi_envs.gameboy import GameBoyPlayEnv
+        from cusi.envs.gameboy import GameBoyPlayEnv
         return GameBoyPlayEnv(game="pokemon_red", mode="free_play")
     if env_name == "android":
-        from cusi_envs.android_world import AndroidPlayEnv
+        from cusi.envs.android_world import AndroidPlayEnv
         return AndroidPlayEnv(task="ContactsAddContact", mode="free_play", start_app="Contacts")
-    from cusi_envs.webvoyager import WebVoyagerPlayEnv
+    from cusi.envs.webvoyager import WebVoyagerPlayEnv
     return WebVoyagerPlayEnv(url="https://arxiv.org/", mode="free_play", fast_waits=True)
 
 

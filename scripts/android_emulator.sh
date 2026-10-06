@@ -11,7 +11,7 @@
 # --grpc_port each). Use --read_only false only for one-time setup of the AVD.
 #
 # --snapshots true allows manual snapshots (`adb emu avd snapshot save/load`), which
-# cusi_envs' AndroidPlayEnv uses for fast full resets. The emulator refuses snapshots
+# cusi.envs' AndroidPlayEnv uses for fast full resets. The emulator refuses snapshots
 # with -read-only, so instead it runs on a private writable copy of the AVD in /tmp
 # (--read_only is then ignored); the shared AVD is never modified, the copy is
 # removed on stop, and several such emulators can still run side by side.

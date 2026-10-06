@@ -1,5 +1,5 @@
 """
-Web live check of the cusi_state text side (curiosity_plan §9: text embedders, option A region
+Web live check of the cusi.state text side (curiosity_plan §9: text embedders, option A region
 novelty, the unlabelled screenshot), a few random steps on arXiv. From the CUSI root:
 
     bash scripts/container.sh python tests/web_state_check.py --text_embedder_model sentence-transformers/all-MiniLM-L6-v2
@@ -12,8 +12,8 @@ import numpy as np
 @click.option("--text_embedder_model", required=True, help="Dense sentence model id.")
 @click.option("--n_steps", default=6)
 def main(text_embedder_model, n_steps):
-    from cusi_envs.webvoyager import WebVoyagerPlayEnv
-    from cusi_state import (NoveltyArchive, StateEncoder, StateRecord, build_image_embedder, build_scorer,
+    from cusi.envs.webvoyager import WebVoyagerPlayEnv
+    from cusi.state import (NoveltyArchive, StateEncoder, StateRecord, build_image_embedder, build_scorer,
                             build_text_embedder, element_lines)
     env = WebVoyagerPlayEnv(url="https://arxiv.org/", mode="free_play", fast_waits=True)
     image = build_image_embedder(image_embedder="random_patch", env_name="web")

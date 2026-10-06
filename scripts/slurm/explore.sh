@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plan.md Part 2: curiosity PPO with the VLM policy on one scene, then (optionally) the world
+# plans/plan.md Part 2: curiosity PPO with the VLM policy on one scene, then (optionally) the world
 # model + decoder and curiosity tasks from its replay. Run from the CUSI root
 # (Slurm wrapper: slurm/explore.sh).
 #

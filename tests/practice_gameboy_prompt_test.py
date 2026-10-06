@@ -1,4 +1,4 @@
-"""Check that cusi_practice's GameBoy executor reproduces GameBoyRL's prompts exactly.
+"""Check that cusi.practice's GameBoy executor reproduces GameBoyRL's prompts exactly.
 
 Builds GameBoyRL's own PolicyExecutor (single action policy + actions history) without running
 it, feeds its history policy the same steps, and compares PolicyExecutor._build_prompt and
@@ -9,11 +9,11 @@ a history with a [no change] step (which adds STUCK_HINT).
 """
 import types
 import numpy as np
-from cusi_utils import load_parameters
-from cusi_envs.gameboy import GameBoyPlayEnv
-from cusi_practice.executors import gameboy as ours
-from cusi_practice.executors.base import strip_hint_blocks
-from cusi_practice.records import EncodedImage, StepRecord
+from cusi.utils import load_parameters
+from cusi.envs.gameboy import GameBoyPlayEnv
+from cusi.agents.executors import gameboy as ours
+from cusi.agents.executors.base import strip_hint_blocks
+from cusi.agents.records import EncodedImage, StepRecord
 from execution.executors.executor import PolicyExecutor          # GameBoyRL (on sys.path via ours)
 from execution.executors.policies.action import SingleActionPolicy
 from execution.executors.policies.history import ActionHistoryPolicy

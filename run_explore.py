@@ -1,4 +1,4 @@
-"""Curiosity exploration + world model (plan.md Part 2), one environment per process.
+"""Curiosity exploration + world model (plans/plan.md Part 2), one environment per process.
 
     python run_explore.py --env gameboy ppo --scene viridian --run_name dev --total_steps 1024 \
         --policy_model Qwen/Qwen3.5-0.8B --curiosity_module combinationbuffer \
@@ -19,10 +19,10 @@ import json
 import os
 import click
 import numpy as np
-from cusi_utils.parameter_handling import load_parameters, compute_secondary_parameters
-from cusi_utils.log_handling import log_info, log_warn
-from cusi_practice.envs import ENV_NAMES, ENV_SPECS
-from cusi_state import state_config, state_options
+from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
+from cusi.utils.log_handling import log_info, log_warn
+from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.state import state_config, state_options
 
 loaded_parameters = load_parameters()
 
@@ -82,7 +82,7 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
         invalid_action_penalty, normalize_curiosity_reward, reply_format, temperature, max_new_tokens, lora_r,
         lora_alpha, buffer_load_path, worker, **state_kwargs):
     """Curiosity PPO with the VLM policy on one scene."""
-    from cusi_explore.ppo import CuriosityPPO
+    from cusi.explore.ppo import CuriosityPPO
     env_name, parameters = obj["env_name"], obj["parameters"]
     config = state_config(state_kwargs)
     spec = ENV_SPECS[env_name]
@@ -122,15 +122,15 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
 @click.pass_obj
 def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups, max_new_tokens, rescore_text_alpha):
     """High-novelty trajectories -> groups -> tasks (the curiosity task source for run_practice.py)."""
-    from cusi_explore.trajectories import curiosity_tasks
-    from cusi_practice.stages.common import PracticePaths
-    from cusi_practice.vlm import PracticeVLM
+    from cusi.explore.trajectories import curiosity_tasks
+    from cusi.practice.stages.common import PracticePaths
+    from cusi.agents.vlm import AgentVLM
     env_name, parameters = obj["env_name"], obj["parameters"]
     run_dir = os.path.join(obj["root"], run_name)
     scene = scene or open(os.path.join(run_dir, "scene.txt")).read().strip()
     paths = PracticePaths(parameters=parameters, env_name=env_name, model_name=model_name, source="curiosity")
     stats = curiosity_tasks(replay_dir=os.path.join(run_dir, "replay"), scene=scene, env_name=env_name,
-                            vlm=PracticeVLM(model_name=model_name, parameters=parameters),
+                            vlm=AgentVLM(model_name=model_name, parameters=parameters),
                             domain=ENV_SPECS[env_name].domain, out_attempts_dir=paths.attempts_dir,
                             max_new_tokens=max_new_tokens, outlier_threshold=outlier_threshold, z_min=z_min,
                             max_groups=max_groups, rescore_text_alpha=rescore_text_alpha, seed=parameters["random_seed"],
@@ -150,8 +150,8 @@ def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups
 @click.pass_obj
 def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, embedder_load_path):
     """Train the world model on replay buffers."""
-    from cusi_explore.world_model import train_world_model
-    from cusi_state import build_image_embedder
+    from cusi.explore.world_model import train_world_model
+    from cusi.state import build_image_embedder
     dirs = _run_dirs(obj, run_names)
     out = os.path.join(obj["root"], "world_model", name or run_names.replace(",", "+").replace("/", "_"))
     embedder = None if image_embedder is None else build_image_embedder(
@@ -175,7 +175,7 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
 @click.pass_obj
 def train_embedder(obj, embedder, run_names, name, encoder_model, epochs, steps, max_minutes, max_frames):
     """Train a cnn embedder / fine-tune SigLIP on replay frames (curiosity_plan §3.2b)."""
-    from cusi_explore.train_embedder import train_cnn, train_siglip
+    from cusi.explore.train_embedder import train_cnn, train_siglip
     dirs = [os.path.join(d, "replay") for d in _run_dirs(obj, run_names)]
     out = os.path.join(obj["root"], "embedder", f"{embedder}_{name or run_names.replace(',', '+').replace('/', '_')}")
     if embedder == "cnn":
@@ -197,7 +197,7 @@ def train_embedder(obj, embedder, run_names, name, encoder_model, epochs, steps,
 @click.pass_obj
 def decoder(obj, run_names, name, epochs, max_frames):
     """Train the embedding -> pixels decoder on replay frames."""
-    from cusi_explore.decoder import train_decoder
+    from cusi.explore.decoder import train_decoder
     dirs = _run_dirs(obj, run_names)
     out = os.path.join(obj["root"], "decoder", name or run_names.replace(",", "+"))
     summary = train_decoder(env_name=obj["env_name"], replay_dirs=[os.path.join(d, "replay") for d in dirs],
@@ -217,9 +217,10 @@ def wm_eval(obj, name, run_names, n_examples):
     actions; plus the decoder's round-trip of the real next frame."""
     import torch
     from PIL import Image
-    from cusi_explore.decoder import EmbeddingDecoder
-    from cusi_explore.world_model import WorldModel, transitions_from_replay
-    from cusi_explore.replay import load_episodes
+    from cusi.explore.decoder import EmbeddingDecoder
+    from cusi.explore.world_model import transitions_from_replay
+    from cusi.state.scorers.world_model import WorldModel
+    from cusi.explore.replay import load_episodes
     root = obj["root"]
     wm_dir, dec_dir = os.path.join(root, "world_model", name), os.path.join(root, "decoder", name)
     summary = json.load(open(os.path.join(wm_dir, "train_summary.json")))["summary"]
@@ -255,7 +256,7 @@ def wm_eval(obj, name, run_names, n_examples):
     out_png = os.path.join(wm_dir, "predictions.png")
     Image.fromarray(grid).save(out_png)
     data = transitions_from_replay(replay_dirs=replay_dirs)
-    from cusi_explore.world_model import evaluate
+    from cusi.explore.world_model import evaluate
     keep = np.where(data["action"] >= 0)[0]
     metrics = evaluate(model=wm, data=data, idx=keep, device=device)
     with open(os.path.join(wm_dir, "eval.json"), "w") as f:
@@ -269,9 +270,9 @@ def wm_eval(obj, name, run_names, n_examples):
 @click.pass_obj
 def elements(obj, run_names):
     """Element counts per screen and the share of indexed actions >= K (decision 18's check)."""
-    from cusi_explore.action_vocab import ActionVocab
-    from cusi_state import element_lines
-    from cusi_explore.replay import iter_replay
+    from cusi.envs.action_vocab import ActionVocab
+    from cusi.state import element_lines
+    from cusi.explore.replay import iter_replay
     vocab = ActionVocab(env_name=obj["env_name"])
     counts, overflow, indexed = [], 0, 0
     for d in _run_dirs(obj, run_names):
