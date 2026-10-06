@@ -7,7 +7,9 @@ per benchmark (prompt building, how many calls a step takes, memory, how the age
 is finished) lives in the subclass, which reuses each benchmark's own prompt code.
 
 A leg starts from whatever state the environment is in (the caller resets and perturbs
-it), so run() takes the current observation. In practice the agent's own "done" only ends
+it), so run() takes the current observation. An executor can also start with the memory of
+earlier legs: previous_history (another executor's history()), restored after reset_memory();
+the supervisors pass it from leg to leg. In practice the agent's own "done" only ends
 the leg and the judge decides success. For evaluation (cusi_eval), run() can instead send the
 finishing action through env.step (finish_through_env), so the env's test mode scores it,
 drop the consecutive-invalid limit (max_consecutive_invalid=None: native M3A and WebVoyager
@@ -17,6 +19,7 @@ Hint/guidance blocks are wrapped in markers that strip_hint_blocks() removes, gi
 exactly the prompt the evaluation agent sees (checked per executor in tests).
 """
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -80,8 +83,12 @@ class Executor(ABC):
     name = "base"
 
     def __init__(self, *, env, vlm: PracticeVLM, max_new_tokens: int = 1000,
-                 temperature: Optional[float] = None, parameters: dict[str, Any] = None) -> None:
+                 temperature: Optional[float] = None, previous_history: Any = None,
+                 parameters: dict[str, Any] = None) -> None:
         self._parameters = load_parameters(parameters)
+        #: Memory from earlier legs (this executor's own history type, from a previous executor's
+        #: history()), restored at the start of run(). None: start empty.
+        self.previous_history = previous_history
         self.env = env
         self.vlm = vlm
         self.max_new_tokens = max_new_tokens
@@ -93,24 +100,26 @@ class Executor(ABC):
 
     def call(self, *, tag: str, prompt: str, images: list, max_new_tokens: Optional[int] = None) -> str:
         """One single-turn call, recorded; it owns the steps that follow."""
+        t0 = time.time()
         out = self.vlm.infer(texts=prompt, images=images or None,
                              max_new_tokens=max_new_tokens or self.max_new_tokens,
                              temperature=self.temperature)
         record = CallRecord(tag=tag, images=[EncodedImage.of(i) for i in images], response=out["output"],
                             prompt=prompt, input_tokens=out["meta"]["input_tokens"],
-                            output_tokens=out["meta"]["output_tokens"])
+                            output_tokens=out["meta"]["output_tokens"], seconds=time.time() - t0)
         self.report.calls.append(record)
         self._current_call = record
         return record.response
 
     def chat_call(self, *, tag: str, messages: list, images: list, max_new_tokens: Optional[int] = None) -> str:
         """One chat call (neutral messages; images indexed by the parts), recorded."""
+        t0 = time.time()
         out = self.vlm.chat(messages=messages, images=images,
                             max_new_tokens=max_new_tokens or self.max_new_tokens,
                             temperature=self.temperature)
         record = CallRecord(tag=tag, images=[EncodedImage.of(i) for i in images], response=out["output"],
                             messages=messages, input_tokens=out["meta"]["input_tokens"],
-                            output_tokens=out["meta"]["output_tokens"])
+                            output_tokens=out["meta"]["output_tokens"], seconds=time.time() - t0)
         self.report.calls.append(record)
         self._current_call = record
         return record.response
@@ -130,6 +139,14 @@ class Executor(ABC):
     @abstractmethod
     def reset_memory(self) -> None:
         """Forget everything from a previous leg."""
+
+    def history(self) -> Any:
+        """This executor's memory after its leg, for the next leg's previous_history (its own type:
+        M3A summaries, WebVoyager chat, GameBoyRL history records). None: nothing to carry."""
+        return None
+
+    def restore_history(self, history: Any) -> None:
+        """Start from a previous executor's history() (called by run() after reset_memory())."""
 
     @abstractmethod
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
@@ -165,6 +182,9 @@ class Executor(ABC):
                                 initial_frame=EncodedImage.of(self.judge_frame(obs=obs, info=info)))
         self._current_call = None
         self.reset_memory()
+        if self.previous_history is not None:
+            self.restore_history(self.previous_history)
+        self.final_obs, self.final_info = obs, info
         error: Optional[str] = None
         n_steps = 0
         consecutive_invalid = 0
@@ -187,6 +207,7 @@ class Executor(ABC):
                     text = decision.action_text or deciding_call.response
                     frame_before = EncodedImage.of(self.judge_frame(obs=obs, info=info))
                     obs_after, reward, terminated, truncated, info_after = self.env.step(text)
+                    self.final_obs, self.final_info = obs_after, info_after
                     self.report.final_reward = float(reward)
                     self._record(StepRecord(frame_before=frame_before,
                                             frame_after=EncodedImage.of(self.judge_frame(obs=obs_after,
@@ -220,10 +241,11 @@ class Executor(ABC):
                     self.after_invalid(decision=converted, obs=obs, info=info)
                     error = converted.error
                     consecutive_invalid += 1
+                    obs, info = obs_after, info_after
+                    self.final_obs, self.final_info = obs, info
                     if consecutive_invalid >= limit:
                         self.report.termination_reason = "max_invalid"
                         return self.report
-                    obs, info = obs_after, info_after
                     continue
             extra = {k: info_after[k] for k in ("action_name", "frame_changed", "action_success", "low_level",
                                                  "warning", "pdf", "url", "stale", "probe_success")
@@ -234,6 +256,7 @@ class Executor(ABC):
                               valid=bool(info_after["valid"]), error=info_after.get("error"),
                               reward=float(reward), extra=extra)
             self._record(step)
+            self.final_obs, self.final_info = obs_after, info_after
             self.report.final_reward = float(reward)
             if step.valid:
                 consecutive_invalid, error = 0, None

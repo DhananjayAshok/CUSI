@@ -60,6 +60,13 @@ class M3AExecutor(Executor):
         self._pending = None
         self._before = None
 
+    def history(self) -> list:
+        """M3A's memory: its step summaries (numbering continues in the next leg)."""
+        return list(self._summaries)
+
+    def restore_history(self, history: list) -> None:
+        self._summaries = list(history)
+
     def _history(self) -> list:
         return ["Step " + str(i + 1) + "- " + s for i, s in enumerate(self._summaries)]
 

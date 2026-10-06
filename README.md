@@ -95,7 +95,8 @@ For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
 | 2. Curiosity + world model | `cusi_explore/` (VLM LoRA PPO policy, e.g. Qwen3.5-0.8B; curiosity modules on `cusi_state`; replay, world model, decoder, embedder training) | `python run_explore.py --env X {ppo,tasks,world_model,decoder,wm_eval,elements,train_embedder}`, `python debug_curiosity.py {random,human}` | `slurm/explore.sh`, `slurm/debug_curiosity.sh` |
 | Shared state module | `cusi_state/` (image / text embedders, novelty archive with cells, novelty scorers; inference only) | used by `run_explore.py` and `run_preexplore_toy.py` | — |
 | Pre-exploration search | `cusi_search/` (tree, energy-sampling selection, random / VLM expanders, VLM prior; throwaway pieces in `cusi_search/toy/`) | `python run_preexplore_toy.py ...` | `slurm/preexplore_toy.sh` |
-| Evaluation | `cusi_eval/` (test sets through `cusi_envs` in test mode, shown equivalent to the native harnesses: `eval_plan.md`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ...` | `slurm/eval_parity_{gameboy,android,web}.sh`; `slurm/eval.sh` planned (`agents.md`) |
+| Evaluation | `cusi_eval/` (test sets through `cusi_envs` in test mode, shown equivalent to the native harnesses: `eval_plan.md`; episode artifacts + step videos per task: `cusi_eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--supervisor baseline\|revision\|subgoal\|info_subgoal_*] [--workers N]` | `slurm/eval.sh`, `slurm/eval_parity_{gameboy,android,web}.sh` |
+| Supervisors | `cusi_supervisors/` (GameBoyRL's supervisor arms over any executor and env: `agents.md`) | through `run_eval.py --supervisor`; tables: `python report_ablation.py` | `slurm/eval.sh` |
 
 Outputs go to `storage_dir/practice/<env>/<model>/`, `storage_dir/explore/<env>/`,
 `storage_dir/preexplore_toy/<env>/` and `storage_dir/eval/<env>/<run>/`.
@@ -103,11 +104,13 @@ Outputs go to `storage_dir/practice/<env>/<model>/`, `storage_dir/explore/<env>/
 Plans and results:
 - `curiosity_plan.md`, `skill_discovery.md`: curiosity PPO and pre-exploration search.
 - `eval_plan.md`: evaluation through our envs vs the native harnesses (done; parity results inside).
-- `agents.md`: GameBoyRL's supervisors on all three envs, episode artifacts for debug panels,
-  and the supervisor ablation (planned).
-- `results.md`: results of the supervisor ablation (all envs × gemma-4 26B / 31B ×
-  baseline / revision / subgoal): success per config, the best supervisor, and run times.
-  Written when the ablation runs. Design
+- `agents.md`: GameBoyRL's supervisors on all three envs and episode artifacts for debug panels
+  (built; status and test results in its section 8), and the supervisor ablation plan.
+- `results.md`: results of the supervisor ablation (done 2026-10-06; all envs × gemma-4 26B / 31B ×
+  baseline / revision / subgoal): success per config, the best supervisor (subgoal on GameBoy 26B;
+  baseline on Android and Web), why, costs, and how long each run took.
+
+Design
 decisions are in `decisions.md`. Tests: `tests/practice_gameboy_prompt_test.py` (GameBoy prompts
 identical to GameBoyRL's), `tests/practice_strip_test.py`, `tests/practice_pipeline_mock_test.py`
 (all six stages with a scripted model), `tests/vllm_smoke.py`.

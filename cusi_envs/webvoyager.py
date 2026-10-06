@@ -112,6 +112,30 @@ def canonical_action(*, action_key: str, info: Any) -> dict:
     return {"action_type": action_key}
 
 
+def excluded_sites(*, parameters: dict) -> list:
+    """The WebVoyager web_name values excluded from train and test (configs/project_vars.yaml)."""
+    return [s.strip() for s in str(parameters.get("web_excluded_sites") or "").split(",") if s.strip()]
+
+
+def filtered_task_file(*, parameters: dict) -> str:
+    """WebVoyager_data.cusi.jsonl: WebVoyager's task file without the excluded sites, written from
+    the config list (never edited by hand) under storage_dir/eval/web/. Returns its path."""
+    excluded = set(excluded_sites(parameters=parameters))
+    source = os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
+    with open(source) as f:
+        rows = [json.loads(line) for line in f if line.strip()]
+    unknown = excluded - {r["web_name"] for r in rows}
+    if unknown:
+        raise ValueError(f"web_excluded_sites names sites not in {source}: {sorted(unknown)}")
+    path = os.path.join(parameters["storage_dir"], "eval", "web", "WebVoyager_data.cusi.jsonl")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        for row in rows:
+            if row["web_name"] not in excluded:
+                f.write(json.dumps(row) + "\n")
+    return path
+
+
 def load_task(*, task_id: str, data_file: str) -> dict:
     with open(data_file) as f:
         for line in f:

@@ -66,10 +66,17 @@ class EvalRun:
             f.write(json.dumps(asdict(row), default=str) + "\n")
 
     def summary(self) -> dict:
+        """Success over the scored rows, plus per-task time and token statistics (all rows)."""
         rows = self.rows()
         scored = [r for r in rows if r["success"] is not None]
         out = {"n": len(rows), "n_scored": len(scored), "n_failed_to_run": len(rows) - len(scored),
                "success_rate": sum(r["success"] for r in scored) / len(scored) if scored else None}
+        seconds = sorted(float(r.get("seconds") or 0.0) for r in rows)
+        if seconds:
+            out.update(task_seconds_total=round(sum(seconds), 1), task_seconds_mean=round(sum(seconds) / len(seconds), 1),
+                       task_seconds_p90=round(seconds[min(len(seconds) - 1, int(0.9 * len(seconds)))], 1),
+                       input_tokens_mean=round(sum(r.get("input_tokens") or 0 for r in rows) / len(rows)),
+                       output_tokens_mean=round(sum(r.get("output_tokens") or 0 for r in rows) / len(rows)))
         with open(os.path.join(self.directory, "summary.json"), "w") as f:
             json.dump(out, f, indent=1)
         return out

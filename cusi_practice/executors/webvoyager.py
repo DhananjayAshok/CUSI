@@ -60,9 +60,20 @@ class WebVoyagerExecutor(Executor):
     def reset_memory(self) -> None:
         self._messages = [{"role": "system", "content": self._wv.SYSTEM_PROMPT}]
         self._images = []
+        self._n_previous = 0
         self.screenshots = []
         self._it = 0
         self._fail_obs = self._pdf_obs = self._warn_obs = ""
+
+    def history(self) -> dict:
+        """WebVoyager's memory: the whole chat after the system prompt, with its images. The next
+        leg continues it with its own first message (task, hint and current screenshot)."""
+        return {"messages": [dict(m) for m in self._messages[1:]], "images": list(self._images)}
+
+    def restore_history(self, history: dict) -> None:
+        self._messages = [self._messages[0]] + [dict(m) for m in history["messages"]]
+        self._images = list(history["images"])
+        self._n_previous = len(history["messages"])
 
     def _observation_message(self, *, obs: dict, init_msg: str) -> dict:
         msg = self._wv.format_msg(self._it, init_msg, self._pdf_obs, self._warn_obs, _PLACEHOLDER,
@@ -141,11 +152,16 @@ class WebVoyagerExecutor(Executor):
         return ("You downloaded a PDF file, I ask the Assistant API to answer the task based on the PDF file and get"
                 " the following response: " + answer)
 
-    def messages_for_log(self) -> list:
+    def messages_for_log(self, *, own_leg_only: bool = True) -> list:
         """The (clipped) chat in run.py's interact_messages.json format: OpenAI-style parts, every
-        image replaced by run.py's placeholder URL."""
+        image replaced by run.py's placeholder URL. own_leg_only: the system prompt and this leg's
+        own messages (what auto_eval reads: its first user message holds the real task), without
+        the chat carried over from earlier legs."""
         out = []
-        for msg in self._messages:
+        messages = self._messages
+        if own_leg_only and self._n_previous:
+            messages = [self._messages[0]] + self._own_messages()
+        for msg in messages:
             if isinstance(msg["content"], str):
                 out.append({"role": msg["role"], "content": msg["content"]})
                 continue
@@ -153,3 +169,8 @@ class WebVoyagerExecutor(Executor):
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,{b64_img}"}}
                 if p["type"] == "image" else {"type": "text", "text": p["text"]} for p in msg["content"]]})
         return out
+
+    def _own_messages(self) -> list:
+        """This leg's messages: those after the carried-over chat. clip_message_and_obs rewrites
+        messages in place (image parts become text) but never drops one, so the count holds."""
+        return self._messages[1 + self._n_previous:]

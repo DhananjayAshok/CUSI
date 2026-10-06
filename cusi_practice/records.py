@@ -81,6 +81,19 @@ def to_pil(image: Any) -> Image.Image:
     return Image.fromarray(np.ascontiguousarray(arr))
 
 
+def per_prompt_token_counts(*, meta: dict, n_prompts: int) -> list:
+    """GameBoyRL report.per_prompt_token_counts: a batched call's meta split into one
+    (input_tokens, output_tokens) per prompt (a total that is not per prompt goes on the first)."""
+    def spread(value):
+        if isinstance(value, list) and len(value) == n_prompts:
+            return list(value)
+        if isinstance(value, list):
+            known = [v for v in value if v is not None]
+            value = sum(known) if known else None
+        return [value] + [None if value is None else 0] * (n_prompts - 1)
+    return list(zip(spread(meta.get("input_tokens")), spread(meta.get("output_tokens"))))
+
+
 @dataclass
 class StepRecord:
     """One env.step. frame_before/frame_after are what the judge sees (the raw screenshot
@@ -129,6 +142,8 @@ class CallRecord:
     #: For deciding calls: "step" (sent to the env), "finish" (the agent declared the task
     #: done), "invalid" (never reached the env). None for auxiliary calls.
     decision: Optional[str] = None
+    #: Wall-clock seconds the model call took (a batched call: its total, on the first record).
+    seconds: Optional[float] = None
 
     @property
     def env_steps(self) -> list:

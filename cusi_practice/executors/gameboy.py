@@ -21,11 +21,13 @@ that flag. tests/practice_gameboy_prompt_test.py checks the prompts against Game
 """
 import os
 import sys
+import time
 from typing import Optional
 from cusi_utils.parameter_handling import load_parameters
 from cusi_utils.log_handling import log_warn
 from cusi_practice.executors.base import MAX_CONSECUTIVE_INVALID, Decision, Executor
-from cusi_practice.records import CallRecord, EncodedImage, InvalidRecord, LegReport, StepRecord
+from cusi_practice.records import (CallRecord, EncodedImage, InvalidRecord, LegReport, StepRecord,
+                                   per_prompt_token_counts)
 
 
 def _import_gameboyrl():
@@ -132,6 +134,20 @@ class GameBoyExecutor(Executor):
         self._history_policy.reset()
         self._last_reasoning = None
 
+    def history(self):
+        """The history policy's records (ActionHistoryPolicy._records / VisualHistoryPolicy._entries,
+        the latter with their frame-diff descriptions already computed) and the last reasoning."""
+        policy = self._history_policy
+        for attr in ("_records", "_entries"):
+            if hasattr(policy, attr):
+                return {"attr": attr, "items": list(getattr(policy, attr)), "last_reasoning": self._last_reasoning}
+        return {"attr": None, "items": [], "last_reasoning": self._last_reasoning}
+
+    def restore_history(self, history) -> None:
+        if history.get("attr") and hasattr(self._history_policy, history["attr"]):
+            setattr(self._history_policy, history["attr"], list(history["items"]))
+        self._last_reasoning = history.get("last_reasoning")
+
     # ------------------------------------------------------------ calls
 
     def _gb_call(self, tag: str, *, texts, images, max_new_tokens: Optional[int] = None):
@@ -139,13 +155,17 @@ class GameBoyExecutor(Executor):
         batched request, recorded one CallRecord per prompt, owning no steps."""
         if not isinstance(texts, list):
             return self.call(tag=tag, prompt=texts, images=images, max_new_tokens=max_new_tokens)
+        t0 = time.time()
         out = self.vlm.infer(texts=texts, images=images, max_new_tokens=max_new_tokens or self.max_new_tokens,
                              temperature=self.temperature)
+        seconds = time.time() - t0
         responses = out["output"] if isinstance(out["output"], list) else [out["output"]] * len(texts)
+        tokens = per_prompt_token_counts(meta=out["meta"], n_prompts=len(texts))
         for i, (prompt, response) in enumerate(zip(texts, responses)):
             call_images = images[i] if i < len(images) and isinstance(images[i], list) else images
             self.report.calls.append(CallRecord(tag=tag, images=[EncodedImage.of(x) for x in call_images],
-                                                response=response, prompt=prompt))
+                                                response=response, prompt=prompt, input_tokens=tokens[i][0],
+                                                output_tokens=tokens[i][1], seconds=seconds if i == 0 else 0.0))
         return responses
 
     def _prompt(self, *, hint: Optional[str], error: Optional[str]) -> str:
@@ -183,6 +203,9 @@ class GameBoyExecutor(Executor):
                                 initial_frame=EncodedImage.of(self.judge_frame(obs=obs, info=info)))
         self._current_call = None
         self.reset_memory()
+        if self.previous_history is not None:
+            self.restore_history(self.previous_history)
+        self.final_obs, self.final_info = obs, info
         error: Optional[str] = None
         n_steps = 0
         consecutive_invalid = 0
@@ -209,6 +232,7 @@ class GameBoyExecutor(Executor):
             outcome, obs, info, n_steps, consecutive_invalid, error = self._run_decision(
                 obs=obs, info=info, n_steps=n_steps, max_steps=max_steps, consecutive_invalid=consecutive_invalid,
                 limit=limit, hint=hint, allow_done_check=allow_done_check)
+            self.final_obs, self.final_info = obs, info
             if outcome is not None:
                 self.report.termination_reason = outcome
                 return self.report
