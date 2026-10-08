@@ -38,6 +38,10 @@ class RandomPatchEmbedder(ImageEmbedder):
         x = self.canvases(frames=frames)
         patches = extract_patches(x=x, kernel_size=self.kernel_size)        # (N, P, C*k*k)
         vec = (patches @ self.weight.T).reshape(x.shape[0], -1)              # (N, P*patch_dim)
+        # An all-black frame projects to 0, which normalises to 0: similar to nothing, itself included, so every
+        # black screen scored novelty 1. All of them map to one fixed unit vector instead.
+        zero = vec.abs().amax(dim=-1) == 0
+        vec[zero] = 1.0
         return nn.functional.normalize(vec, dim=-1)
 
     def meta(self) -> dict:

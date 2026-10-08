@@ -30,6 +30,50 @@ MSG_FORMAT = "Format ERROR: Both 'Thought' and 'Action' should be included in yo
 MSG_NO_ANSWER = "The ANSWER action is not available: there is no task to answer. No action was performed."
 
 
+# --------------------------------------------------------------------------- bot-check pages
+# A challenge page (Cloudflare, captcha, bot block) is not site content; the search scores it 0 and never expands it.
+
+CHALLENGE_TITLES = ("just a moment", "attention required", "access denied", "are you a robot", "are you a human",
+                    "robot or human", "security check", "captcha", "human verification", "pardon our interruption",
+                    "verify you are human", "bot verification", "request blocked")
+CHALLENGE_PHRASES = ("verify you are human", "verifying you are human", "checking your browser",
+                     "checking if the site connection is secure", "unusual traffic", "are you a robot",
+                     "press & hold", "press and hold", "complete the security check", "you have been blocked",
+                     "enable javascript and cookies to continue", "pardon our interruption", "request unsuccessful",
+                     "access denied", "not a robot", "solve the captcha", "complete the captcha")
+#: A matched phrase or marker counts only on a page with less body text than this (a real page may mention them).
+CHALLENGE_MAX_TEXT = 1500
+# [title, first 3000 chars of the body text, whether a bot-check widget/iframe is in the DOM]
+_CHALLENGE_JS = """
+const sel = '#challenge-form, #challenge-running, #challenge-stage, #cf-challenge-running, .cf-turnstile,'
+  + ' [name="cf-turnstile-response"], iframe[src*="challenges.cloudflare.com"], iframe[src*="hcaptcha.com"],'
+  + ' iframe[src*="recaptcha"], .h-captcha, .g-recaptcha, #px-captcha, #captcha-container, #ddos-protection,'
+  + ' form[action*="captcha"]';
+let marker = false;
+try { marker = !!document.querySelector(sel); } catch (e) {}
+const body = document.body ? (document.body.innerText || '') : '';
+return [document.title || '', body.slice(0, 3000), marker];
+"""
+
+
+def challenge_reason(*, title: str, text: str, marker: bool) -> Optional[str]:
+    """Why a page looks like a bot check, or None. A challenge title decides alone; a challenge phrase or widget
+    counts only on a short page."""
+    t = (title or "").strip().lower()
+    for pattern in CHALLENGE_TITLES:
+        if pattern in t:
+            return f"title: {pattern!r}"
+    body = " ".join((text or "").lower().split())
+    if len(body) >= CHALLENGE_MAX_TEXT:
+        return None
+    if marker:
+        return "bot-check widget on a short page"
+    for phrase in CHALLENGE_PHRASES:
+        if phrase in body:
+            return f"text: {phrase!r}"
+    return None
+
+
 def load_webvoyager(*, project_root: str):
     """Import WebVoyager's run.py script (which imports its siblings by bare name) as `webvoyager_run`."""
     # Locked: a second thread must not see the module in sys.modules half-executed.
@@ -158,6 +202,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._web_eles = []
         self._last_obs = None
         self._raw_frame = None
+        self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
         self._states: dict[str, dict] = {}   # saved state_id -> browser state
         self.browser_restarts = 0
@@ -233,17 +278,26 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self._url = self._driver.current_url
         except Exception:
             pass
+        try:
+            title, text, marker = self._driver.execute_script(_CHALLENGE_JS)
+            self._challenge = challenge_reason(title=title, text=text, marker=bool(marker))
+        except self._wv.WebDriverException:
+            self._challenge = None
         self._last_obs = (frame, web_eles_text)
         return self._last_obs
+
+    @property
+    def raw_frame(self):
+        return self._raw_frame
 
     def _obs(self) -> dict:
         frame, web_eles_text = self._last_obs
         return {"frame": frame, "texts": {"web_elements": web_eles_text},
                 "actions": self.actions_text, "goal": self._goal}
 
-    def sample_action(self) -> str:
+    def sample_action(self, *, rng=None) -> str:
         """Click a labelled element or scroll the window; never actions that leave the scene or need content."""
-        rng = self.np_random
+        rng = self.np_random if rng is None else rng
         if self._web_eles and rng.random() < 0.75:
             return f"Thought: random action.\nAction: Click [{int(rng.integers(len(self._web_eles)))}]"
         return f"Thought: random action.\nAction: Scroll [WINDOW]; [{rng.choice(['up', 'down'])}]"
@@ -254,15 +308,20 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     # ---------------------------------------------------------------- gym API
 
+    def _page_info(self, *, info: dict) -> dict:
+        info["raw_frame"] = self._raw_frame
+        info["challenge"] = self._challenge is not None
+        if self._challenge is not None:
+            info["challenge_reason"] = self._challenge
+        return info
+
     def _reset_impl(self):
         obs, info = self._reset_core()
-        info["raw_frame"] = self._raw_frame
-        return obs, info
+        return obs, self._page_info(info=info)
 
     def _step_impl(self, action: str):
         obs, reward, terminated, truncated, info = self._step_core(action)
-        info["raw_frame"] = self._raw_frame
-        return obs, reward, terminated, truncated, info
+        return obs, reward, terminated, truncated, self._page_info(info=info)
 
     def _reset_core(self):
         if not self._at_initial_state:
@@ -390,6 +449,16 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _delete_state_impl(self, *, state_id: str) -> None:
         del self._states[state_id]
+
+    def _export_state_impl(self, *, state_id: str, directory: str) -> str:
+        name = f"{state_id}.json"
+        with open(os.path.join(directory, name), "w") as f:
+            json.dump(self._states[state_id], f)
+        return name
+
+    def _import_state_impl(self, *, state_id: str, path: str) -> None:
+        with open(path) as f:
+            self._states[state_id] = json.load(f)
 
     def close(self) -> None:
         self._states.clear()

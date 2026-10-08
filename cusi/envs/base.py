@@ -101,6 +101,18 @@ class TextActionEnv(gym.Env, ABC):
         for state_id in list(self._saved_state_ids):
             self.delete_state(state_id=state_id)
 
+    def export_state(self, *, state_id: str, directory: str) -> str:
+        """Copy a saved state into a file in directory, which outlives this env; returns the file's name."""
+        self._check_state_id(state_id=state_id)
+        return self._export_state_impl(state_id=state_id, directory=directory)
+
+    def import_state(self, *, path: str) -> str:
+        """Register a file from export_state (any instance of this env's scene) as a saved state; returns its id."""
+        state_id = uuid.uuid4().hex[:16]
+        self._import_state_impl(state_id=state_id, path=path)
+        self._saved_state_ids.add(state_id)
+        return state_id
+
     @property
     def saved_state_ids(self) -> tuple[str, ...]:
         return tuple(sorted(self._saved_state_ids))
@@ -115,6 +127,12 @@ class TextActionEnv(gym.Env, ABC):
     def _load_state_impl(self, *, state_id: str) -> dict:
         raise NotImplementedError(f"{type(self).__name__} does not implement load_state")
 
+    def _export_state_impl(self, *, state_id: str, directory: str) -> str:
+        raise NotImplementedError(f"{type(self).__name__} does not implement export_state")
+
+    def _import_state_impl(self, *, state_id: str, path: str) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not implement import_state")
+
     def _delete_state_impl(self, *, state_id: str) -> None:
         raise NotImplementedError(f"{type(self).__name__} does not implement delete_state")
 
@@ -123,8 +141,14 @@ class TextActionEnv(gym.Env, ABC):
             log_error(f"obs['texts'] keys {sorted(obs['texts'])} != declared text_keys "
                       f"{sorted(self.text_keys)}", parameters=self._parameters)
 
-    def sample_action(self) -> str:
-        """A random valid action text for the current state, from self.np_random."""
+    @property
+    def raw_frame(self):
+        """The current screen without set-of-mark labels (what info["raw_frame"] carries), after any reset, step
+        or load_state. Envs whose obs frame is labelled override this."""
+        return None if self.current_obs is None else self.current_obs["frame"]
+
+    def sample_action(self, *, rng=None) -> str:
+        """A random valid action text for the current state, drawn from rng (default: self.np_random)."""
         raise NotImplementedError(f"{type(self).__name__} does not implement sample_action")
 
     @abstractmethod

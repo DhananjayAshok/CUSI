@@ -8,7 +8,8 @@ import pickle
 import time
 import click
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.eval.records import EvalRow, EvalRun, run_options
+from cusi.eval.records import EvalRow, EvalRun
+from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
 from cusi.eval.supervision import (run_episode, run_pool, supervisor_extra, supervisor_options, supervisor_settings,
                                    supervisor_state)

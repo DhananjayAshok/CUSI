@@ -31,6 +31,10 @@ def parse_prior(*, text: str) -> tuple:
     return score, (r.group(1).strip().splitlines()[0][:300] if r else "")
 
 
+# TODO: revisit the prior. It sees only this node's frame and texts, not what the archive or tree already
+# holds, so it scores in absolute terms; and it is computed once at creation, so it goes stale as the search
+# grows. Options: show the k nearest existing nodes' frames or a list of explored screens; recompute on
+# selection. See plans/tree_search_plan.md §7.
 class VLMPrior:
     def __init__(self, *, vlm, max_new_tokens: int = 96, temperature: float = 0.0, fallback: float = 0.5) -> None:
         self.vlm, self.max_new_tokens, self.temperature, self.fallback = vlm, max_new_tokens, temperature, fallback

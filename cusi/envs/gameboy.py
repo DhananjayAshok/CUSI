@@ -1,6 +1,8 @@
 """
 GameBoyWorlds as a TextActionEnv: one game at a fixed savestate, deterministic on reset.
 """
+import os
+import shutil
 from enum import Enum
 from typing import Any, Optional
 import numpy as np
@@ -147,8 +149,9 @@ class GameBoyPlayEnv(TextActionEnv):
         """The controller's {HighLevelAction class: description}, unrendered."""
         return self._env.get_action_strings(return_all=return_all)
 
-    def sample_action(self) -> str:
-        return str(BUTTONS[int(self.np_random.integers(len(BUTTONS)))])
+    def sample_action(self, *, rng=None) -> str:
+        rng = self.np_random if rng is None else rng
+        return str(BUTTONS[int(rng.integers(len(BUTTONS)))])
 
     def _obs(self, *, frame: np.ndarray) -> dict:
         actions = render_action_strings(action_strings=self._env.get_action_strings())
@@ -253,6 +256,18 @@ class GameBoyPlayEnv(TextActionEnv):
 
     def _delete_state_impl(self, *, state_id: str) -> None:
         self._env.delete_custom_state(state_id)
+
+    def _custom_state_path(self, *, state_id: str) -> str:
+        """Where GameBoyWorlds keeps a custom state (its rom_data states dir)."""
+        return os.path.join(self._env._emulator.state_parser.rom_data_path, "states", f"custom_{state_id}.state")
+
+    def _export_state_impl(self, *, state_id: str, directory: str) -> str:
+        name = f"{state_id}.state"
+        shutil.copyfile(self._custom_state_path(state_id=state_id), os.path.join(directory, name))
+        return name
+
+    def _import_state_impl(self, *, state_id: str, path: str) -> None:
+        shutil.copyfile(path, self._custom_state_path(state_id=state_id))
 
     def close(self) -> None:
         self.delete_all_states()

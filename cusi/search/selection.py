@@ -25,8 +25,12 @@ class EnergySelector:
         if tau <= 0:
             raise ValueError(f"tau must be > 0, got {tau}")
         self.stats, self.c, self.tau, self.roots_only = stats, c, tau, roots_only
-        self.default_prior = default_prior
+        self.default_prior, self.seed = default_prior, seed
         self.rng = np.random.default_rng(seed)
+
+    def reseed(self, *, iteration: int) -> None:
+        """Draw from a stream fixed by (seed, iteration), so a resumed search selects as it would have."""
+        self.rng = np.random.default_rng([self.seed, iteration])
 
     def select(self, *, tree: Tree) -> Optional[Selection]:
         nodes = [n for n in (tree.roots if self.roots_only else tree.nodes) if n.restorable]

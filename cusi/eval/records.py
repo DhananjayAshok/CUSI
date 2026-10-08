@@ -3,10 +3,9 @@ Per-task eval records. A success of None means the task failed to run and is exc
 """
 import json
 import os
-import shutil
 from dataclasses import asdict, dataclass, field
-import click
 from typing import Optional
+from cusi.utils.run_dir import open_run_dir
 
 
 @dataclass
@@ -33,25 +32,6 @@ OPERATIONAL_KEYS = {"workers", "vllm_base_url", "supervisor_vllm_base_url", "jud
 FILLED_LATER_KEYS = {"judge_model_name"}
 
 
-def run_options(command):
-    """--overwrite and --ignore_config_violation, for every runner."""
-    command = click.option("--ignore_config_violation", is_flag=True,
-                           help="Resume a run whose stored config differs (kept as stored).")(command)
-    return click.option("--overwrite", is_flag=True, help="Delete the run directory first.")(command)
-
-
-def config_violations(*, stored: dict, new: dict) -> list:
-    out = []
-    for key in sorted(set(stored) | set(new)):
-        if key in OPERATIONAL_KEYS:
-            continue
-        old, cur = json.loads(json.dumps(stored.get(key), default=str)), json.loads(json.dumps(new.get(key), default=str))
-        if old == cur or (key in FILLED_LATER_KEYS and (old in (None, "none") or cur in (None, "none"))):
-            continue
-        out.append(f"{key}: {old!r} -> {cur!r}")
-    return out
-
-
 class EvalRun:
     FILE = "results.jsonl"
 
@@ -59,33 +39,10 @@ class EvalRun:
                  ignore_config_violation: bool = False) -> None:
         """A run directory may only be resumed with the config it was started with (see run_options)."""
         self.directory = directory
-        if overwrite and os.path.exists(directory):
-            shutil.rmtree(directory)
-        os.makedirs(directory, exist_ok=True)
+        open_run_dir(directory=directory, config=config, overwrite=overwrite,
+                     ignore_config_violation=ignore_config_violation, operational_keys=OPERATIONAL_KEYS,
+                     filled_later_keys=FILLED_LATER_KEYS)
         self.path = os.path.join(directory, self.FILE)
-        if config is None:
-            return
-        config_path = os.path.join(directory, "config.json")
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                stored = json.load(f)
-            violations = config_violations(stored=stored, new=config)
-            if violations and not ignore_config_violation:
-                raise click.UsageError(f"{directory} was started with a different config ({'; '.join(violations)}). "
-                                       f"Use a new --run_name, --overwrite, or --ignore_config_violation.")
-            if violations:
-                print(f"WARNING: resuming {directory} despite config differences ({'; '.join(violations)}); "
-                      f"config.json keeps the stored values.")
-                merged = {**config, **stored}
-            else:
-                merged = {**stored, **config}
-            for key in FILLED_LATER_KEYS:     # filled once, never reset to "none"
-                values = [v for v in (stored.get(key), config.get(key)) if v not in (None, "none")]
-                if values:
-                    merged[key] = values[-1] if not violations else values[0]
-            config = merged
-        with open(config_path, "w") as f:
-            json.dump(config, f, indent=1, default=str)
 
     def rows(self) -> list:
         if not os.path.exists(self.path):

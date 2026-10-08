@@ -13,7 +13,8 @@ import click
 import numpy as np
 from PIL import Image
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.eval.records import EvalRow, EvalRun, run_options
+from cusi.eval.records import EvalRow, EvalRun
+from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, storage_relative, web_source_task_file, web_task_dir
 from cusi.eval.supervision import (run_episode, run_pool, supervisor_extra, supervisor_options, supervisor_settings,
                                    supervisor_state)
@@ -56,7 +57,7 @@ def write_artefacts(*, task_dir: str, executors: list, system_prompt: str) -> di
 
 def materialize_screenshots(*, run_dir: str) -> list:
     """Writes each task dir's screenshots (for auto_eval) from its screenshots.json; returns the paths written."""
-    from cusi.eval.episode import read_frame
+    from cusi.agents.frames import read_frame
     written = []
     for task_dir in sorted(glob.glob(os.path.join(run_dir, "task*"))):
         mapping_path = os.path.join(task_dir, SCREENSHOTS_FILE)

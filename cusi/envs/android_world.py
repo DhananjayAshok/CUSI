@@ -183,6 +183,7 @@ class AndroidPlayEnv(TextActionEnv):
         if start_app:
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
+        self._raw_frame = None
         self._states: dict[str, datetime.datetime] = {}   # saved state_id -> device clock at save
         self.recoveries = 0
 
@@ -326,8 +327,13 @@ class AndroidPlayEnv(TextActionEnv):
         text = m3a._generate_ui_elements_description_list(state.ui_elements, size)
         return frame.astype(np.uint8), (text, len(state.ui_elements)), raw_pixels
 
+    @property
+    def raw_frame(self):
+        return self._raw_frame
+
     def _obs(self, *, raw) -> dict:
-        frame, (ui_elements, _count), _raw_pixels = raw
+        frame, (ui_elements, _count), raw_pixels = raw
+        self._raw_frame = raw_pixels
         goal = self._task.goal if self.mode == "test" else ""
         return {"frame": frame, "texts": {"ui_elements": ui_elements},
                 "actions": self.actions_text, "goal": goal}
@@ -416,9 +422,9 @@ class AndroidPlayEnv(TextActionEnv):
                               step=self._steps, scene_id=self.scene_id, raw_frame=raw[2], **extra)
         return self._obs(raw=raw), reward, terminated, truncated, info
 
-    def sample_action(self) -> str:
+    def sample_action(self, *, rng=None) -> str:
         """A random tap, scroll, back or home; never open_app/input_text/status."""
-        rng = self.np_random
+        rng = self.np_random if rng is None else rng
         kind = rng.choice(["click", "scroll_element", "scroll", "navigate_back", "navigate_home"],
                           p=[4 / 9, 1 / 9, 2 / 9, 1 / 9, 1 / 9])
         direction = str(rng.choice(["up", "down", "left", "right"]))

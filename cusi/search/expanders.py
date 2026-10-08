@@ -2,6 +2,7 @@
 Exploration policies that expand a node through the env's text actions: random and a goal-free VLM.
 """
 from typing import Optional
+import numpy as np
 from cusi.state.canvas import frame_for_embedding
 from cusi.state.text import element_lines
 
@@ -21,18 +22,21 @@ class RandomExpander:
 
     name = "random"
 
-    def __init__(self, *, avoid_noops: bool = True, max_resample: int = 10) -> None:
-        self.avoid_noops, self.max_resample = avoid_noops, max_resample
+    def __init__(self, *, seed: int = 0, avoid_noops: bool = True, max_resample: int = 10) -> None:
+        self.seed, self.avoid_noops, self.max_resample = seed, avoid_noops, max_resample
+        self.rng = np.random.default_rng(seed)
         self._noops: set = set()
 
-    def start(self, *, env) -> None:
+    def start(self, *, env, iteration: int) -> None:
+        """Each expansion draws from a stream fixed by (seed, iteration), so a resumed search replays exactly."""
+        self.rng = np.random.default_rng([self.seed, iteration])
         self._noops = set()
 
     def next_action(self, *, env, obs: dict, info: dict) -> tuple:
-        action = env.sample_action()
+        action = env.sample_action(rng=self.rng)
         tries = 1
         while self.avoid_noops and action in self._noops and tries < self.max_resample:
-            action = env.sample_action()
+            action = env.sample_action(rng=self.rng)
             tries += 1
         return action, {"resamples": tries - 1}
 
@@ -71,7 +75,7 @@ class VLMExplorer:
         self.history: list = []
         self._last_error: Optional[str] = None
 
-    def start(self, *, env) -> None:
+    def start(self, *, env, iteration: int) -> None:
         self.history = []
         self._last_error = None
 

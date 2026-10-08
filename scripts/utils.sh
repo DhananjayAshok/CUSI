@@ -250,6 +250,27 @@ declare -A CURIOSITY_PRACTICE_DEFAULTS=(
     ["rescore"]="none"
 )
 
+# scripts/slurm/search.sh
+SEARCH_ESSENTIALS=("env" "run" "max_expansions" "image_embedder" "text_embedder" "novelty_scorer")
+declare -A SEARCH_DEFAULTS=(
+    ["model"]="none"
+    ["expander"]="random"
+    ["prior"]="false"
+    ["vllm_port"]="none"
+    ["extra"]="none"
+    ["overwrite"]="false"
+    ["ignore_config_violation"]="false"
+)
+
+# scripts/slurm/search_env_test.sh
+SEARCH_ENV_TEST_ESSENTIALS=("env")
+declare -A SEARCH_ENV_TEST_DEFAULTS=(
+    ["run"]="none"
+    ["first"]="6"
+    ["second"]="10"
+    ["k_steps"]="5"
+)
+
 # scripts/slurm/eval.sh
 EVAL_ESSENTIALS=("env" "model" "run")
 declare -A EVAL_DEFAULTS=(

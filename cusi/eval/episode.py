@@ -1,16 +1,14 @@
 """
 Episode artifacts: one supervised episode as JSON, deduplicated frames in frames.zip and a captioned step video.
 """
-import hashlib
-import io
 import json
 import os
 import textwrap
-import zipfile
 from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from cusi.agents.records import EncodedImage, InvalidRecord, StepRecord, to_pil
+from cusi.agents.frames import FrameStore
+from cusi.agents.records import InvalidRecord, StepRecord, to_pil
 from cusi.agents.supervisors.report import LegEvent, SupervisorCall, SupervisorReport, jsonable
 
 VIDEO_FPS = 1
@@ -18,43 +16,6 @@ GAMEBOY_SCALE = 3
 #: StepRecord.extra keys kept in the leg files.
 STEP_EXTRA_KEYS = ("action_name", "frame_changed", "action_success", "low_level", "warning", "pdf", "url", "stale")
 
-
-FRAMES_FILE = "frames.zip"
-WEBP_METHOD = 2
-
-
-class FrameStore:
-    """Each distinct image once, as lossless WebP in frames.zip (stored); returns its reference "frames.zip/<k>.webp"."""
-
-    def __init__(self, *, directory: str) -> None:
-        self.path = os.path.join(directory, FRAMES_FILE)
-        self._tmp = self.path + ".tmp"
-        self._zip = zipfile.ZipFile(self._tmp, "w", compression=zipfile.ZIP_STORED)
-        self._refs: dict = {}
-
-    def __call__(self, image) -> Optional[str]:
-        if image is None:
-            return None
-        encoded = EncodedImage.of(image)
-        key = hashlib.sha1(encoded.png).hexdigest()
-        if key not in self._refs:
-            member = f"{len(self._refs)}.webp"
-            buf = io.BytesIO()
-            encoded.pil().save(buf, format="WEBP", lossless=True, quality=100, method=WEBP_METHOD)
-            self._zip.writestr(member, buf.getvalue())
-            self._refs[key] = f"{FRAMES_FILE}/{member}"
-        return self._refs[key]
-
-    def close(self) -> None:
-        self._zip.close()
-        os.replace(self._tmp, self.path)
-
-
-def read_frame(*, path: str) -> Image.Image:
-    """The image at <dir>/frames.zip/<member>, e.g. os.path.join(episode_dir, reference)."""
-    archive, member = path.rsplit("/", 1)
-    with zipfile.ZipFile(archive) as z:
-        return Image.open(io.BytesIO(z.read(member))).convert("RGB")
 
 
 def _step_json(step, frames: FrameStore) -> dict:

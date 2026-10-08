@@ -170,6 +170,16 @@ def elements_file(*, parameters: dict, env: str, run_names: str) -> str:
     return os.path.join(explore_root(parameters=parameters, env=env), f"elements_{run_names.replace(',', '+')}.json")
 
 
+# --------------------------------------------------------------------------- search
+
+def search_root(*, parameters: dict, env: str) -> str:
+    return os.path.join(_storage(parameters), "search", env)
+
+
+def search_run(*, parameters: dict, env: str, run: str) -> str:
+    return os.path.join(search_root(parameters=parameters, env=env), run)
+
+
 # --------------------------------------------------------------------------- Bash access
 
 def _main(argv: list) -> None:
