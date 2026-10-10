@@ -64,24 +64,6 @@ def web_source_task_file(*, parameters: dict) -> str:
     return os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
 
 
-def web_native_root(*, parameters: dict) -> str:
-    """Where WebVoyager's own run.py writes its runs (--output_dir)."""
-    return os.path.join(_storage(parameters), "eval", "web_native")
-
-
-def web_native_run(*, parameters: dict, run: str) -> str:
-    return os.path.join(web_native_root(parameters=parameters), run)
-
-
-def web_parity_task_file(*, parameters: dict, job: str) -> str:
-    """The task subset a Web parity job draws."""
-    return os.path.join(_storage(parameters), "eval", f"web_parity_{job}_tasks.jsonl")
-
-
-def android_parity_run(*, parameters: dict, run: str) -> str:
-    return os.path.join(_storage(parameters), "eval", "android_parity", run)
-
-
 def info_docs_dir(*, parameters: dict, game: str) -> str:
     return os.path.join(_storage(parameters), "eval", "info_docs", game)
 

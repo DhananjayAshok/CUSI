@@ -288,33 +288,6 @@ declare -A EVAL_DEFAULTS=(
     ["ignore_config_violation"]="false"
 )
 
-# scripts/slurm/eval_parity_android.sh
-EVAL_PARITY_ANDROID_ESSENTIALS=("model" "run")
-declare -A EVAL_PARITY_ANDROID_DEFAULTS=(
-    ["tasks"]="CameraTakePhoto,ClockStopWatchRunning,ClockTimerEntry,ContactsAddContact,ExpenseDeleteSingle,MarkorCreateFolder,MarkorDeleteNewestNote,OpenAppTaskEval,RecipeDeleteSingleRecipe,SimpleCalendarNextEvent,SystemBluetoothTurnOff,SystemBluetoothTurnOn,SystemBrightnessMax,SystemWifiTurnOff,SystemWifiTurnOn,TasksDueOnDate"
-    ["runs"]="native ours native2"
-    ["vllm_port"]="8037"
-)
-
-# scripts/slurm/eval_parity_gameboy.sh
-EVAL_PARITY_GAMEBOY_ESSENTIALS=("model")
-declare -A EVAL_PARITY_GAMEBOY_DEFAULTS=(
-    ["n_tasks"]="20"
-    ["max_steps"]="50"
-    ["run"]="parity"
-    ["greedy"]="true"
-    ["self_check"]="false"
-)
-
-# scripts/slurm/eval_parity_web.sh
-EVAL_PARITY_WEB_ESSENTIALS=("model")
-declare -A EVAL_PARITY_WEB_DEFAULTS=(
-    ["sites"]="ArXiv,GitHub,Huggingface"
-    ["per_site"]="8"
-    ["native_runs"]="2"
-    ["port"]="8011"
-)
-
 # scripts/slurm/explore.sh
 EXPLORE_ESSENTIALS=("env" "scene" "run" "policy_model" "curiosity_module" "image_embedder" "text_embedder")
 declare -A EXPLORE_DEFAULTS=(
