@@ -88,7 +88,7 @@ class SearchStore:
             self._append(name=EXPANSIONS_FILE, rows=[{
                 "id": expansion.id, "node_id": expansion.node_id, "iteration": expansion.iteration,
                 "children": expansion.children, "yield": expansion.yield_value, "stats": expansion.stats,
-                "record": record, "steps": steps}])
+                "description": expansion.description, "record": record, "steps": steps}])
         self._save_archive(search=search)
         self._n_nodes = len(search.tree.nodes)
 
@@ -185,6 +185,7 @@ class SearchStore:
                               info=s["info"], value=s["value"], components=s["components"], node_id=s["node_id"],
                               extra=s["extra"]) for s in row["steps"]]
             exp.children, exp.yield_value, exp.stats = list(row["children"]), row["yield"], row["stats"]
+            exp.description = row.get("description")
             search.stats.record_yield(tree=tree, node_id=exp.node_id, value=exp.yield_value)
             tree.nodes[exp.node_id].n_expanded += 1
             if row["record"] is not None:

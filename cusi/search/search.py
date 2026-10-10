@@ -15,17 +15,19 @@ RESTORE_MODES = ("state", "replay")
 
 class TreeSearch:
     def __init__(self, *, envs, encoder, scorer, archive, expander, stats, selector: EnergySelector,
-                 k_steps: int, node_threshold: float, prior=None, noop_similarity: float = 0.999,
+                 k_steps: int, node_threshold: float, prior=None, describer=None, noop_similarity: float = 0.999,
                  restore: str = "state", replay_similarity: float = 0.95, store=None, logger=None,
                  parameters: dict[str, Any] = None) -> None:
-        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. restore: "state" saves and loads a
-        state per node; "replay" saves none and rebuilds a node by reset + its root->node actions, accepted when the
-        result's similarity to the node is >= replay_similarity. store: a SearchStore that commits the roots and
-        every expansion, and resume() reads back."""
+        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. describer: a TransitionDescriber run on
+        every finished expansion. restore: "state" saves and loads a state per node; "replay" saves none and
+        rebuilds a node by reset + its root->node actions, accepted when the result's similarity to the node is
+        >= replay_similarity. store: a SearchStore that commits the roots and every expansion, and resume() reads
+        back."""
         if restore not in RESTORE_MODES:
             raise ValueError(f"restore must be one of {RESTORE_MODES}, got {restore!r}")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
         self.expander, self.stats, self.selector, self.prior = expander, stats, selector, prior
+        self.describer = describer
         self.k_steps, self.node_threshold, self.noop_similarity = k_steps, node_threshold, noop_similarity
         self.restore, self.replay_similarity = restore, replay_similarity
         self.store, self.logger, self._parameters = store, logger, parameters
@@ -166,7 +168,7 @@ class TreeSearch:
         obs, info = env.current_obs, {"raw_frame": env.raw_frame}
         prev = StateRecord(obs=obs, info=info, embedding=node.embedding)
         exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
-        self.expander.start(env=env, iteration=self.iteration)
+        self.expander.start(env=env, iteration=self.iteration, tree=self.tree, node=node, expansion_id=exp.id)
         parent_id, seg_start = node.id, 0
         n_valid = n_challenge = 0
         episode_over = False
@@ -206,11 +208,18 @@ class TreeSearch:
             self._at.pop(node.env_key, None)
         else:
             self._at[node.env_key] = (parent_id, env)
+        t_describe = 0.0
+        if self.describer is not None:
+            t1 = time.time()
+            exp.description = self.describer(env_description=env.env_description, start_frame=node.frame,
+                                             steps=exp.steps)
+            t_describe = time.time() - t1
         exp.yield_value = float(self.stats.expansion_yield(expansion=exp))
         self.stats.record_yield(tree=self.tree, node_id=node.id, value=exp.yield_value)
         node.n_expanded += 1
         exp.stats = {"seconds": time.time() - t0, "load_seconds": t_load, **restored,
-                     "valid_rate": n_valid / max(1, len(exp.steps)), "challenges": n_challenge}
+                     "describe_seconds": t_describe, "valid_rate": n_valid / max(1, len(exp.steps)),
+                     "challenges": n_challenge}
         k = sel.candidates.index(node.id)
         record = {"iteration": self.iteration, "selected": node.id, "energy": sel.energies[k], "prob": sel.probs[k],
                   "candidates": sel.candidates, "energies": sel.energies, "probs": sel.probs, "q": sel.q, "n": sel.n,

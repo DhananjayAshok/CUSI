@@ -37,7 +37,9 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 @click.option("--roots_only", is_flag=True, help="Expand only the scene roots (OS-Genesis / AutoPlay style).")
 @click.option("--expander", default="random", show_default=True, type=click.Choice(["random", "vlm"]))
 @click.option("--prior/--no_prior", default=False, show_default=True, help="Score each new node with the VLM prior.")
-@click.option("--model_name", default=None, help="The VLM (required with --expander vlm or --prior).")
+@click.option("--describe/--no_describe", default=False, show_default=True,
+              help="After each expansion, have the VLM describe its sub-trajectory (all frames and actions).")
+@click.option("--model_name", default=None, help="The VLM (required with --expander vlm, --prior or --describe).")
 @click.option("--model_backend", default="vllm", show_default=True)
 @click.option("--vllm_base_url", default=None)
 @click.option("--restore", default=None, type=click.Choice(["state", "replay"]),
@@ -51,8 +53,8 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 @state_options(scorer=True)
 @run_options
 def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_puct, tau, q_ema, roots_only,
-         expander, prior, model_name, model_backend, vllm_base_url, restore, replay_similarity, noop_similarity,
-         seed, verify_restores, overwrite, ignore_config_violation, **kwargs):
+         expander, prior, describe, model_name, model_backend, vllm_base_url, restore, replay_similarity,
+         noop_similarity, seed, verify_restores, overwrite, ignore_config_violation, **kwargs):
     from cusi.search.envs import SceneEnvs
     from cusi.search.search import TreeSearch
     from cusi.search.selection import EnergySelector
@@ -68,12 +70,13 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
     if env_name == "android" and restore != "replay":
         raise click.UsageError("Android needs --restore replay: its scenes share one emulator, so a scene's env is "
                                "rebuilt (losing its saved states) whenever another scene is used.")
-    if (expander == "vlm" or prior) and not model_name:
-        raise click.UsageError("--expander vlm and --prior need --model_name.")
+    uses_vlm = expander == "vlm" or prior or describe
+    if uses_vlm and not model_name:
+        raise click.UsageError("--expander vlm, --prior and --describe need --model_name.")
     sconfig = state_config(kwargs)
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "c": c_puct, "tau": tau, "q_ema": q_ema, "roots_only": roots_only,
-              "expander": expander, "prior": prior, "model_name": model_name if (expander == "vlm" or prior) else None,
+              "expander": expander, "prior": prior, "describe": describe, "model_name": model_name if uses_vlm else None,
               "model_backend": model_backend, "vllm_base_url": vllm_base_url, "restore": restore,
               "replay_similarity": replay_similarity, "noop_similarity": noop_similarity, "seed": seed,
               **{k: (storage_relative(parameters=parameters, path=v) if k in PATH_KEYS and v else v)
@@ -87,7 +90,7 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
     scorer = build_scorer_from_config(config=sconfig, env_name=env_name, encoder=encoder)
     stats = TreeStats(q_ema=q_ema)
     vlm = None
-    if expander == "vlm" or prior:
+    if uses_vlm:
         from cusi.agents.vlm import AgentVLM
         vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
                        parameters=parameters)
@@ -101,13 +104,17 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
     if prior:
         from cusi.search.prior import VLMPrior
         node_prior = VLMPrior(vlm=vlm)
+    describer = None
+    if describe:
+        from cusi.search.describe import TransitionDescriber
+        describer = TransitionDescriber(vlm=vlm)
 
     def make(*, scene):
         return spec.make_env(scene=spec.scenes[scene], worker=0, parameters=parameters)
     envs = SceneEnvs(make=make, scenes=scene_names, exclusive=env_name == "android")
     search = TreeSearch(envs=envs, encoder=encoder, scorer=scorer, archive=archive, expander=explorer, stats=stats,
                         selector=EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only, seed=seed),
-                        k_steps=k_steps, node_threshold=node_threshold, prior=node_prior,
+                        k_steps=k_steps, node_threshold=node_threshold, prior=node_prior, describer=describer,
                         noop_similarity=noop_similarity, restore=restore, replay_similarity=replay_similarity,
                         store=store, parameters=parameters)
     t0 = time.time()

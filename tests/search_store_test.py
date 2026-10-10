@@ -3,6 +3,7 @@ Checks SearchStore on the fake corridor env: a run crashes mid-iteration, is res
 search, partial writes dropped, states and frames restored), extended, and resumed again. Also the config guard.
     python -m tests.search_store_test <empty scratch dir>
 """
+import hashlib
 import json
 import os
 import sys
@@ -12,6 +13,13 @@ import torch
 from tests.search_core_test import FakeEnv, check
 
 
+class HashDescriberVLM:
+    """A deterministic describer: the image count and a hash of the prompt."""
+
+    def infer(self, *, texts, images, max_new_tokens, temperature):
+        return {"output": f"{len(images)} frames, {hashlib.sha1(texts.encode()).hexdigest()[:8]}"}
+
+
 def build(*, directory, config=None, overwrite=False):
     from cusi.state import build_archive, build_encoder, build_scorer_from_config
     from cusi.search.expanders import RandomExpander
@@ -19,6 +27,7 @@ def build(*, directory, config=None, overwrite=False):
     from cusi.search.selection import EnergySelector
     from cusi.search.stats import TreeStats
     from cusi.search.store import SearchStore
+    from cusi.search.describe import TransitionDescriber
     state_config = {"image_embedder": "random_patch", "text_embedder": "none", "novelty_scorer": "embedding"}
     encoder = build_encoder(config=state_config, env_name="gameboy")
     stats = TreeStats(q_ema=0.3)
@@ -28,7 +37,7 @@ def build(*, directory, config=None, overwrite=False):
                       scorer=build_scorer_from_config(config=state_config, env_name="gameboy", encoder=encoder),
                       archive=build_archive(encoder=encoder), expander=RandomExpander(), stats=stats,
                       selector=EnergySelector(stats=stats, c=1.0, tau=2.0, seed=0), k_steps=5, node_threshold=0.3,
-                      store=store)
+                      describer=TransitionDescriber(vlm=HashDescriberVLM()), store=store)
 
 
 def snapshot(search) -> dict:
@@ -36,7 +45,7 @@ def snapshot(search) -> dict:
     return {"nodes": [(n.id, n.parent, n.depth, n.env_key, n.value, n.segment, dict(n.flags), n.created_at,
                        n.n_expanded, list(n.yields), n.prior) for n in tree.nodes],
             "q": [search.stats.q(n) for n in tree.nodes], "n_total": search.stats.n_total(),
-            "expansions": [(e.id, e.node_id, e.iteration, list(e.children), e.yield_value,
+            "expansions": [(e.id, e.node_id, e.iteration, list(e.children), e.yield_value, e.description,
                             [(s.action, s.value, s.node_id, s.info) for s in e.steps]) for e in tree.expansions],
             "counters": (search.iteration, search.total_steps, len(search.records))}
 

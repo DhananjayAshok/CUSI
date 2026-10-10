@@ -34,9 +34,11 @@ class FakeEnv:
         return self.current_obs, {"valid": True, "challenge": self.pos in self.challenge}
 
     def step(self, action):
+        action = action.strip().splitlines()[-1] if action.strip() else ""     # a VLM reply ends with the action
         self.pos = max(0, min(29, self.pos + {"L": -1, "R": 1}.get(action, 0)))
         self.current_obs = self._obs()
-        return self.current_obs, 0.0, False, False, {"valid": action in "LRX", "challenge": self.pos in self.challenge}
+        return self.current_obs, 0.0, False, False, {"valid": action in ("L", "R", "X"),
+                                                     "challenge": self.pos in self.challenge}
 
     def sample_action(self, *, rng=None):
         return str((self.rng if rng is None else rng).choice(["L", "R", "X"]))
@@ -183,6 +185,79 @@ def challenges():
     check(not picked & {n.id for n in flagged}, "challenge nodes are never selected")
 
 
+class FakeVLM:
+    """Records every prompt; answers a random corridor action."""
+
+    def __init__(self):
+        self.prompts, self.rng = [], np.random.default_rng(0)
+
+    def infer(self, *, texts, images, max_new_tokens, temperature):
+        self.prompts.append(texts)
+        return {"output": f"I will explore.\n{self.rng.choice(['L', 'R', 'X'])}"}
+
+
+def section(prompt: str, title: str) -> str:
+    """The bullet block under a prompt heading that starts with title."""
+    block = prompt.split(title, 1)[1].split("\n\n", 1)[0]
+    return block.split("\n", 1)[1] if "\n" in block else ""
+
+
+class FakeDescriberVLM:
+    """Records the images and prompt of each describe call; answers 'transition <n>'."""
+
+    def __init__(self):
+        self.calls = []
+
+    def infer(self, *, texts, images, max_new_tokens, temperature):
+        self.calls.append((texts, images))
+        return {"output": f"transition {len(self.calls) - 1}"}
+
+
+def vlm_context():
+    from cusi.search.context import action_line
+    from cusi.search.describe import TransitionDescriber
+    from cusi.search.expanders import VLMExplorer
+    search = build()
+    vlm, describer_vlm = FakeVLM(), FakeDescriberVLM()
+    search.expander = VLMExplorer(vlm=vlm)
+    search.describer = TransitionDescriber(vlm=describer_vlm)
+    search.run(stop=lambda s: "done" if s.iteration >= 20 else None)
+    tree, k = search.tree, search.k_steps
+    check(all(e.description == f"transition {e.id}" for e in tree.expansions), "every expansion is described")
+    images_ok = all(len(images) == len(e.steps) + 1
+                    and np.array_equal(np.asarray(images[0]), tree.nodes[e.node_id].frame.numpy())
+                    and np.array_equal(np.asarray(images[-1]), e.steps[-1].frame.numpy())
+                    for e, (_t, images) in zip(tree.expansions, describer_vlm.calls))
+    actions_ok = all(all(f"{i + 1}. {action_line(action=s.action)}" in texts for i, s in enumerate(e.steps))
+                     for e, (texts, _i) in zip(tree.expansions, describer_vlm.calls))
+    check(images_ok and actions_ok, "the describer sees the start frame, every step's frame, and every action")
+    first = {e.id: vlm.prompts[e.id * k] for e in tree.expansions}     # the fake env never ends an episode early
+    root_exp = next(e for e in tree.expansions if tree.nodes[e.node_id].parent is None)
+    check("(none: it is the start screen)" in first[root_exp.id], "a root's prompt says it is the start screen")
+    ok_path = 0
+    for e in tree.expansions:
+        want = [action_line(action=s.action) for s in tree.path_steps(e.node_id)][-20:]
+        got = [line[2:] for line in section(first[e.id], "How the screen").splitlines()
+               if line.startswith("- ") and not line.endswith("earlier actions)")]
+        ok_path += got == want or (not want and got == [])
+    check(ok_path == len(tree.expansions), f"every expansion's prompt lists its node's root->node actions ({ok_path})")
+    repeats = [e for e in tree.expansions if any(p.node_id == e.node_id and p.id < e.id for p in tree.expansions)]
+    ok_tried = 0
+    for e in repeats:
+        earlier = [p for p in tree.expansions if p.node_id == e.node_id and p.id < e.id][-5:]
+        tried = section(first[e.id], "Earlier explorations")
+        lines = [l for l in tried.splitlines() if l.startswith("- ") and not l.endswith("not shown)")]
+        ok_tried += len(lines) == len(earlier) and all(
+            " -> ".join(action_line(action=s.action) for s in p.steps[:5]) in line
+            and line.endswith(f"what happened: {p.description}") for p, line in zip(earlier, lines))
+    fresh = [e for e in tree.expansions if e not in repeats]
+    check(repeats and ok_tried == len(repeats),
+          f"{len(repeats)} repeat expansions list every earlier one from their node, with its description")
+    check(all("(none: this is the first exploration from it)" in first[e.id] for e in fresh),
+          f"{len(fresh)} first expansions say so")
+    print("        sample prompt:\n" + "\n".join("          " + l for l in first[repeats[-1].id].splitlines()[:22]))
+
+
 def scene_envs():
     from cusi.search.envs import SceneEnvs
     made = []
@@ -206,6 +281,7 @@ def main():
     reference = core()
     skip_and_replay(reference)
     challenges()
+    vlm_context()
     scene_envs()
     print("ALL OK")
 

@@ -64,6 +64,7 @@ class Expansion:
     children: list = field(default_factory=list)
     yield_value: float = 0.0
     stats: dict = field(default_factory=dict)
+    description: Optional[str] = None      # what happened over its steps (TransitionDescriber), if run
 
 
 class Tree:
