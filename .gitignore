@@ -178,3 +178,8 @@ configs/config.env
 results/
 storage/
 *.out
+
+# Scratch scripts and screen logs from interactive sessions
+/tmp*.sh
+/tmp*.py
+screenlog.*
