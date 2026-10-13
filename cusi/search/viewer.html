@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search Run Viewer</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f4f4f2; --surface-1: #fcfcfb; --surface-2: #ecebe7; --border: #d9d8d3;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7973;
+  --accent: #2a78d6; --series-1: #2a78d6; --grid: #e4e3df;
+  --seq-lo: #d6e6fa; --seq-hi: #0f3f80; --critical: #c62f2f; --warning: #b57300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #262624; --border: #3a3a37;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --accent: #3987e5; --series-1: #3987e5; --grid: #2e2e2b;
+    --seq-lo: #24364d; --seq-hi: #8ec0ff; --critical: #ef6a6a; --warning: #e0a63a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #262624; --border: #3a3a37;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --accent: #3987e5; --series-1: #3987e5; --grid: #2e2e2b;
+  --seq-lo: #24364d; --seq-hi: #8ec0ff; --critical: #ef6a6a; --warning: #e0a63a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { padding: 10px 16px; background: var(--surface-1); border-bottom: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--surface-2); border-radius: 10px; padding: 1px 8px; color: var(--text-secondary);
+  font-size: 12px; white-space: nowrap; }
+.chip b { color: var(--text-primary); font-weight: 600; }
+nav { display: flex; gap: 4px; margin-left: auto; }
+nav button, .btn { background: none; border: 1px solid var(--border); color: var(--text-secondary);
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; font: inherit; }
+nav button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:hover, nav button:hover { border-color: var(--accent); }
+main { padding: 12px 16px; }
+.tab { display: none; } .tab.on { display: block; }
+#treeTab.on { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 520px); gap: 12px;
+  height: calc(100vh - 80px); }
+@media (max-width: 900px) { #treeTab.on { grid-template-columns: 1fr; height: auto; } #treeWrap { height: 60vh; } }
+.panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; }
+#treeWrap { position: relative; overflow: hidden; }
+#tree { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+#tree.drag { cursor: grabbing; }
+.edge { fill: none; stroke: var(--border); stroke-width: 1.5; }
+.node rect.frame-box { fill: var(--surface-2); stroke-width: 2; }
+.node.sel rect.frame-box { stroke: var(--accent) !important; stroke-width: 4; }
+.node.flagged rect.frame-box { stroke-dasharray: 4 3; }
+.node circle { stroke: var(--surface-1); stroke-width: 2; }
+.node.sel circle { stroke: var(--accent); stroke-width: 3; }
+.node { cursor: pointer; }
+.treeTools { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; align-items: center;
+  background: var(--surface-1); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); }
+.legend { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+.ramp { width: 80px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--seq-lo), var(--seq-hi)); }
+#tip { position: fixed; pointer-events: none; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; z-index: 10; max-width: 260px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+#tip img { display: block; max-width: 240px; max-height: 160px; margin-top: 4px; image-rendering: pixelated; }
+#detail { overflow: auto; padding: 12px 14px; }
+#detail h2 { font-size: 14px; margin: 0 0 6px; }
+#detail h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted);
+  margin: 14px 0 4px; font-weight: 600; }
+.big { width: 100%; max-height: 380px; object-fit: contain; background: var(--surface-2); border-radius: 6px;
+  image-rendering: pixelated; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; }
+.meta dt { color: var(--text-muted); } .meta dd { margin: 0; font-variant-numeric: tabular-nums; }
+.link { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.flag { display: inline-block; color: var(--critical); border: 1px solid var(--critical); border-radius: 4px;
+  padding: 0 6px; margin: 2px 4px 2px 0; font-size: 12px; }
+.feat { display: grid; grid-template-columns: 62px 1fr; gap: 4px 8px; align-items: baseline; }
+.verdict { font-size: 11px; border-radius: 4px; padding: 0 5px; text-align: center; border: 1px solid var(--border);
+  color: var(--text-secondary); }
+.verdict.no { border-color: var(--accent); color: var(--accent); }
+.reason { color: var(--text-muted); font-size: 12px; }
+.strip { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 4px; }
+.strip img { height: 46px; border-radius: 3px; border: 2px solid transparent; cursor: pointer;
+  background: var(--surface-2); image-rendering: pixelated; flex: none; }
+.strip img.cur { border-color: var(--accent); }
+.strip img.node-made { outline: 2px dashed var(--text-muted); outline-offset: -2px; }
+.stepbar { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.texts { max-height: 160px; overflow: auto; background: var(--surface-2); border-radius: 6px; padding: 6px 8px; }
+.texts div { white-space: pre-wrap; }
+details summary { cursor: pointer; color: var(--text-secondary); }
+pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0; }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 12px; }
+.chart { padding: 10px 12px; }
+.chart h4 { margin: 0; font-size: 13px; } .chart .sub { color: var(--text-muted); font-size: 12px; margin-bottom: 4px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .axis text { fill: var(--text-muted); font-size: 11px; }
+.chart .grid line { stroke: var(--grid); }
+.chart .line { fill: none; stroke: var(--series-1); stroke-width: 2; }
+.chart .dot { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+.chart .cross { stroke: var(--text-muted); stroke-dasharray: 3 3; }
+table { border-collapse: collapse; width: 100%; background: var(--surface-1); }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-muted); font-weight: 600; position: sticky; top: 0; background: var(--surface-1); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr { cursor: pointer; } tbody tr:hover { background: var(--surface-2); }
+.empty { color: var(--text-muted); padding: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Search run</h1>
+  <div class="chips" id="chips"></div>
+  <nav>
+    <button data-tab="treeTab" class="on">Tree</button>
+    <button data-tab="timeTab">Timeline</button>
+    <button data-tab="expTab">Expansions</button>
+    <button id="theme" title="Toggle light / dark">Theme</button>
+  </nav>
+</header>
+<main>
+  <section id="treeTab" class="tab on">
+    <div id="treeWrap" class="panel">
+      <svg id="tree"></svg>
+      <div class="treeTools">
+        <button class="btn" id="fit">Fit</button>
+        <span class="legend">value <span class="ramp"></span> <span id="vmax"></span></span>
+        <span class="legend"><span style="border:2px dashed var(--critical);width:14px;height:10px;display:inline-block"></span> flagged</span>
+      </div>
+    </div>
+    <div id="detail" class="panel"><div class="empty">Click a node in the tree.</div></div>
+  </section>
+  <section id="timeTab" class="tab"><div class="charts" id="charts"></div></section>
+  <section id="expTab" class="tab"><div class="panel" style="overflow:auto;max-height:calc(100vh - 110px)">
+    <table><thead><tr><th>#</th><th>Iter</th><th>Node</th><th>Expander</th><th>Steps</th><th>Children</th>
+    <th>Yield</th><th>Seconds</th><th>Description</th></tr></thead><tbody id="expRows"></tbody></table></div>
+  </section>
+</main>
+<div id="tip"></div>
+<script src="data.js"></script>
+<script>
+(function () {
+"use strict";
+const R = window.RUN;
+if (!R) { document.body.innerHTML = '<p class="empty">data.js is missing: rebuild with python -m cusi.search.viewer.</p>'; return; }
+const $ = (s, el) => (el || document).querySelector(s);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const fmt = (v, d = 3) => v == null || Number.isNaN(v) ? "–" : (typeof v === "number" ? (Math.abs(v) >= 1000 ? v.toFixed(0) : +v.toFixed(d)) : v);
+const nodes = new Map(R.nodes.map(n => [n.id, n]));
+const exps = new Map(R.expansions.map(e => [e.id, e]));
+const kids = new Map();
+R.nodes.forEach(n => { if (n.parent != null) { if (!kids.has(n.parent)) kids.set(n.parent, []); kids.get(n.parent).push(n.id); } });
+const isFlagged = n => Object.keys(n.flags || {}).some(k => n.flags[k]);
+
+// ------------------------------------------------------------ header
+document.title = R.title + " – viewer";
+$("#title").textContent = R.title;
+const c = R.config || {}, s = R.summary || {};
+const chips = [["env", c.env], ["expander", c.expander], ["model", c.model_name], ["k", c.k_steps],
+  ["expansions", R.expansions.length], ["nodes", R.nodes.length], ["archive", s.archive],
+  ["max depth", Math.max(0, ...R.nodes.map(n => n.depth))]];
+if (c.rl_commit_episodes) chips.push(["episodes / session", c.rl_commit_episodes]);
+$("#chips").innerHTML = chips.filter(x => x[1] != null).map(([k, v]) => `<span class="chip">${esc(k)} <b>${esc(v)}</b></span>`).join("");
+
+document.querySelectorAll("nav button[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(id) {
+  document.querySelectorAll("nav button[data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === id));
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.id === id));
+  if (id === "timeTab") drawCharts();
+}
+$("#theme").onclick = () => {
+  const dark = document.documentElement.dataset.theme ? document.documentElement.dataset.theme === "dark"
+    : matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.dataset.theme = dark ? "light" : "dark";
+  try { localStorage.setItem("viewer-theme", document.documentElement.dataset.theme); } catch (e) {}
+  if ($("#timeTab").classList.contains("on")) drawCharts();
+};
+try { const t = localStorage.getItem("viewer-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+
+// ------------------------------------------------------------ tree
+const svg = $("#tree"), NS = "http://www.w3.org/2000/svg";
+const thumbs = R.nodes.length <= 800;
+const W = thumbs ? 46 : 10, H = thumbs ? 38 : 10, SPX = thumbs ? 54 : 14, SPY = thumbs ? 72 : 36;
+const values = R.nodes.map(n => n.value).filter(v => v != null);
+const vmax = Math.max(1e-9, ...values);
+$("#vmax").textContent = "0 – " + fmt(vmax, 2);
+function mix(t) {
+  const st = getComputedStyle(document.documentElement);
+  const a = st.getPropertyValue("--seq-lo").trim(), b = st.getPropertyValue("--seq-hi").trim();
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+  const [x, y] = [p(a), p(b)];
+  return "rgb(" + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(",") + ")";
+}
+const color = n => n.value == null ? "var(--text-muted)" : mix(Math.min(1, Math.max(0, n.value / vmax)));
+const pos = new Map();
+let cursor = 0;
+function place(id) {
+  const ch = kids.get(id) || [];
+  if (!ch.length) { pos.set(id, cursor++); return; }
+  ch.forEach(place);
+  pos.set(id, (pos.get(ch[0]) + pos.get(ch[ch.length - 1])) / 2);
+}
+R.nodes.filter(n => n.parent == null).forEach(n => { place(n.id); cursor += 1; });
+const X = id => pos.get(id) * SPX, Y = id => nodes.get(id).depth * SPY;
+const gEdges = document.createElementNS(NS, "g"), gNodes = document.createElementNS(NS, "g");
+svg.append(gEdges, gNodes);
+const nodeEls = new Map();
+R.nodes.forEach(n => {
+  if (n.parent != null && nodes.has(n.parent)) {
+    const p = document.createElementNS(NS, "path"), x1 = X(n.parent), y1 = Y(n.parent) + H / 2, x2 = X(n.id), y2 = Y(n.id) - H / 2;
+    p.setAttribute("d", `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`);
+    p.setAttribute("class", "edge");
+    gEdges.append(p);
+  }
+  const g = document.createElementNS(NS, "g");
+  g.setAttribute("class", "node" + (isFlagged(n) ? " flagged" : ""));
+  g.setAttribute("transform", `translate(${X(n.id)},${Y(n.id)})`);
+  if (thumbs) {
+    const r = document.createElementNS(NS, "rect");
+    Object.entries({x: -W / 2 - 2, y: -H / 2 - 2, width: W + 4, height: H + 4, rx: 4, class: "frame-box"}).forEach(([k, v]) => r.setAttribute(k, v));
+    r.style.stroke = isFlagged(n) ? "var(--critical)" : color(n);
+    const im = document.createElementNS(NS, "image");
+    Object.entries({x: -W / 2, y: -H / 2, width: W, height: H, href: n.frame || "", preserveAspectRatio: "xMidYMid meet"}).forEach(([k, v]) => im.setAttribute(k, v));
+    im.style.imageRendering = "pixelated";
+    g.append(r, im);
+  } else {
+    const ci = document.createElementNS(NS, "circle");
+    ci.setAttribute("r", 4 + Math.min(4, n.n_expanded));
+    ci.style.fill = isFlagged(n) ? "var(--critical)" : color(n);
+    g.append(ci);
+  }
+  // a larger invisible hit target than the mark
+  const hit = document.createElementNS(NS, "rect");
+  Object.entries({x: -SPX / 2, y: -H / 2 - 6, width: SPX, height: H + 12, fill: "transparent"}).forEach(([k, v]) => hit.setAttribute(k, v));
+  g.append(hit);
+  g.addEventListener("click", ev => { ev.stopPropagation(); if (!moved) openNode(n.id); });
+  g.addEventListener("pointerenter", ev => showTip(ev, nodeTip(n)));
+  g.addEventListener("pointermove", ev => moveTip(ev));
+  g.addEventListener("pointerleave", hideTip);
+  gNodes.append(g);
+  nodeEls.set(n.id, g);
+});
+let vb = [0, 0, 100, 100];
+function setVB() { svg.setAttribute("viewBox", vb.join(" ")); }
+function fit() {
+  const xs = R.nodes.map(n => X(n.id)), ys = R.nodes.map(n => Y(n.id));
+  const pad = 40, x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - 2 * pad;   // room for the toolbar
+  let w = Math.max(...xs) - x0 + pad, h = Math.max(...ys) - y0 + pad;
+  const r = svg.clientWidth / Math.max(1, svg.clientHeight);
+  if (w / h < r) w = h * r; else h = w / r;
+  vb = [x0, y0, w, h]; setVB();
+}
+function focus(id) {
+  const r = svg.clientWidth / Math.max(1, svg.clientHeight), w = Math.min(vb[2], SPX * 16), h = w / r;
+  vb = [X(id) - w / 2, Y(id) - h / 3, w, h]; setVB();
+}
+$("#fit").onclick = fit;
+let drag = null, moved = false;
+svg.addEventListener("pointerdown", ev => { drag = {x: ev.clientX, y: ev.clientY, vb: vb.slice()}; moved = false; });
+svg.addEventListener("pointermove", ev => {
+  if (!drag) return;
+  const k = vb[2] / svg.clientWidth, dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (!moved && Math.abs(dx) + Math.abs(dy) > 3) {
+    // only a real drag captures the pointer, so a plain click still reaches the node under it
+    moved = true; svg.setPointerCapture(ev.pointerId); svg.classList.add("drag"); hideTip();
+  }
+  if (!moved) return;
+  vb = [drag.vb[0] - dx * k, drag.vb[1] - dy * k, vb[2], vb[3]]; setVB();
+});
+svg.addEventListener("pointerup", () => { drag = null; svg.classList.remove("drag"); setTimeout(() => moved = false, 0); });
+svg.addEventListener("wheel", ev => {
+  ev.preventDefault();
+  const rect = svg.getBoundingClientRect(), f = Math.exp(ev.deltaY * 0.0015);
+  const mx = vb[0] + (ev.clientX - rect.left) / rect.width * vb[2], my = vb[1] + (ev.clientY - rect.top) / rect.height * vb[3];
+  vb = [mx - (mx - vb[0]) * f, my - (my - vb[1]) * f, vb[2] * f, vb[3] * f]; setVB();
+}, {passive: false});
+
+// ------------------------------------------------------------ tooltip
+const tip = $("#tip");
+function showTip(ev, html) { tip.innerHTML = html; tip.style.display = "block"; moveTip(ev); }
+function moveTip(ev) {
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.min(innerWidth - w - 8, ev.clientX + 14) + "px";
+  tip.style.top = Math.min(innerHeight - h - 8, ev.clientY + 14) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+function nodeTip(n) {
+  return `<b>Node ${n.id}</b> · ${esc(n.scene)} · depth ${n.depth}<br>value ${fmt(n.value)} · expanded ${n.n_expanded}×` +
+    (n.score ? ` · score ${fmt(n.score.score, 2)}` : "") + (isFlagged(n) ? `<br><span style="color:var(--critical)">flagged: ${esc(Object.keys(n.flags).filter(k => n.flags[k]).join(", "))}</span>` : "") +
+    (n.frame ? `<img src="${esc(n.frame)}" alt="">` : "");
+}
+
+// ------------------------------------------------------------ detail: node
+const detail = $("#detail");
+let selected = null, current = null;
+function select(id) {
+  if (selected != null && nodeEls.has(selected)) nodeEls.get(selected).classList.remove("sel");
+  selected = id;
+  if (id != null && nodeEls.has(id)) nodeEls.get(id).classList.add("sel");
+}
+const nlink = id => `<span class="link" data-node="${id}">${id}</span>`;
+const elink = (id, step) => `<span class="link" data-exp="${id}"${step != null ? ` data-step="${step}"` : ""}>expansion ${id}</span>`;
+detail.addEventListener("click", ev => {
+  const t = ev.target.closest("[data-node],[data-exp],[data-step-i]");
+  if (!t) return;
+  if (t.dataset.node != null) { openNode(+t.dataset.node, true); }
+  else if (t.dataset.exp != null) { openExp(+t.dataset.exp, t.dataset.step != null ? +t.dataset.step : 0); }
+  else if (t.dataset.stepI != null && current) { current.i = +t.dataset.stepI; renderStep(); }
+});
+function openNode(id, center) {
+  const n = nodes.get(id); if (!n) return;
+  current = null; select(id); if (center) focus(id);
+  location.hash = "n=" + id;
+  const flags = Object.keys(n.flags || {}).filter(k => n.flags[k]);
+  const sel = n.sel || {};
+  let feats = "";
+  if (n.score && n.score.verdicts.length) {
+    feats = `<div class="feat">` + n.score.verdicts.map(v => `<span class="verdict ${esc(v.verdict || "")}">${esc(v.verdict || "?")}</span>` +
+      `<div>${esc(v.feature)}${v.reason ? `<div class="reason">${esc(v.reason)}</div>` : ""}</div>`).join("") + `</div>`;
+  } else if (n.features && n.features.length) {
+    feats = `<ul style="margin:0;padding-left:18px">${n.features.map(f => `<li>${esc(f)}</li>`).join("")}</ul>`;
+  }
+  const ch = kids.get(id) || [];
+  const seg = n.segment;
+  detail.innerHTML = `
+    <h2>Node ${id} <span class="chip">${esc(n.scene)}</span></h2>
+    ${n.frame ? `<img class="big" src="${esc(n.frame)}" alt="frame of node ${id}">` : ""}
+    ${flags.map(f => `<span class="flag">flag: ${esc(f)}</span>`).join("")}
+    <h3>Stats</h3>
+    <dl class="meta">
+      <dt>depth</dt><dd>${n.depth}</dd>
+      <dt>value</dt><dd>${fmt(n.value)}</dd>
+      <dt>created</dt><dd>iteration ${n.created_at}${seg ? ` by ${elink(seg[0], seg[2] + 1)} (steps ${seg[1] + 1}–${seg[2] + 1})` : " (root)"}</dd>
+      <dt>parent</dt><dd>${n.parent == null ? "–" : nlink(n.parent)}</dd>
+      <dt>expanded</dt><dd>${n.n_expanded}× ${n.expansions.map(e => elink(e)).join(", ")}</dd>
+      <dt>Q / N / P</dt><dd>${fmt(sel.q)} / ${fmt(sel.n, 1)} / ${fmt(sel.p)}${sel.iteration != null ? ` <span class="reason">(at iteration ${sel.iteration})</span>` : ""}</dd>
+      <dt>selection prob.</dt><dd>${fmt(sel.prob)}${sel.energy != null ? ` · energy ${fmt(sel.energy)}` : ""}</dd>
+      <dt>decision score</dt><dd>${n.score ? `${fmt(n.score.score, 3)} <span class="reason">(iteration ${n.score.iteration})</span>` : "–"}</dd>
+    </dl>
+    ${feats ? `<h3>Features${n.score ? " · verdicts against the discovered set" : ""}</h3>${feats}` : ""}
+    ${ch.length ? `<h3>Children (${ch.length})</h3><div class="strip">${ch.map(k => `<img src="${esc(nodes.get(k).frame || "")}" data-node="${k}" title="node ${k}" alt="node ${k}">`).join("")}</div>` : ""}`;
+}
+
+// ------------------------------------------------------------ detail: expansion player
+function openExp(id, step) {
+  const e = exps.get(id); if (!e) return;
+  showTab("treeTab");
+  select(e.node_id);
+  current = {e, i: step || 0};
+  const info = e.expander_info || {}, st = e.stats || {};
+  const extra = Object.keys(info).length ? `<details><summary>expander info</summary><pre class="mono">${esc(JSON.stringify(info, null, 1))}</pre></details>` : "";
+  const start = nodes.get(e.node_id);
+  detail.innerHTML = `
+    <h2>Expansion ${id} <span class="chip">${esc(e.expander || "")}</span> <span class="chip">iteration ${e.iteration}</span></h2>
+    <dl class="meta">
+      <dt>from node</dt><dd>${nlink(e.node_id)}</dd>
+      <dt>steps / children</dt><dd>${e.steps.length} / ${e.children.length} ${e.children.map(nlink).join(", ")}</dd>
+      <dt>yield</dt><dd>${fmt(e.yield)}</dd>
+      <dt>time</dt><dd>${fmt(st.seconds, 1)} s${st.restore ? ` · restore ${esc(st.restore)}` : ""}${st.session_seconds > 1 ? ` · session ${fmt(st.session_seconds, 0)} s` : ""}</dd>
+      ${info.plan != null ? `<dt>episode</dt><dd>${info.plan + 1} of ${info.plans} committed · return ${fmt(info.episode_return)}</dd>` : ""}
+    </dl>
+    ${extra}
+    <h3>Steps</h3>
+    <div class="strip" id="strip">${[start ? start.frame : null].concat(e.steps.map(x => x.frame)).map((f, i) =>
+      `<img src="${esc(f || "")}" data-step-i="${i}" title="${i ? "step " + i : "start"}" alt="${i ? "step " + i : "start"}" class="${i && e.steps[i - 1].node_id != null ? "node-made" : ""}">`).join("")}</div>
+    <div class="stepbar"><button class="btn" id="prev">Prev</button><span id="stepLabel" class="mono"></span><button class="btn" id="next">Next</button>
+      <span class="reason">or the arrow keys</span></div>
+    <img class="big" id="stepImg" alt="">
+    <div id="stepInfo"></div>
+    ${e.description ? `<h3>Description</h3><div>${esc(e.description)}</div>` : ""}
+    ${e.discovered && e.discovered.length ? `<h3>Discovered</h3><div class="chips">${e.discovered.map(d => `<span class="chip">${esc(d)}</span>`).join("")}</div>` : ""}
+    ${e.windows && e.windows.length ? `<h3>Window descriptions</h3>${e.windows.map(w => `<div><span class="mono">frames ${w.frames[0]}–${w.frames[1]}</span> ${esc(w.text)}</div>`).join("")}` : ""}`;
+  $("#prev").onclick = () => { current.i = Math.max(0, current.i - 1); renderStep(); };
+  $("#next").onclick = () => { current.i = Math.min(e.steps.length, current.i + 1); renderStep(); };
+  renderStep();
+}
+function renderStep() {
+  const {e, i} = current, start = nodes.get(e.node_id);
+  location.hash = `e=${e.id}&s=${i}`;
+  document.querySelectorAll("#strip img").forEach((im, k) => im.classList.toggle("cur", k === i));
+  const cur = $("#strip").children[i]; if (cur) cur.scrollIntoView({block: "nearest", inline: "nearest"});
+  $("#stepLabel").textContent = i ? `step ${i} / ${e.steps.length}` : `start / ${e.steps.length}`;
+  if (!i) {
+    $("#stepImg").src = start && start.frame || "";
+    $("#stepInfo").innerHTML = `<div class="reason">The start state (node ${e.node_id}).</div>`;
+    return;
+  }
+  const s = e.steps[i - 1];
+  $("#stepImg").src = s.frame || "";
+  const comps = Object.entries(s.components || {}).map(([k, v]) => `${esc(k)} ${fmt(v)}`).join(" · ");
+  $("#stepInfo").innerHTML = `
+    <dl class="meta">
+      <dt>action</dt><dd class="mono">${esc(s.action)}</dd>
+      <dt>value</dt><dd>${fmt(s.value)}${comps ? ` <span class="reason">(${comps})</span>` : ""}</dd>
+      ${s.node_id != null ? `<dt>node</dt><dd>${nlink(s.node_id)}</dd>` : ""}
+      ${!s.valid ? `<dt>invalid</dt><dd style="color:var(--critical)">${esc(s.error || "invalid action")}</dd>` : ""}
+    </dl>
+    ${s.texts && s.texts.length ? `<details><summary>text on screen (${s.texts.length})</summary><div class="texts">${s.texts.map(t => `<div>${esc(t)}</div>`).join("")}</div></details>` : ""}`;
+}
+document.addEventListener("keydown", ev => {
+  if (!current || ev.target.closest("input,textarea")) return;
+  if (ev.key === "ArrowRight") { current.i = Math.min(current.e.steps.length, current.i + 1); renderStep(); }
+  if (ev.key === "ArrowLeft") { current.i = Math.max(0, current.i - 1); renderStep(); }
+});
+
+// ------------------------------------------------------------ timeline charts (one series each; one axis)
+function lineChart({title, sub, points, digits}) {
+  const box = document.createElement("div");
+  box.className = "chart panel";
+  box.innerHTML = `<h4>${esc(title)}</h4><div class="sub">${esc(sub)}</div>`;
+  if (!points.length) { box.innerHTML += `<div class="empty">No data.</div>`; return box; }
+  const Wc = 600, Hc = 170, L = 44, Rr = 12, T = 8, B = 22;
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const x0 = Math.min(...xs), x1 = Math.max(x0 + 1, ...xs), y0 = Math.min(0, ...ys), y1 = Math.max(y0 + 1e-9, ...ys);
+  const sx = x => L + (x - x0) / (x1 - x0) * (Wc - L - Rr), sy = y => T + (1 - (y - y0) / (y1 - y0)) * (Hc - T - B);
+  const ticks = [0, 0.5, 1].map(f => y0 + f * (y1 - y0));
+  const d = points.map((p, k) => (k ? "L" : "M") + sx(p.x).toFixed(1) + "," + sy(p.y).toFixed(1)).join("");
+  const dots = points.length <= 200;
+  box.insertAdjacentHTML("beforeend", `<svg viewBox="0 0 ${Wc} ${Hc}" role="img" aria-label="${esc(title)}">
+    <g class="grid">${ticks.map(t => `<line x1="${L}" x2="${Wc - Rr}" y1="${sy(t)}" y2="${sy(t)}"/>`).join("")}</g>
+    <g class="axis">${ticks.map(t => `<text x="${L - 6}" y="${sy(t) + 3}" text-anchor="end">${fmt(t, digits)}</text>`).join("")}
+      <text x="${L}" y="${Hc - 6}">${x0}</text><text x="${Wc - Rr}" y="${Hc - 6}" text-anchor="end">${x1}</text>
+      <text x="${(L + Wc - Rr) / 2}" y="${Hc - 6}" text-anchor="middle">expansion</text></g>
+    <path class="line" d="${d}"/>
+    ${dots ? points.map(p => `<circle class="dot" r="4" cx="${sx(p.x)}" cy="${sy(p.y)}"/>`).join("") : ""}
+    <line class="cross" y1="${T}" y2="${Hc - B}" style="display:none"/>
+    <circle class="dot hl" r="5" style="display:none"/>
+    <rect x="${L}" y="${T}" width="${Wc - L - Rr}" height="${Hc - T - B}" fill="transparent" style="cursor:pointer"/>
+  </svg>`);
+  const sv = box.querySelector("svg"), cross = sv.querySelector(".cross"), hl = sv.querySelector(".hl"), hit = sv.querySelector("rect");
+  const nearest = ev => {
+    const r = sv.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width * Wc;
+    let best = points[0];
+    points.forEach(p => { if (Math.abs(sx(p.x) - x) < Math.abs(sx(best.x) - x)) best = p; });
+    return best;
+  };
+  hit.addEventListener("pointermove", ev => {
+    const p = nearest(ev);
+    cross.setAttribute("x1", sx(p.x)); cross.setAttribute("x2", sx(p.x)); cross.style.display = "";
+    hl.setAttribute("cx", sx(p.x)); hl.setAttribute("cy", sy(p.y)); hl.style.display = "";
+    showTip(ev, `<b>${esc(title)}</b>: ${fmt(p.y, digits)}<br>${esc(p.label)}`);
+  });
+  hit.addEventListener("pointerleave", () => { cross.style.display = "none"; hl.style.display = "none"; hideTip(); });
+  hit.addEventListener("click", ev => { const p = nearest(ev); hideTip(); if (p.exp != null) openExp(p.exp, 0); });
+  return box;
+}
+function drawCharts() {
+  const host = $("#charts");
+  host.innerHTML = "";
+  const recs = R.records.filter(r => r.expansion != null);
+  const lab = r => `expansion ${r.expansion} · iteration ${r.iteration} · node ${r.selected}`;
+  const pts = f => recs.map(r => ({x: r.expansion, y: f(r), label: lab(r), exp: r.expansion})).filter(p => p.y != null && !Number.isNaN(p.y));
+  host.append(lineChart({title: "Expansion yield", sub: "novelty the expansion added (click a point to open it)", points: pts(r => r.yield), digits: 3}));
+  host.append(lineChart({title: "Selection probability of the chosen node", sub: "how concentrated each decision was", points: pts(r => r.prob), digits: 2}));
+  host.append(lineChart({title: "Archive size", sub: "states in the novelty archive after the expansion", points: pts(r => r.archive), digits: 0}));
+  host.append(lineChart({title: "Candidates per decision", sub: "selectable nodes the decision chose among", points: pts(r => (r.candidates || []).length), digits: 0}));
+  if (recs.some(r => r.scores && r.scores.length)) {
+    host.append(lineChart({title: "Decision score of the chosen node", sub: "share of its features still undiscovered", points: pts(r => {
+      const e = (r.scores || []).find(x => x.node_id === r.selected); return e ? e.score : null; }), digits: 2}));
+    host.append(lineChart({title: "Discovered features (all scenes)", sub: "size of the discovered sets at the decision", points: pts(r =>
+      r.n_discovered ? Object.values(r.n_discovered).reduce((a, b) => a + b, 0) : null), digits: 0}));
+  }
+  host.append(lineChart({title: "Seconds per expansion", sub: "wall-clock, including restore and any RL session", points: pts(r => r.seconds), digits: 0}));
+}
+
+// ------------------------------------------------------------ expansions table
+$("#expRows").innerHTML = R.expansions.map(e => `<tr data-exp="${e.id}"><td class="num">${e.id}</td><td class="num">${e.iteration}</td>
+  <td class="num">${e.node_id}</td><td>${esc(e.expander || "")}</td><td class="num">${e.steps.length}</td><td class="num">${e.children.length}</td>
+  <td class="num">${fmt(e.yield)}</td><td class="num">${fmt((e.stats || {}).seconds, 0)}</td>
+  <td>${esc((e.description || "").slice(0, 160))}${(e.description || "").length > 160 ? "…" : ""}</td></tr>`).join("");
+$("#expRows").addEventListener("click", ev => { const tr = ev.target.closest("tr"); if (tr) openExp(+tr.dataset.exp, 0); });
+
+// ------------------------------------------------------------ start
+requestAnimationFrame(() => {
+  fit();
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (h.has("e")) openExp(+h.get("e"), +(h.get("s") || 0));
+  else if (h.has("n")) openNode(+h.get("n"), true);
+});
+addEventListener("resize", () => { if (!selected) fit(); });
+})();
+</script>
+</body>
+</html>
