@@ -8,8 +8,8 @@ from cusi.state.encoders import IMAGE_EMBEDDERS, TEXT_EMBEDDERS, build_image_emb
 from cusi.state.scorers import NOVELTY_SCORERS, build_scorer
 from cusi.state.state import SIMILARITY_METRICS, StateEncoder
 
-STATE_KEYS = ("image_embedder", "encoder_model", "embedder_load_path", "text_embedder", "text_embedder_model",
-              "w_image", "similarity_metric")
+STATE_KEYS = ("image_embedder", "encoder_model", "embedder_load_path", "text_embedder", "mask_text",
+              "text_seen_threshold", "w_image", "similarity_metric")
 SCORER_KEYS = ("novelty_scorer", "region_alpha", "world_model_load_path")
 
 
@@ -19,7 +19,10 @@ def state_options(*, scorer: bool = False):
         click.option("--encoder_model", default=None, help="SigLIP 2 model id (required with --image_embedder siglip)."),
         click.option("--embedder_load_path", default=None, help="Trained cnn / fine-tuned siglip checkpoint dir."),
         click.option("--text_embedder", required=True, type=click.Choice(TEXT_EMBEDDERS)),
-        click.option("--text_embedder_model", default=None, help="Sentence model id (required with --text_embedder dense)."),
+        click.option("--mask_text/--no_mask_text", default=True, show_default=True,
+                     help="Fill the text boxes with their background before the image embedder sees the frame."),
+        click.option("--text_seen_threshold", default=0.9, show_default=True,
+                     help="A text box is seen if a stored key with its role has trigram cosine at least this."),
         click.option("--w_image", default=0.5, type=float, help="Image vs text weight in the similarity (1 if text is none)."),
         click.option("--similarity_metric", default="cosine", type=click.Choice(SIMILARITY_METRICS)),
     ]
@@ -46,22 +49,19 @@ def build_encoder(*, config: dict, env_name: str, device: Optional[str] = None,
                   parameters: dict[str, Any] = None) -> StateEncoder:
     if config["image_embedder"] == "siglip" and not config.get("encoder_model"):
         raise click.UsageError("--image_embedder siglip needs --encoder_model")
-    if config["text_embedder"] == "dense" and not config.get("text_embedder_model"):
-        raise click.UsageError("--text_embedder dense needs --text_embedder_model")
     image = build_image_embedder(image_embedder=config["image_embedder"], env_name=env_name,
                                  encoder_model=config.get("encoder_model"),
                                  embedder_load_path=config.get("embedder_load_path"), device=device,
                                  parameters=parameters)
-    text = build_text_embedder(text_embedder=config["text_embedder"],
-                               text_embedder_model=config.get("text_embedder_model"), device=device)
+    text = build_text_embedder(text_embedder=config["text_embedder"])
     return StateEncoder(image=image, text=text, w_image=config.get("w_image", 0.5),
-                        metric=config.get("similarity_metric", "cosine"))
+                        metric=config.get("similarity_metric", "cosine"), mask_text=config.get("mask_text", True))
 
 
 def build_archive(*, encoder: StateEncoder, cell_threshold: Optional[float] = None,
-                  max_size: int = 10_000) -> NoveltyArchive:
+                  max_size: int = 10_000, text_seen_threshold: float = 0.9) -> NoveltyArchive:
     return NoveltyArchive(metric=encoder.metric, text_embedder=encoder.text, w_image=encoder.w_image,
-                          cell_threshold=cell_threshold, max_size=max_size)
+                          cell_threshold=cell_threshold, max_size=max_size, text_seen_threshold=text_seen_threshold)
 
 
 def build_scorer_from_config(*, config: dict, env_name: str, encoder: StateEncoder, device: Optional[str] = None):

@@ -1,152 +1,92 @@
 """
-Region-novelty stores kept inside a NoveltyArchive: seen element lines (Android / Web) and OCR-region strips (GameBoy).
+Region novelty kept inside a NoveltyArchive, the same on every env: the area-weighted share of a screen's text boxes
+whose (role, normalised text) was never seen (plans/next_plan.md §0.2).
 """
 import copy
+import json
 import os
 from typing import Optional
 import numpy as np
-import torch
-from cusi.state.text import element_lines
+from cusi.state.encoders.text import box_set, key_text
+from cusi.state.keys import KeyStore
 
-TEXT_LINES = "text_lines"
-OCR = "ocr"
-TEXT_FILE = "text_buffer.txt"
+UNSEEN_TEXT = "unseen_text"
+SEEN_FILE = "seen_text.json"
 
 
-class TextLineBuffer:
-    """Seen element lines; score is the share of a screen's lines never seen."""
+class UnseenTextBuffer:
+    """A box is seen if a stored key with its role has trigram cosine >= seen_threshold, or its text is a prefix of a
+    stored key's (streaming text replaying a known line). A box that extends a box of the previous screen (the same
+    line still being typed) is credited only for the share of its characters that are new."""
 
-    def __init__(self, *, max_size: int = 50_000, seed: int = 42) -> None:
-        self.max_size = max_size
+    def __init__(self, *, seen_threshold: float = 0.9, max_size: int = 50_000, seed: int = 42) -> None:
+        self.seen_threshold, self.max_size = seen_threshold, max_size
         self._rng = np.random.default_rng(seed)
-        self.seen: set = set()
+        self.store = KeyStore()
 
-    def score(self, *, texts: dict, add: bool = True) -> float:
-        lines = element_lines(texts=texts or {})
-        if not lines:
+    def __len__(self) -> int:
+        return len(self.store)
+
+    def _seen(self, keys: list) -> list:
+        """Per key: seen by the cosine threshold or the prefix rule."""
+        best = self.store.cosines(keys=keys).max(axis=1) if len(self.store) else np.zeros(len(keys))
+        return [b >= self.seen_threshold or self.store.is_prefix_of_stored(key=k) for k, b in zip(keys, best)]
+
+    def score(self, *, boxes: list, prev_boxes: Optional[list] = None, add: bool = True,
+              base: Optional["UnseenTextBuffer"] = None) -> float:
+        """base: a read-only buffer whose keys also count as seen (a curiosity session's B0)."""
+        current = box_set(boxes)
+        if not current.keys:
             return 0.0
-        new = [l for l in lines if l not in self.seen]
-        if add:
-            self.seen.update(new)
-            if len(self.seen) > self.max_size:
-                keep = self._rng.choice(len(self.seen), self.max_size // 2, replace=False)
-                items = list(self.seen)
-                self.seen = {items[i] for i in keep}
-        return len(new) / len(lines)
-
-    def copy(self) -> "TextLineBuffer":
-        return copy.deepcopy(self)
-
-    def save(self, *, directory: str, merge: bool = False) -> None:
-        if not self.seen:
-            return
-        os.makedirs(directory, exist_ok=True)
-        path = os.path.join(directory, TEXT_FILE)
-        merged = set(self.seen)
-        if merge and os.path.exists(path):
-            with open(path) as f:
-                merged |= set(line.rstrip("\n") for line in f if line.strip())
-        with open(path, "w") as f:
-            f.write("\n".join(sorted(merged)) + "\n")
-
-    @classmethod
-    def load(cls, *, directory: str) -> Optional["TextLineBuffer"]:
-        path = os.path.join(directory, TEXT_FILE)
-        if not os.path.exists(path):
-            return None
-        buf = cls()
-        with open(path) as f:
-            buf.seen = set(line.rstrip("\n") for line in f if line.strip())
-        return buf
-
-
-def chunk_ocr_frame(frame: np.ndarray, n_chunks: int = 8) -> list:
-    """n_chunks equal-width vertical strips of a (height, width) crop (GameBoyRL)."""
-    _, width = frame.shape
-    if width < n_chunks:
-        return [frame]
-    w = width // n_chunks
-    return [frame[:, i * w:(i + 1) * w] for i in range(n_chunks)]
-
-
-class OCRRegionBuffer:
-    """GameBoyRL's OCRBuffer: novelty of pixel strips of fixed screen regions (no text recognition)."""
-
-    def __init__(self, *, n_chunks: int = 8, max_size: int = 10_000) -> None:
-        self.n_chunks, self.max_size = n_chunks, max_size
-        self.buffers: dict = {}          # region -> (n, strip_size) float32
-
-    def _frames_to_chunks(self, frames: np.ndarray) -> torch.Tensor:
-        chunks = [c.astype(np.float32) / 255.0 for frame in frames for c in chunk_ocr_frame(frame, self.n_chunks)]
-        return torch.tensor(np.stack([c.reshape(-1) for c in chunks]), dtype=torch.float32)
-
-    @staticmethod
-    def unseen(chunks: torch.Tensor, buffer: Optional[torch.Tensor]) -> Optional[torch.Tensor]:
-        if buffer is None:
-            return chunks
-        max_diff = (chunks.unsqueeze(1) - buffer.unsqueeze(0)).abs().amax(dim=-1)   # (n, buffer)
-        keep = max_diff.amin(dim=1) >= 0.001
-        return chunks[keep] if bool(keep.any()) else None
-
-    def _rationalize(self, key: str) -> None:
-        generator = torch.Generator().manual_seed(42)
-        keep = torch.randperm(self.buffers[key].shape[0], generator=generator)[:self.max_size // 2]
-        self.buffers[key] = self.buffers[key][keep]
-
-    def score(self, *, text_regions: Optional[dict], add: bool = True) -> float:
-        if not text_regions or "ocr_regions" not in text_regions:
-            return 0.0            # no OCR screen up
-        scores, to_add = [], {}
-        for region, value in text_regions["ocr_regions"].items():
-            if region.startswith("_"):
+        keys = list(current.keys)
+        seen = self._seen(keys)
+        if base is not None:
+            seen = [s or t for s, t in zip(seen, base._seen(keys))]
+        prev = [k for k in box_set(prev_boxes or []).keys]
+        total = 0.0
+        for k, w, is_seen in zip(keys, current.weights, seen):
+            if is_seen:
                 continue
-            frames = np.asarray(value[0])
-            frames = frames.reshape(frames.shape[0], frames.shape[1], frames.shape[2])   # n_frames, h, w
-            chunks = self._frames_to_chunks(frames)
-            buffer = self.buffers.get(region)
-            if buffer is None:
-                scores.append(1.0)
-                to_add[region] = chunks
-                continue
-            new = self.unseen(chunks, buffer)
-            scores.append(0.0 if new is None else new.shape[0] / chunks.shape[0])
-            if new is not None:
-                to_add[region] = new
+            credit, text = 1.0, key_text(k)
+            for p in prev:
+                pt = key_text(p)
+                if p.split("\t", 1)[0] == k.split("\t", 1)[0] and len(pt) < len(text) and text.startswith(pt):
+                    credit = min(credit, (len(text) - len(pt)) / len(text))
+            total += w * credit
         if add:
-            for region, chunks in to_add.items():
-                old = self.buffers.get(region)
-                self.buffers[region] = chunks if old is None else torch.cat([old, chunks], dim=0)
-                if self.buffers[region].shape[0] > self.max_size:
-                    self._rationalize(region)
-        return max(scores) if scores else 0.0
+            self.store.add_many(keys=keys)
+            if len(self.store) > self.max_size:
+                kept = self._rng.choice(len(self.store), self.max_size // 2, replace=False)
+                self.store = KeyStore([self.store.keys[i] for i in sorted(kept)])
+        return float(total)
 
-    def copy(self) -> "OCRRegionBuffer":
-        out = OCRRegionBuffer(n_chunks=self.n_chunks, max_size=self.max_size)
-        out.buffers = {k: v.clone() for k, v in self.buffers.items()}
+    def copy(self) -> "UnseenTextBuffer":
+        out = UnseenTextBuffer(seen_threshold=self.seen_threshold, max_size=self.max_size)
+        out.store = KeyStore(list(self.store.keys))
+        out._rng = copy.deepcopy(self._rng)
         return out
 
     def save(self, *, directory: str, merge: bool = False) -> None:
         os.makedirs(directory, exist_ok=True)
-        for key, buffer in self.buffers.items():
-            path = os.path.join(directory, f"ocr_buffer_{key}.pt")
-            merged = buffer
-            if merge and os.path.exists(path):
-                existing = self.unseen(torch.load(path), buffer)
-                if existing is not None:
-                    merged = torch.cat([existing, buffer], dim=0)
-            torch.save(merged.cpu(), path)
+        path = os.path.join(directory, SEEN_FILE)
+        keys = list(self.store.keys)
+        if merge and os.path.exists(path):
+            with open(path) as f:
+                old = json.load(f)["keys"]
+            have = set(keys)
+            keys = [k for k in old if k not in have] + keys
+        with open(path, "w") as f:
+            json.dump({"keys": keys}, f)
 
     @classmethod
-    def load(cls, *, directory: str) -> Optional["OCRRegionBuffer"]:
-        files = [f for f in os.listdir(directory) if f.startswith("ocr_buffer_") and f.endswith(".pt")]
-        if not files:
+    def load(cls, *, directory: str, seen_threshold: float = 0.9) -> Optional["UnseenTextBuffer"]:
+        path = os.path.join(directory, SEEN_FILE)
+        if not os.path.exists(path):
             return None
-        buf = cls()
-        for f in files:
-            buf.buffers[f[len("ocr_buffer_"):-len(".pt")]] = torch.load(os.path.join(directory, f))
-            if buf.buffers[f[len("ocr_buffer_"):-len(".pt")]].shape[0] > buf.max_size:
-                buf._rationalize(f[len("ocr_buffer_"):-len(".pt")])
+        buf = cls(seen_threshold=seen_threshold)
+        with open(path) as f:
+            buf.store = KeyStore(json.load(f)["keys"])
         return buf
 
 
-REGION_TYPES = {TEXT_LINES: TextLineBuffer, OCR: OCRRegionBuffer}
+REGION_TYPES = {UNSEEN_TEXT: UnseenTextBuffer}
