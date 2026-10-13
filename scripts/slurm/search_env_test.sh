@@ -17,7 +17,7 @@ ENV_NAME="${ARGS["env"]}"
 RUN="${ARGS["run"]}"
 [[ "$RUN" == "none" ]] && RUN="search_test_$ENV_NAME"
 echo "Node: $(hostname)  env=$ENV_NAME run=$RUN"
-BASE="python -u run_search.py --env $ENV_NAME --run_name $RUN --image_embedder random_patch --text_embedder none --novelty_scorer embedding --k_steps ${ARGS["k_steps"]}"
+BASE="python -u run_search.py --env $ENV_NAME --run_name $RUN --image_embedder random_patch --text_embedder trigram --novelty_scorer combination --k_steps ${ARGS["k_steps"]}"
 STEPS="$BASE --max_expansions ${ARGS["first"]} --overwrite && $BASE --max_expansions ${ARGS["second"]} --verify_restores 1000"
 RUN_DIR=$(python -m cusi.utils.paths search_run --env "$ENV_NAME" --run "$RUN")
 export CUDA_VISIBLE_DEVICES=""

@@ -7,27 +7,36 @@ import numpy as np
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.state import StateRecord, frame_for_embedding
 from cusi.agents.records import EncodedImage
+from cusi.search.scoring import discovered_set
 from cusi.search.selection import EnergySelector
-from cusi.search.tree import Step, Tree, compact_info
+from cusi.search.tree import Step, Tree, boxes_as_dicts, compact_info
 
 RESTORE_MODES = ("state", "replay")
 
 
 class TreeSearch:
     def __init__(self, *, envs, encoder, scorer, archive, expander, stats, selector: EnergySelector,
-                 k_steps: int, node_threshold: float, prior=None, describer=None, noop_similarity: float = 0.999,
+                 k_steps: int, node_threshold: float, features=None, decision_scorer=None, score_top_m: int = 8,
+                 describer=None, noop_similarity: float = 0.999,
                  restore: str = "state", replay_similarity: float = 0.95, store=None, logger=None,
                  parameters: dict[str, Any] = None) -> None:
-        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. describer: a TransitionDescriber run on
-        every finished expansion. restore: "state" saves and loads a state per node; "replay" saves none and
+        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features: a VLMFeatures run on every
+        new node. decision_scorer: a VLMScorer that, at each decision, re-scores the score_top_m candidates with the
+        highest energy (0: all) against their scene's discovered features; the scores are P(n). describer: a
+        TransitionDescriber run on every finished expansion. restore: "state" saves and loads a state per node; "replay" saves none and
         rebuilds a node by reset + its root->node actions, accepted when the result's similarity to the node is
         >= replay_similarity. store: a SearchStore that commits the roots and every expansion, and resume() reads
         back."""
         if restore not in RESTORE_MODES:
             raise ValueError(f"restore must be one of {RESTORE_MODES}, got {restore!r}")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
-        self.expander, self.stats, self.selector, self.prior = expander, stats, selector, prior
+        self.expander, self.stats, self.selector = expander, stats, selector
+        self.features, self.decision_scorer, self.score_top_m = features, decision_scorer, score_top_m
+        if decision_scorer is not None and (features is None or describer is None):
+            raise ValueError("decision scores need node features and transition descriptions")
         self.describer = describer
+        self.node_scores: dict = {}       # node id -> latest decision score (never scored: 1.0)
+        self._n_discovered = None
         self.k_steps, self.node_threshold, self.noop_similarity = k_steps, node_threshold, noop_similarity
         self.restore, self.replay_similarity = restore, replay_similarity
         self.store, self.logger, self._parameters = store, logger, parameters
@@ -37,6 +46,7 @@ class TreeSearch:
         self.start_time = time.time()
         self.records: list = []
         self._at: dict = {}       # env key -> (node id, env) the env is currently in, so its restore can be skipped
+        self.max_expansions: Optional[int] = None    # caps the expansions one iteration may add (several plans)
 
     @property
     def elapsed(self) -> float:
@@ -60,13 +70,14 @@ class TreeSearch:
         frame = frame_for_embedding(obs=obs, info=info)
         node = self.tree.add_node(parent=parent, env_key=env_key, state_id=state_id, frame=frame,
                                   texts=obs.get("texts", {}), embedding=embedding, value=value, segment=segment,
-                                  created_at=self.iteration, replay=self.restore == "replay" and not challenge)
+                                  created_at=self.iteration, replay=self.restore == "replay" and not challenge,
+                                  text_boxes=obs.get("text_boxes"))
         node.flags.update(flags)
-        if self.prior is not None and not challenge:
-            p = self.prior(env_description=env.env_description, frame=frame, texts=obs.get("texts", {}))
-            node.prior, node.prior_reason, node.prior_raw = p["prior"], p["reason"], p["raw"]
-            if not p["parsed"]:
-                node.flags["prior_parse_failed"] = True
+        if self.features is not None and not challenge:
+            f = self.features(env_description=env.env_description, frame=frame, text_boxes=obs.get("text_boxes", []))
+            node.features, node.features_raw = f["features"], f["raw"]
+            if not f["parsed"]:
+                node.flags["features_parse_failed"] = True
         return node
 
     def add_roots(self) -> None:
@@ -78,7 +89,8 @@ class TreeSearch:
             node = self._make_node(env_key=key, obs=obs, info=info, embedding=emb, value=None, parent=None,
                                    segment=None)
             self._at[key] = (node.id, env)
-            log_info(f"root {node.id}: scene {key}, prior {node.prior}, flags {node.flags}", parameters=self._parameters)
+            log_info(f"root {node.id}: scene {key}, features {node.features}, flags {node.flags}",
+                     parameters=self._parameters)
         if self.store is not None:
             self.store.commit(search=self)
 
@@ -107,6 +119,12 @@ class TreeSearch:
             if (terminated or truncated) and i < len(path) - 1:
                 return 0.0, f"the episode ended at replay step {i + 1}/{len(path)}"
         sim = float(self.encoder.similarity(a=node.embedding, b=self.encoder.encode_one(obs=obs, info=info)))
+        if sim < self.replay_similarity and hasattr(env, "observe"):
+            # Android: the a11y tree can lag the screen for a moment (no text, or the previous screen's): look again.
+            time.sleep(2.0)
+            obs, info = env.observe()
+            sim = max(sim, float(self.encoder.similarity(a=node.embedding,
+                                                         b=self.encoder.encode_one(obs=obs, info=info))))
         if sim < self.replay_similarity:
             return sim, f"replay reached similarity {sim:.3f} < {self.replay_similarity}"
         return sim, None
@@ -152,9 +170,51 @@ class TreeSearch:
 
     # ------------------------------------------------------------ one iteration
 
+    # ------------------------------------------------------------ decision scores
+
+    def env_description(self, key: str) -> str:
+        """Without touching the scene's env: on Android, indexing a scene that is not live rebuilds its env."""
+        if hasattr(self.envs, "description"):
+            return self.envs.description(key)
+        return self.envs[key].env_description
+
+    def p_of(self, node) -> float:
+        """P(n): the cached decision score (1.0 before the first), or the selector's default without scoring."""
+        if self.decision_scorer is None:
+            return self.selector.default_prior
+        return self.node_scores.get(node.id, 1.0)
+
+    def discovered(self, *, env_key: str) -> list:
+        return discovered_set(expansions=[e for e in self.tree.expansions
+                                          if self.tree.nodes[e.node_id].env_key == env_key])
+
+    def rescore(self, ranked: list) -> list:
+        """Score the top candidates (by energy) against their scene's discovered set; updates the cache."""
+        top = ranked if self.score_top_m <= 0 else ranked[:self.score_top_m]
+        sets, items = {}, []
+        for node in top:
+            if node.env_key not in sets:
+                sets[node.env_key] = self.discovered(env_key=node.env_key)
+            items.append({"node_id": node.id, "features": node.features or [], "discovered": sets[node.env_key],
+                          "env_description": self.env_description(node.env_key)})
+        entries = self.decision_scorer.score(items=items)
+        for e in entries:
+            self.node_scores[e["node_id"]] = e["score"]
+        self._n_discovered = {k: len(v) for k, v in sets.items()}
+        return entries
+
+    def replay_scores(self, *, record: dict) -> None:
+        """Rebuild the score cache from a saved selection record (resume)."""
+        for e in record.get("scores") or []:
+            self.node_scores[e["node_id"]] = e["score"]
+
+    # ------------------------------------------------------------ one iteration
+
     def iterate(self) -> Optional[dict]:
         self.selector.reseed(iteration=self.iteration)    # a resumed run draws as an uninterrupted one would
-        sel = self.selector.select(tree=self.tree)
+        self._n_discovered = None
+        sel = self.selector.select(tree=self.tree, p_of=self.p_of,
+                                   rescore=self.rescore if self.decision_scorer is not None else None)
         if sel is None:
             return None
         self.iteration += 1
@@ -165,10 +225,43 @@ class TreeSearch:
         if restored is None:
             return {"iteration": self.iteration, "selected": node.id, "failed": "restore"}
         t_load = time.time() - t0
+        exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
+        exp.expander = self.expander.name
+        self.expander.start(env=env, iteration=self.iteration, tree=self.tree, node=node, expansion_id=exp.id,
+                            search=self)
+        aborted = getattr(self.expander, "aborted", None)
+        if aborted:
+            # A session that could not restore its node (Android replay): no expansion, the node is set aside.
+            self.tree.expansions.pop()
+            self._at.pop(node.env_key, None)
+            self._unselectable(node=node, flag="replay_diverged", message=f"curiosity session aborted: {aborted}")
+            return {"iteration": self.iteration, "selected": node.id, "failed": "session"}
+        t_session = time.time() - t0 - t_load
+        # a curiosity session can commit several of its episodes, each as its own expansion of the node
+        n_plans = getattr(self.expander, "n_plans", 1)
+        if self.max_expansions is not None:
+            n_plans = max(1, min(n_plans, self.max_expansions - len(self.tree.expansions) + 1))
+        record = self._materialise(node=node, env=env, exp=exp, sel=sel, restored=restored, t0=t0, t_load=t_load,
+                                   t_session=t_session)
+        for plan in range(1, n_plans):
+            t0 = time.time()
+            restored = self._restore_node(node=node, env=env)
+            if restored is None:
+                break
+            exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
+            exp.expander = self.expander.name
+            self.expander.begin_plan(plan=plan)
+            record = self._materialise(node=node, env=env, exp=exp, sel=sel, restored=restored, t0=t0,
+                                       t_load=time.time() - t0, t_session=0.0)
+        return record
+
+    def _materialise(self, *, node, env, exp, sel, restored: dict, t0: float, t_load: float, t_session: float) -> dict:
+        """Run the expander's k_steps from node (env is in its state) into exp, make its nodes, describe and commit
+        it -> the selection record."""
         obs, info = env.current_obs, {"raw_frame": env.raw_frame}
         prev = StateRecord(obs=obs, info=info, embedding=node.embedding)
-        exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
-        self.expander.start(env=env, iteration=self.iteration, tree=self.tree, node=node, expansion_id=exp.id)
+        exp.expander_info = self.expander.info()
+        checks = getattr(self.expander, "after_step", None)
         parent_id, seg_start = node.id, 0
         n_valid = n_challenge = 0
         episode_over = False
@@ -189,12 +282,15 @@ class TreeSearch:
             n_valid += valid
             self.expander.observe(action=action, changed=changed, valid=valid, error=info2.get("error"))
             step = Step(action=action, frame=EncodedImage.of(frame_for_embedding(obs=obs2, info=info2)),
-                        texts=obs2.get("texts", {}), info=compact_info(info2), value=float(value),
-                        components=dict(components), extra={**meta, "changed": changed})
+                        texts=obs2.get("texts", {}), text_boxes=boxes_as_dicts(obs2.get("text_boxes")),
+                        info=compact_info(info2), value=float(value),
+                        components=dict(components), extra={self.expander.name: meta, "changed": changed})
             exp.steps.append(step)
             self.total_steps += 1
             episode_over = terminated or truncated
-            end = t == self.k_steps - 1 or episode_over
+            # a materialised episode (curiosity) ends where it ended, or where its replay diverged
+            stop = checks is not None and (not checks(obs=obs2, info=info2, embedding=emb) or self.expander.done())
+            end = t == self.k_steps - 1 or episode_over or stop
             if (value >= self.node_threshold and not challenge) or end:
                 child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
                                         value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
@@ -202,8 +298,9 @@ class TreeSearch:
                 exp.children.append(child.id)
                 parent_id, seg_start = child.id, t + 1
             prev, obs, info = nxt, obs2, info2
-            if episode_over:
+            if episode_over or stop:
                 break
+        exp.expander_info = self.expander.info()
         if episode_over:
             self._at.pop(node.env_key, None)
         else:
@@ -211,13 +308,16 @@ class TreeSearch:
         t_describe = 0.0
         if self.describer is not None:
             t1 = time.time()
-            exp.description = self.describer(env_description=env.env_description, start_frame=node.frame,
-                                             steps=exp.steps)
+            described = self.describer(env_description=env.env_description, start_frame=node.frame,
+                                       steps=exp.steps)
+            if described is not None:
+                exp.description, exp.discovered = described["description"], described["discovered"]
+                exp.window_descriptions = described["window_descriptions"]
             t_describe = time.time() - t1
         exp.yield_value = float(self.stats.expansion_yield(expansion=exp))
         self.stats.record_yield(tree=self.tree, node_id=node.id, value=exp.yield_value)
         node.n_expanded += 1
-        exp.stats = {"seconds": time.time() - t0, "load_seconds": t_load, **restored,
+        exp.stats = {"seconds": time.time() - t0, "load_seconds": t_load, "session_seconds": t_session, **restored,
                      "describe_seconds": t_describe, "valid_rate": n_valid / max(1, len(exp.steps)),
                      "challenges": n_challenge}
         k = sel.candidates.index(node.id)
@@ -226,6 +326,8 @@ class TreeSearch:
                   "p": sel.p, "n_total": sel.n_total, "expansion": exp.id, "steps": len(exp.steps),
                   "children": list(exp.children), "yield": exp.yield_value, **exp.stats,
                   "n_nodes": len(self.tree.nodes), "archive": len(self.archive)}
+        if self.decision_scorer is not None:
+            record["scores"], record["n_discovered"] = sel.scores, self._n_discovered
         self.records.append(record)
         if self.store is not None:
             self.store.commit(search=self, expansion=exp, record=record)

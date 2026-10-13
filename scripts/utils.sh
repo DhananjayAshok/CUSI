@@ -255,8 +255,9 @@ SEARCH_ESSENTIALS=("env" "run" "max_expansions" "image_embedder" "text_embedder"
 declare -A SEARCH_DEFAULTS=(
     ["model"]="none"
     ["expander"]="random"
-    ["prior"]="false"
+    ["features"]="false"
     ["describe"]="false"
+    ["vlm_score"]="false"
     ["vllm_port"]="none"
     ["extra"]="none"
     ["overwrite"]="false"
@@ -270,6 +271,30 @@ declare -A SEARCH_ENV_TEST_DEFAULTS=(
     ["first"]="6"
     ["second"]="10"
     ["k_steps"]="5"
+)
+
+# scripts/slurm/env_run.sh
+ENV_RUN_ESSENTIALS=("env" "cmd")
+declare -A ENV_RUN_DEFAULTS=(
+    ["nv"]="false"
+)
+
+# scripts/slurm/gameboy_text.sh
+GAMEBOY_TEXT_ESSENTIALS=("variants" "command")
+declare -A GAMEBOY_TEXT_DEFAULTS=(
+    ["extra"]="none"
+)
+
+# scripts/slurm/curiosity_parity.sh
+CURIOSITY_PARITY_ESSENTIALS=("policy_text_encoder")
+declare -A CURIOSITY_PARITY_DEFAULTS=(
+    ["init_state"]="location_viridian_city_starting_charmander"
+    ["scene"]="viridian"
+    ["steps"]="100000"
+    ["k_steps"]="30"
+    ["num_envs"]="8"
+    ["run"]="parity_local"
+    ["seed"]="1"
 )
 
 # scripts/slurm/eval.sh

@@ -54,8 +54,13 @@ class ReplayWriter:
         self.flush()
 
 
-def iter_replay(*, directory: str, load_frames: bool = True) -> Iterator[dict]:
-    """Steps of every chunk under `directory` (recursively), in order."""
+def iter_replay(*, directory: str, load_frames: bool = True, scene: Optional[str] = None) -> Iterator[dict]:
+    """Steps of every chunk under `directory` (recursively), in order; a search run directory is read as replay
+    (cusi/search/replay.py, one episode per expansion, optionally of one scene)."""
+    from cusi.search.replay import is_search_run, iter_search_steps
+    if is_search_run(directory=directory):
+        yield from iter_search_steps(directory=directory, load_frames=load_frames, scene=scene)
+        return
     paths = sorted(glob.glob(os.path.join(directory, "**", "chunk_*.pkl"), recursive=True))
     for path in paths:
         with open(path, "rb") as f:
@@ -67,10 +72,10 @@ def iter_replay(*, directory: str, load_frames: bool = True) -> Iterator[dict]:
             yield row
 
 
-def load_episodes(*, directory: str, load_frames: bool = True) -> list:
+def load_episodes(*, directory: str, load_frames: bool = True, scene: Optional[str] = None) -> list:
     """Episodes as lists of step dicts (step 0 = the reset observation), grouped by (run dir, episode)."""
     episodes: dict = {}
-    for row in iter_replay(directory=directory, load_frames=load_frames):
+    for row in iter_replay(directory=directory, load_frames=load_frames, scene=scene):
         episodes.setdefault((row["source"], row["episode"]), []).append(row)
     out = []
     for key in sorted(episodes):

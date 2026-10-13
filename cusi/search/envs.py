@@ -11,6 +11,13 @@ class SceneEnvs:
     def __init__(self, *, make: Callable, scenes: list, exclusive: bool = False) -> None:
         self._make, self._scenes, self.exclusive = make, list(scenes), exclusive
         self._envs: dict = {}
+        self._descriptions: dict = {}
+
+    def description(self, key: str) -> str:
+        """The scene's env_description, without building (or, when exclusive, switching to) its env."""
+        if key not in self._descriptions:
+            self._descriptions[key] = self[key].env_description
+        return self._descriptions[key]
 
     def __getitem__(self, key: str):
         if key not in self._scenes:
@@ -19,6 +26,7 @@ class SceneEnvs:
             if self.exclusive:
                 self.close()
             self._envs[key] = self._make(scene=key)
+            self._descriptions[key] = self._envs[key].env_description
         return self._envs[key]
 
     def keys(self) -> list:

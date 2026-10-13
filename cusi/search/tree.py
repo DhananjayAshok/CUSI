@@ -13,6 +13,10 @@ INFO_KEYS = ("valid", "error", "parsed_action", "step", "url", "stale", "action_
 UNSELECTABLE_FLAGS = ("unrestorable", "replay_diverged", "challenge_page")
 
 
+def boxes_as_dicts(boxes) -> list:
+    return [b if isinstance(b, dict) else b.to_dict() for b in (boxes or [])]
+
+
 def compact_info(info: dict) -> dict:
     return {k: info[k] for k in INFO_KEYS if k in (info or {})}
 
@@ -23,6 +27,7 @@ class Step:
     frame: EncodedImage
     texts: dict
     info: dict
+    text_boxes: list = field(default_factory=list)   # the screen's TextBox items as dicts
     value: float = 0.0
     components: dict = field(default_factory=dict)
     node_id: Optional[int] = None          # the node created at this step, if any
@@ -39,14 +44,14 @@ class Node:
     frame: EncodedImage
     texts: dict
     embedding: Any
+    text_boxes: list = field(default_factory=list)   # the screen's TextBox items as dicts
     value: Optional[float] = None          # novelty of the step that created it (None: roots)
     segment: Optional[tuple] = None        # (expansion id, first step, last step) that reached it
     n_expanded: int = 0
     yields: list = field(default_factory=list)
-    prior: Optional[float] = None
-    prior_reason: str = ""
-    prior_raw: str = ""
-    flags: dict = field(default_factory=dict)   # UNSELECTABLE_FLAGS, prior_parse_failed
+    features: Optional[list] = None        # what exploring from it could surface (VLMFeatures); None if not run
+    features_raw: Optional[str] = None
+    flags: dict = field(default_factory=dict)   # UNSELECTABLE_FLAGS, features_parse_failed
     created_at: int = 0                    # iteration that created it (0: roots)
     replay: bool = False                   # restored by reset + its root->node path instead of a saved state
 
@@ -64,7 +69,11 @@ class Expansion:
     children: list = field(default_factory=list)
     yield_value: float = 0.0
     stats: dict = field(default_factory=dict)
+    expander: str = "random"               # random | vlm | curiosity
+    expander_info: dict = field(default_factory=dict)   # expander-specific (plans/next_plan.md §E.6)
     description: Optional[str] = None      # what happened over its steps (TransitionDescriber), if run
+    discovered: Optional[list] = None      # the features its steps surfaced (TransitionDescriber)
+    window_descriptions: Optional[list] = None   # per-window descriptions of a sliced describe
 
 
 class Tree:
@@ -79,12 +88,12 @@ class Tree:
 
     def add_node(self, *, parent: Optional[int], env_key: str, state_id: Optional[str], frame, texts: dict,
                  embedding: Any, value: Optional[float] = None, segment: Optional[tuple] = None,
-                 created_at: int = 0, replay: bool = False) -> Node:
+                 created_at: int = 0, replay: bool = False, text_boxes: Optional[list] = None) -> Node:
         depth = 0 if parent is None else self.nodes[parent].depth + 1
         frame = frame if isinstance(frame, FrameRef) else EncodedImage.of(frame)
         node = Node(id=len(self.nodes), parent=parent, depth=depth, env_key=env_key, state_id=state_id,
                     frame=frame, texts=dict(texts), embedding=embedding, value=value, segment=segment,
-                    created_at=created_at, replay=replay)
+                    created_at=created_at, replay=replay, text_boxes=boxes_as_dicts(text_boxes))
         self.nodes.append(node)
         self.children.setdefault(node.id, [])
         if parent is not None:

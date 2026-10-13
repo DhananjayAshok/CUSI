@@ -119,6 +119,9 @@ def explore_root(*, parameters: dict, env: str) -> str:
 
 
 def explore_run(*, parameters: dict, env: str, run: str) -> str:
+    """An exploration run, or a search run when written "search:<run>" (read as replay by cusi/search/replay.py)."""
+    if run.startswith("search:"):
+        return search_run(parameters=parameters, env=env, run=run[len("search:"):])
     return os.path.join(explore_root(parameters=parameters, env=env), run)
 
 
@@ -128,12 +131,15 @@ def explore_runs(*, parameters: dict, env: str, run_names: str) -> list:
 
 
 def explore_replay(*, run_dir: str) -> str:
+    """Where a run's replay is: replay/ for exploration runs, the run directory itself for search runs."""
+    if os.path.exists(os.path.join(run_dir, "expansions.jsonl")):
+        return run_dir
     return os.path.join(run_dir, "replay")
 
 
 def runs_label(*, run_names: str) -> str:
     """Default output name for a model trained on several runs, e.g. "a+b"."""
-    return run_names.replace(",", "+").replace("/", "_")
+    return run_names.replace(",", "+").replace("/", "_").replace(":", "-")
 
 
 def world_model_dir(*, parameters: dict, env: str, name: str) -> str:

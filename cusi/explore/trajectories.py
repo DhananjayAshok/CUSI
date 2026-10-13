@@ -27,7 +27,7 @@ def rescore(*, episodes: list, text_alpha: float, has_text: bool) -> list:
         module.reset()
         for t, step in enumerate(ep):
             emb = torch.nn.functional.normalize(torch.tensor(np.asarray(step["embedding"], dtype=np.float32)), dim=-1)
-            record = StateRecord(obs={"texts": step["texts"]}, info={},
+            record = StateRecord(obs={"texts": step["texts"], "text_boxes": step.get("text_boxes", [])}, info={},
                                  embedding=StateEmbedding(image=emb, text=None, image_name="stored", text_name="none"))
             r = module.get_reward(prev=None, action=None, next=record)
             if t > 0:
@@ -242,9 +242,9 @@ def curiosity_tasks(*, replay_dir: str, scene: str, env_name: str, vlm, domain: 
                     rescore_text_alpha: Optional[float] = None, seed: int = 0, parameters: dict = None) -> dict:
     """Replay -> outlier trajectories -> groups -> tasks, written as an attempts dir. Returns stats."""
     from cusi.practice.stages.common import atomic_json, atomic_pickle
-    episodes = load_episodes(directory=replay_dir)
+    episodes = load_episodes(directory=replay_dir, scene=scene)
     if rescore_text_alpha is not None:
-        has_text = any(v for ep in episodes for st in ep[:1] for v in st["texts"].values())
+        has_text = any(st.get("text_boxes") or any(st["texts"].values()) for ep in episodes for st in ep[:1])
         rescore(episodes=episodes, text_alpha=rescore_text_alpha, has_text=has_text)
     trajectories = high_novelty_trajectories(episodes=episodes, outlier_threshold=outlier_threshold)
     groups = group_trajectories(trajectories=trajectories, z_min=z_min, seed=seed)

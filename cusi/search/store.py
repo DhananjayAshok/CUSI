@@ -78,17 +78,21 @@ class SearchStore:
                 state = search.envs[n.env_key].export_state(state_id=n.state_id, directory=self._path("states"))
             rows.append({"id": n.id, "parent": n.parent, "depth": n.depth, "env_key": n.env_key, "state": state,
                          "embedding": f"embeddings/{key}.pt#{n.id}", "frame": node_frames[n.id], "texts": n.texts,
-                         "value": n.value, "segment": n.segment, "prior": n.prior, "prior_reason": n.prior_reason,
-                         "prior_raw": n.prior_raw, "flags": n.flags, "created_at": n.created_at, "replay": n.replay})
+                         "text_boxes": n.text_boxes,
+                         "value": n.value, "segment": n.segment, "features": n.features, "features_raw": n.features_raw,
+                         "flags": n.flags, "created_at": n.created_at, "replay": n.replay})
         self._append(name=NODES_FILE, rows=rows)
         if expansion is not None:
-            steps = [{"action": s.action, "frame": ref, "texts": s.texts, "info": s.info, "value": s.value,
+            steps = [{"action": s.action, "frame": ref, "texts": s.texts, "text_boxes": s.text_boxes,
+                      "info": s.info, "value": s.value,
                       "components": s.components, "node_id": s.node_id, "extra": s.extra}
                      for s, ref in zip(expansion.steps, step_frames)]
             self._append(name=EXPANSIONS_FILE, rows=[{
                 "id": expansion.id, "node_id": expansion.node_id, "iteration": expansion.iteration,
                 "children": expansion.children, "yield": expansion.yield_value, "stats": expansion.stats,
-                "description": expansion.description, "record": record, "steps": steps}])
+                "expander": expansion.expander, "expander_info": expansion.expander_info,
+                "description": expansion.description, "discovered": expansion.discovered,
+                "window_descriptions": expansion.window_descriptions, "record": record, "steps": steps}])
         self._save_archive(search=search)
         self._n_nodes = len(search.tree.nodes)
 
@@ -140,6 +144,13 @@ class SearchStore:
             for name in os.listdir(self._path(sub)):
                 if not (name.endswith(ext) and name[:-len(ext)] in keys):
                     os.remove(self._path(sub, name))
+        for sub, suffixes in (("policies", (".pt",)), ("curiosity", ("_returns.npy",))):
+            if not os.path.isdir(self._path(sub)):
+                continue
+            for name in os.listdir(self._path(sub)):
+                stem = next((name[:-len(x)] for x in suffixes if name.endswith(x)), None)
+                if stem is None or not stem.isdigit() or int(stem) >= n_expansions:
+                    os.remove(self._path(sub, name))   # a session whose expansion was never committed
         states = {r["state"] for r in nodes if r.get("state")}
         for name in os.listdir(self._path("states")):
             if name not in states:
@@ -174,22 +185,27 @@ class SearchStore:
                                  frame=FrameRef(path=self._path(row["frame"])), texts=row["texts"],
                                  embedding=embeddings[file][int(nid)], value=row["value"],
                                  segment=None if row["segment"] is None else tuple(row["segment"]),
-                                 created_at=row["created_at"], replay=row["replay"])
-            node.prior, node.prior_reason, node.prior_raw = row["prior"], row["prior_reason"], row["prior_raw"]
+                                 created_at=row["created_at"], replay=row["replay"],
+                                 text_boxes=row.get("text_boxes"))
+            node.features, node.features_raw = row["features"], row["features_raw"]
             node.flags = dict(row["flags"])
             if row["state"] is not None:
                 state_files[node.id] = row["state"]
         for row in _rows(self._path(EXPANSIONS_FILE)):
             exp = tree.add_expansion(node_id=row["node_id"], iteration=row["iteration"])
             exp.steps = [Step(action=s["action"], frame=FrameRef(path=self._path(s["frame"])), texts=s["texts"],
+                              text_boxes=s.get("text_boxes", []),
                               info=s["info"], value=s["value"], components=s["components"], node_id=s["node_id"],
                               extra=s["extra"]) for s in row["steps"]]
             exp.children, exp.yield_value, exp.stats = list(row["children"]), row["yield"], row["stats"]
-            exp.description = row.get("description")
+            exp.expander, exp.expander_info = row["expander"], row["expander_info"]
+            exp.description, exp.discovered = row["description"], row["discovered"]
+            exp.window_descriptions = row["window_descriptions"]
             search.stats.record_yield(tree=tree, node_id=exp.node_id, value=exp.yield_value)
             tree.nodes[exp.node_id].n_expanded += 1
             if row["record"] is not None:
                 search.records.append(row["record"])
+                search.replay_scores(record=row["record"])
         search.archive.load_from(directory=self._path(ARCHIVE_DIR))
         search.iteration, search.total_steps = commit["iteration"], commit["total_steps"]
 

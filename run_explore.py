@@ -70,7 +70,10 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
         num_steps, max_episode_steps, learning_rate, target_kl, update_epochs, num_minibatches, kl_coef, ent_coef,
         invalid_action_penalty, normalize_curiosity_reward, reply_format, temperature, max_new_tokens, lora_r,
         lora_alpha, buffer_load_path, worker, **state_kwargs):
-    """Curiosity PPO with the VLM policy on one scene."""
+    """Curiosity PPO with the VLM policy on one scene.
+
+    Marked for deletion: replaced by the tree search's curiosity expander (plans/next_plan.md §E). Kept as the
+    generative-policy baseline until curiosity tasks and world-model training read search runs."""
     from cusi.explore.ppo import CuriosityPPO
     env_name, parameters = obj["env_name"], obj["parameters"]
     config = state_config(state_kwargs)
@@ -99,8 +102,8 @@ def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, worl
 
 
 @main.command()
-@click.option("--run_name", required=True)
-@click.option("--scene", default=None, help="Default: the run's scene.txt.")
+@click.option("--run_name", required=True, help="An exploration run, or search:<run> for a search run.")
+@click.option("--scene", default=None, help="Default: the run's scene.txt (required for search runs).")
 @click.option("--model_name", required=True, help="Model name the vLLM server serves.")
 @click.option("--outlier_threshold", default=2.5)
 @click.option("--z_min", default=3.0)
@@ -115,6 +118,8 @@ def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups
     from cusi.agents.vlm import AgentVLM
     env_name, parameters = obj["env_name"], obj["parameters"]
     run_dir = paths.explore_run(parameters=parameters, env=env_name, run=run_name)
+    if scene is None and run_name.startswith("search:"):
+        raise click.UsageError("a search run (search:<run>) covers several scenes: pass --scene")
     scene = scene or open(os.path.join(run_dir, "scene.txt")).read().strip()
     practice = paths.PracticePaths(parameters=parameters, env_name=env_name, model_name=model_name, source="curiosity")
     stats = curiosity_tasks(replay_dir=paths.explore_replay(run_dir=run_dir), scene=scene, env_name=env_name,

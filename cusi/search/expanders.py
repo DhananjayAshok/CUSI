@@ -4,18 +4,17 @@ Exploration policies that expand a node through the env's text actions: random a
 from typing import Optional
 import numpy as np
 from cusi.search.context import action_line, path_lines, tried_lines
+from cusi.envs.text_boxes import render_boxes
 from cusi.state.canvas import frame_for_embedding
-from cusi.state.text import element_lines
 
 MAX_TEXT_LINES = 80
 MAX_TEXT_CHARS = 4000
 
 
-def flatten_texts(*, texts: dict) -> str:
-    """Element lines, truncated for prompts."""
-    lines = element_lines(texts=texts)[:MAX_TEXT_LINES]
-    out = "\n".join(lines)
-    return out[:MAX_TEXT_CHARS] if out else "(no text)"
+def screen_text(*, boxes: list) -> str:
+    """The screen's text boxes ('<role>: <text>' lines), truncated for prompts."""
+    out = render_boxes(boxes=boxes, max_lines=MAX_TEXT_LINES, max_chars=MAX_TEXT_CHARS)
+    return out if out else "(no text)"
 
 
 class RandomExpander:
@@ -28,11 +27,16 @@ class RandomExpander:
         self.rng = np.random.default_rng(seed)
         self._noops: set = set()
 
-    def start(self, *, env, iteration: int, tree=None, node=None, expansion_id: Optional[int] = None) -> None:
+    def start(self, *, env, iteration: int, tree=None, node=None, expansion_id: Optional[int] = None,
+              search=None) -> None:
         """Each expansion draws from a stream fixed by (seed, iteration), so a resumed search replays exactly.
         The tree context is not used."""
         self.rng = np.random.default_rng([self.seed, iteration])
         self._noops = set()
+
+    def info(self) -> dict:
+        """Expansion.expander_info for the expansion just started."""
+        return {}
 
     def next_action(self, *, env, obs: dict, info: dict) -> tuple:
         action = env.sample_action(rng=self.rng)
@@ -91,11 +95,14 @@ class VLMExplorer:
         self.history: list = []
         self._last_error: Optional[str] = None
         self._path, self._tried = "", ""
+        self._context: dict = {}
 
-    def start(self, *, env, iteration: int, tree=None, node=None, expansion_id: Optional[int] = None) -> None:
+    def start(self, *, env, iteration: int, tree=None, node=None, expansion_id: Optional[int] = None,
+              search=None) -> None:
         """tree/node: the node being expanded; expansion_id: this expansion (earlier ones are listed as tried)."""
         self.history = []
         self._last_error = None
+        self._context = {}
         if tree is None or node is None:
             self._path, self._tried = "(unknown)", "(unknown)"
             return
@@ -105,13 +112,19 @@ class VLMExplorer:
         self._tried = _bullets(tried_lines(tree=tree, node_id=node.id, before_expansion=before,
                                            max_tries=self.max_tries, actions_per_try=self.actions_per_try),
                                empty="(none: this is the first exploration from it)")
+        tried = [e.id for e in tree.expansions if e.node_id == node.id and e.id < before and e.steps]
+        self._context = {"path_actions": len(tree.path_steps(node.id)), "tried_ids": tried[-self.max_tries:]}
+
+    def info(self) -> dict:
+        """Expansion.expander_info: the model and the tree context its prompts were given."""
+        return {"model_name": getattr(self.vlm, "model_name", None), "context": dict(self._context)}
 
     def prompt(self, *, env, obs: dict) -> str:
         history = "\n".join(f"- {a}" for a in self.history[-self.history_k:]) or "(none)"
         error = f"\nYour previous action failed: {self._last_error}\n" if self._last_error else ""
         return EXPLORE_PROMPT.format(env_description=env.env_description, actions=obs.get("actions", ""),
                                      path=self._path, tried=self._tried,
-                                     texts=flatten_texts(texts=obs.get("texts", {})), history=history, error=error)
+                                     texts=screen_text(boxes=obs.get("text_boxes", [])), history=history, error=error)
 
     def next_action(self, *, env, obs: dict, info: dict) -> tuple:
         frame = frame_for_embedding(obs=obs, info=info) if self.use_raw_frame else obs["frame"]

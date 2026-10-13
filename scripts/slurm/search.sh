@@ -4,13 +4,14 @@
 # extends it.
 #
 # GPUs: none needed with --image_embedder random_patch and the random expander. The search process uses the first
-# visible GPU (SigLIP etc.); with --model <model> (VLM explorer, prior or transition descriptions), vLLM serves it
+# visible GPU (SigLIP etc.); with --model <model> (VLM explorer, node features, descriptions or decision scores), vLLM serves it
 # on the remaining visible GPUs, or on the only one if just one is visible. GameBoy runs on the node; Web and
 # Android in the CUSI container (Android starts one emulator, which needs /dev/kvm).
 #
 #   bash scripts/slurm/search.sh --env <env> --run <run> --max_expansions <max_expansions> \
 #       --image_embedder <image_embedder> --text_embedder <text_embedder> --novelty_scorer <novelty_scorer> \
-#       [--model <value>] [--expander <value>] [--prior <value>] [--describe <value>] [--vllm_port <value>] \
+#       [--model <value>] [--expander <value>] [--features <value>] [--describe <value>] [--vlm_score <value>] \
+#       [--vllm_port <value>] \
 #       [--extra <value>] [--overwrite <value>] [--ignore_config_violation <value>]
 #
 # --extra passes further run_search.py flags verbatim, e.g. --extra "--k_steps 20 --scenes viridian".
@@ -24,9 +25,9 @@ parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV_NAME="${ARGS["env"]}"
 MODEL="${ARGS["model"]}"
-if [[ ( "${ARGS["expander"]}" == "vlm" || "${ARGS["prior"]}" == "true" || "${ARGS["describe"]}" == "true" ) \
-      && "$MODEL" == "none" ]]; then
-    echo "Error: --expander vlm, --prior true and --describe true need --model."; exit 1
+if [[ ( "${ARGS["expander"]}" == "vlm" || "${ARGS["features"]}" == "true" || "${ARGS["describe"]}" == "true" \
+      || "${ARGS["vlm_score"]}" == "true" ) && "$MODEL" == "none" ]]; then
+    echo "Error: --expander vlm, --features true, --describe true and --vlm_score true need --model."; exit 1
 fi
 JOB="${SLURM_JOB_ID:-local$$}"
 PORT="${ARGS["vllm_port"]}"
@@ -38,7 +39,8 @@ echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=$ENV_NAME run=
 FLAGS=(--env "$ENV_NAME" --run_name "${ARGS["run"]}" --max_expansions "${ARGS["max_expansions"]}"
        --image_embedder "${ARGS["image_embedder"]}" --text_embedder "${ARGS["text_embedder"]}"
        --novelty_scorer "${ARGS["novelty_scorer"]}" --expander "${ARGS["expander"]}")
-[[ "${ARGS["prior"]}" == "true" ]] && FLAGS+=(--prior)
+[[ "${ARGS["features"]}" == "true" ]] && FLAGS+=(--features)
+[[ "${ARGS["vlm_score"]}" == "true" ]] && FLAGS+=(--vlm_score)
 [[ "${ARGS["describe"]}" == "true" ]] && FLAGS+=(--describe)
 [[ "${ARGS["overwrite"]}" == "true" ]] && FLAGS+=(--overwrite)
 [[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)

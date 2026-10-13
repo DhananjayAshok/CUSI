@@ -21,7 +21,10 @@ class FakeEnv:
         self.closed = False
 
     def _obs(self):
-        return {"frame": self.frames[self.pos], "texts": {}, "actions": "L, R or X", "goal": ""}
+        from cusi.envs.text_boxes import TextBox
+        boxes = [TextBox(text=f"Room {self.pos // 3}", box=(10, 10, 90, 18), role="label", interactive=False,
+                         source="tiles")] if self.pos % 2 == 0 else []
+        return {"frame": self.frames[self.pos], "texts": {}, "text_boxes": boxes, "actions": "L, R or X", "goal": ""}
 
     @property
     def raw_frame(self):
