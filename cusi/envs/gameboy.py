@@ -10,11 +10,11 @@ from gameboy_worlds import get_environment, get_test_environment
 from gameboy_worlds.interface.action import LowLevelAction, LowLevelActions
 from gameboy_worlds.utils import get_benchmark_tasks
 from cusi.utils.parameter_handling import load_parameters
-from cusi.utils.log_handling import log_info, log_error
+from cusi.utils.log_handling import log_info, log_warn, log_error
 from cusi.envs.base import TextActionEnv, scene_hash
+from cusi.envs.gameboy_text.reader import TileTextReader, emulator_kinds, load_table
 
-# GameBoyWorlds' OCR gives text regions as images (info["text_regions"]), not text.
-# TODO: add an OCR text channel once the GameBoy OCR approach is decided.
+# The screen's text is in obs["text_boxes"], read from the tile layers (cusi/envs/gameboy_text); obs["texts"] is empty.
 TEXT_KEYS = ()
 
 MSG_PARSE_FAILED = "Could not parse an action from the output. Reply with one of the allowed actions."
@@ -64,11 +64,17 @@ class GameBoyPlayEnv(TextActionEnv):
         session_name: Optional[str] = None,
         wait_ticks: Optional[int] = None,
         benchmark_row: Optional[dict] = None,
+        gameboy_worlds_debug: bool = False,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """mode="test" needs benchmark_row (use from_benchmark); evaluation should pass wait_ticks=20."""
+        """mode="test" needs benchmark_row (use from_benchmark); evaluation should pass wait_ticks=20.
+        gameboy_worlds_debug runs GameBoyWorlds in its debug_mode, which tolerates missing region captures (some
+        variants ship without them); only for tooling such as the glyph-table harvest."""
         self._parameters = load_parameters(parameters)
         emulator_kwargs = {"headless": True, "save_video": False, "session_name": session_name}
+        if gameboy_worlds_debug:
+            from gameboy_worlds.utils import load_parameters as load_gbw_parameters
+            emulator_kwargs["parameters"] = {**load_gbw_parameters(), "debug_mode": True}
         if max_steps is not None:
             emulator_kwargs["max_steps"] = max_steps
         if wait_ticks is not None:
@@ -94,6 +100,17 @@ class GameBoyPlayEnv(TextActionEnv):
         # Already reset by GameBoyWorlds; resetting again would inflate info["core"]["steps"].
         raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         frame = self._frame(raw_obs=raw_obs)
+        emulator = self._env._emulator
+        self.text_table = load_table(variant=game)
+        if self.text_table is None:
+            log_warn(f"No glyph table for {game} (cusi/envs/gameboy_text/{game}.json): obs['text_boxes'] stays empty",
+                     parameters=self._parameters)
+            self._reader = None
+        else:
+            self._reader = TileTextReader(pyboy=emulator._pyboy, table=self.text_table,
+                                          named_regions=emulator.state_parser.named_screen_regions,
+                                          kinds=emulator_kinds(emulator=emulator))
+        self._kinds = []          # GameBoyWorlds' OCR kinds at the last observation
         super().__init__(mode=mode, frame_shape=frame.shape, text_keys=TEXT_KEYS, parameters=self._parameters)
         self._last = (frame, raw_info)
         self._steps = 0
@@ -153,9 +170,24 @@ class GameBoyPlayEnv(TextActionEnv):
         rng = self.np_random if rng is None else rng
         return str(BUTTONS[int(rng.integers(len(BUTTONS)))])
 
+    def text_boxes(self) -> list:
+        """The text on the emulator's current screen (roles from the OCR kinds of the last step)."""
+        if self._reader is None:
+            return []
+        return self._reader.read(active_kinds=self._kinds).boxes
+
+    @staticmethod
+    def ocr_kinds(*, raw_info: dict) -> list:
+        """The OCR kinds GameBoyWorlds reported at this step or during its transition."""
+        ocr = raw_info.get("ocr") or {}
+        kinds = set(ocr.get("ocr_regions") or {})
+        for transition in ocr.get("transition_ocr_regions") or []:
+            kinds |= set(transition)
+        return sorted(kinds)
+
     def _obs(self, *, frame: np.ndarray) -> dict:
         actions = render_action_strings(action_strings=self._env.get_action_strings())
-        return {"frame": frame, "texts": {}, "actions": actions, "goal": self._goal}
+        return {"frame": frame, "texts": {}, "text_boxes": self.text_boxes(), "actions": actions, "goal": self._goal}
 
     @staticmethod
     def _extra(*, raw_info: dict) -> dict:
@@ -192,6 +224,7 @@ class GameBoyPlayEnv(TextActionEnv):
         self._fresh = True
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
+        self._kinds = self.ocr_kinds(raw_info=raw_info)
         self._steps = 0
         info = self.make_info(valid=True, error=None, parsed_action=None, step=0, scene_id=self.scene_id,
                               **self._extra(raw_info=raw_info))
@@ -211,6 +244,7 @@ class GameBoyPlayEnv(TextActionEnv):
         raw_obs, _reward, terminated, truncated, raw_info = self._env.step_high_level_action(action_class, **kwargs)
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
+        self._kinds = self.ocr_kinds(raw_info=raw_info)
         unavailable = bool(raw_info.get("invalid_action"))
         core = raw_info.get("core", {})
         if "previous_action_details" in core:
@@ -251,6 +285,7 @@ class GameBoyPlayEnv(TextActionEnv):
         raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         frame = self._frame(raw_obs=raw_obs)
         self._last = (frame, raw_info)
+        self._kinds = self.ocr_kinds(raw_info=raw_info)
         self._steps = 0
         return self._obs(frame=frame)
 

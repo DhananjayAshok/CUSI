@@ -16,9 +16,11 @@ import time
 from typing import Any, Optional
 import numpy as np
 from PIL import Image
+from urllib3.exceptions import HTTPError as WebDriverHang
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
 from cusi.envs.base import TextActionEnv, scene_hash
+from cusi.envs.web_boxes import MAX_BOX_CHARS, TEXT_BOXES_JS, web_text_boxes
 
 TEXT_KEYS = ("web_elements",)
 _BROWSER_START_LOCK = threading.Lock()
@@ -54,6 +56,12 @@ try { marker = !!document.querySelector(sel); } catch (e) {}
 const body = document.body ? (document.body.innerText || '') : '';
 return [document.title || '', body.slice(0, 3000), marker];
 """
+
+
+# Client-side limit on one WebDriver call. A page whose renderer freezes otherwise blocks chromedriver, and the search,
+# indefinitely (seen: a 20+ minute hang in execute_script); the call then raises WebDriverHang and the browser is
+# restarted like a dead one.
+WEBDRIVER_TIMEOUT = 120
 
 
 def challenge_reason(*, title: str, text: str, marker: bool) -> Optional[str]:
@@ -202,6 +210,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._web_eles = []
         self._last_obs = None
         self._raw_frame = None
+        self._text_boxes = []
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
         self._states: dict[str, dict] = {}   # saved state_id -> browser state
@@ -228,10 +237,12 @@ class WebVoyagerPlayEnv(TextActionEnv):
         os.makedirs(self._download_dir)
         self._args.chrome_profile_dir = profile
         # Simultaneous Chrome starts can fail ("DevToolsActivePort file doesn't exist"): serialise and retry.
+        from selenium.webdriver.remote.remote_connection import RemoteConnection
         with _BROWSER_START_LOCK:
             for attempt in range(3):
                 shutil.rmtree(profile, ignore_errors=True)
                 options = self._wv.driver_config(self._args)
+                RemoteConnection.set_timeout(WEBDRIVER_TIMEOUT)   # read once, when the driver's connection is made
                 try:
                     self._driver = self._wv._make_driver(self._args, options)
                     break
@@ -241,6 +252,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
                     log_warn(f"Chrome failed to start ({str(e).splitlines()[0][:120]}); retrying",
                              parameters=self._parameters)
                     time.sleep(3)
+                finally:
+                    RemoteConnection.reset_timeout()
         self._download_files = []
 
     def _quit(self) -> None:
@@ -275,6 +288,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self._raw_frame = frame
         self._web_eles = web_eles
         try:
+            dpr, rows = self._driver.execute_script(TEXT_BOXES_JS, web_eles, MAX_BOX_CHARS)
+            h, w = self._raw_frame.shape[:2]
+            self._text_boxes = web_text_boxes(rows=rows, dpr=float(dpr), width=w, height=h)
+        except self._wv.WebDriverException as e:
+            log_warn(f"text boxes failed: {str(e)[:200]}", parameters=self._parameters)
+            self._text_boxes = []
+        try:
             self._url = self._driver.current_url
         except Exception:
             pass
@@ -292,7 +312,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _obs(self) -> dict:
         frame, web_eles_text = self._last_obs
-        return {"frame": frame, "texts": {"web_elements": web_eles_text},
+        return {"frame": frame, "texts": {"web_elements": web_eles_text}, "text_boxes": list(self._text_boxes),
                 "actions": self.actions_text, "goal": self._goal}
 
     def sample_action(self, *, rng=None) -> str:
@@ -368,8 +388,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
                                       scene_id=self.scene_id, stale=True, **extra)
                 return self._obs(), 0.0, False, truncated, info
             self._observe()
-        except self._wv.WebDriverException as e:
-            if not self._wv._is_browser_dead(e):
+        except (self._wv.WebDriverException, WebDriverHang) as e:
+            if not (isinstance(e, WebDriverHang) or self._wv._is_browser_dead(e)):
                 raise
             if self.mode == "test":
                 # Evaluation retries a crashed task from scratch: end this episode.
@@ -406,7 +426,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
             storage = self._driver.execute_script(self._STORAGE_JS)
             scroll = self._driver.execute_script("return [window.scrollX, window.scrollY];")
             url = self._driver.current_url
-        except self._wv.WebDriverException as e:
+        except (self._wv.WebDriverException, WebDriverHang) as e:
             log_error(f"Could not save web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
         self._states[state_id] = {"url": url, "cookies": cookies, "storage": storage, "scroll": scroll}
 
@@ -429,7 +449,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self._driver.execute_script("window.scrollTo(arguments[0], arguments[1]);", *state["scroll"])
             self._wv._settle(self._driver, 2)
             self._observe()
-        except self._wv.WebDriverException as e:
+        except (self._wv.WebDriverException, WebDriverHang) as e:
             log_error(f"Could not load web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
         self._at_initial_state = False
         self._steps = 0

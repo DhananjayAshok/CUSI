@@ -21,6 +21,7 @@ from android_world.utils import datetime_utils
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
 from cusi.envs.base import TextActionEnv, scene_hash
+from cusi.envs.android_boxes import android_text_boxes
 
 DEFAULT_SUITE_SEED = 30   # android_world/run.py --task_random_seed
 
@@ -188,8 +189,7 @@ class AndroidPlayEnv(TextActionEnv):
         self.recoveries = 0
 
         self._env = connection if connection is not None else self._guarded(fn=self._connect)
-        env = self._env
-        self._task, self._snapshot_clock, raw = self._guarded(fn=lambda: self._build_scene(env))
+        self._task, self._snapshot_clock, raw = self._build_scene_with_retries()
         super().__init__(mode=mode, frame_shape=raw[0].shape, text_keys=TEXT_KEYS,
                          parameters=self._parameters)
         if max_steps is None and mode == "test":
@@ -203,6 +203,27 @@ class AndroidPlayEnv(TextActionEnv):
                  parameters=self._parameters)
 
     # ------------------------------------------------------------------ scene
+
+    def _build_scene_with_retries(self, *, attempts: int = 3):
+        """_build_scene, retried: an app launch (`am start`) can fail on a busy emulator. The last retry restarts the
+        emulator first, when there is one."""
+        for attempt in range(1, attempts + 1):
+            env = self._env
+            try:
+                return self._guarded(fn=lambda: self._build_scene(env))
+            except Exception as e:
+                if attempt == attempts:
+                    raise
+                restart = self._emulator is not None and (attempt == attempts - 1 or isinstance(e, EnvStalled))
+                log_warn(f"building scene {self.task_name} failed ({type(e).__name__}: {str(e)[:200]}); retry "
+                         f"{attempt}/{attempts - 1}{' after restarting the emulator' if restart else ''}",
+                         parameters=self._parameters)
+                if restart:
+                    self.recoveries += 1
+                    self._emulator.restart()
+                    self._env = self._guarded(fn=self._connect)
+                else:
+                    time.sleep(10.0)
 
     def _connect(self) -> interface.AsyncEnv:
         # run.py's call, minus emulator_setup (done once at app setup).
@@ -235,6 +256,7 @@ class AndroidPlayEnv(TextActionEnv):
             env.execute_action(json_action.JSONAction(action_type="open_app", app_name=self.start_app))
             time.sleep(3.0)
             env.interaction_cache = ""
+        self._refresh_a11y(env)
 
     def _check_app_snapshots(self, task) -> None:
         """Warn loudly about missing app-data snapshots, which AndroidWorld only logs quietly."""
@@ -258,6 +280,29 @@ class AndroidPlayEnv(TextActionEnv):
             if match:
                 return match.group(1)
         return None
+
+    def _app_elements(self, env: interface.AsyncEnv) -> int:
+        """UI elements in the current tree that belong to an app (not the status/navigation bar)."""
+        return sum(1 for u in env.get_state(wait_to_stabilize=False).ui_elements
+                   if u.package_name and u.package_name != "com.android.systemui")
+
+    def _refresh_a11y(self, env: interface.AsyncEnv, timeout: float = 30.0) -> None:
+        """Make the a11y tree describe the current screen. After a snapshot load or an emulator restart the a11y
+        forwarder can keep serving the tree from before (e.g. a scrolled list), or none, until a window event; the
+        CLOSE_SYSTEM_DIALOGS broadcast causes one without changing the screen (tests/android_replay_debug.py). Then
+        wait until the tree has app elements again."""
+        self._adb("shell", "am", "broadcast", "-a", "android.intent.action.CLOSE_SYSTEM_DIALOGS")
+        time.sleep(1.0)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                if self._app_elements(env) > 0:
+                    return
+            except Exception:    # the forwarder may still be reconnecting
+                pass
+            time.sleep(1.0)
+            self._adb("shell", "am", "broadcast", "-a", "android.intent.action.CLOSE_SYSTEM_DIALOGS")
+        log_warn(f"a11y tree still has no app elements {timeout:.0f}s after a refresh", parameters=self._parameters)
 
     def _wait_until_restored(self, env: interface.AsyncEnv, timeout: float = 120.0) -> None:
         """Wait until the device is back and the UI tree has caught up with the restored screen."""
@@ -295,6 +340,7 @@ class AndroidPlayEnv(TextActionEnv):
         if "OK" not in out:
             raise RuntimeError(f"Snapshot load failed: {out!r}")
         self._wait_until_restored(env)
+        self._refresh_a11y(env)
         # Pin the clock back to its value at save time.
         if abs((self._device_time() - clock).total_seconds()) > 2:
             datetime_utils.set_datetime(env.controller, clock)
@@ -314,7 +360,7 @@ class AndroidPlayEnv(TextActionEnv):
     # ------------------------------------------------------------ observation
 
     def _observe_raw(self, env: interface.AsyncEnv, stabilize: bool = True):
-        """M3A's view of the screen -> (frame, (ui_elements_text, ui_count), unlabelled pixels)."""
+        """M3A's view of the screen -> (frame, (ui_elements_text, ui_count), unlabelled pixels, text boxes)."""
         state = env.get_state(wait_to_stabilize=stabilize)
         size = env.logical_screen_size
         raw_pixels = state.pixels.copy().astype(np.uint8)
@@ -325,17 +371,19 @@ class AndroidPlayEnv(TextActionEnv):
                     m3a_utils.add_ui_element_mark(frame, ui, i, size, env.physical_frame_boundary,
                                                   env.orientation)
         text = m3a._generate_ui_elements_description_list(state.ui_elements, size)
-        return frame.astype(np.uint8), (text, len(state.ui_elements)), raw_pixels
+        boxes = android_text_boxes(ui_elements=state.ui_elements, width=raw_pixels.shape[1],
+                                   height=raw_pixels.shape[0])
+        return frame.astype(np.uint8), (text, len(state.ui_elements)), raw_pixels, boxes
 
     @property
     def raw_frame(self):
         return self._raw_frame
 
     def _obs(self, *, raw) -> dict:
-        frame, (ui_elements, _count), raw_pixels = raw
+        frame, (ui_elements, _count), raw_pixels, boxes = raw
         self._raw_frame = raw_pixels
         goal = self._task.goal if self.mode == "test" else ""
-        return {"frame": frame, "texts": {"ui_elements": ui_elements},
+        return {"frame": frame, "texts": {"ui_elements": ui_elements}, "text_boxes": boxes,
                 "actions": self.actions_text, "goal": goal}
 
     def observe(self) -> tuple:
