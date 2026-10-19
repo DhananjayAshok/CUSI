@@ -1,5 +1,5 @@
 """
-AndroidWorld (M3A) test-suite evaluation through AndroidPlayEnv, matching android_world/run.py.
+AndroidWorld test-suite evaluation through AndroidPlayEnv with the final Android agent, matching android_world/run.py.
 Needs a running emulator on --console_port.
 """
 import json
@@ -11,12 +11,11 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
-from cusi.eval.supervision import (model, run_episode, supervisor_extra, supervisor_options, supervisor_settings,
-                                   supervisor_state)
+from cusi.eval.supervision import model, supervisor_extra, supervisor_state
+from cusi.eval.options import seed_option, task_list
+from cusi.agents.agent import AGENT_VERSION, make_agent
 
 ENV_NAME = "android"
-MAX_NEW_TOKENS = 1000      # benchmark_adapters/android_world_adapter.py InferenceModelWrapper
-TEMPERATURE = 0.0
 
 
 def suite_tasks(*, tasks: str) -> list:
@@ -41,11 +40,10 @@ def trajectory(*, reports: list) -> list:
 
 
 def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emulator, vlm, console_port: int,
-            grpc_port: int, settings: dict, out_dir: str, parameters: dict) -> tuple:
+            grpc_port: int, out_dir: str, parameters: dict) -> tuple:
     """One task instance -> (fields, process_episodes dict, trajectory, connection, report, extra)."""
     from cusi.envs.android_world import AndroidPlayEnv
     from cusi.eval.episode import write_episode
-    from cusi.agents.executors.m3a import M3AExecutor
     start = time.time()
     env, report, result, goal, complexity_steps = None, None, None, None, None
     fields = {"success": None, "n_steps": 0, "n_invalid": 0, "termination_reason": None, "error": None,
@@ -58,16 +56,8 @@ def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emula
         goal, complexity_steps = env._task.goal, env.max_steps
         recoveries = env.recoveries
         obs, info = env.reset()
-
-        def make_executor(previous_history=None):
-            return M3AExecutor(env=env, vlm=vlm, max_new_tokens=MAX_NEW_TOKENS, temperature=TEMPERATURE,
-                               refresh_before_decide=True, previous_history=previous_history,
-                               parameters=parameters)
-
-        _, result = run_episode(env_name=ENV_NAME, settings=settings, task=goal, env=env, obs=obs, info=info,
-                                make_executor=make_executor, max_steps=env.max_steps,
-                                run_kwargs={"env_name": ENV_NAME, "max_consecutive_invalid": None},
-                                parameters=parameters)
+        agent = make_agent(env_name=ENV_NAME, env=env, vlm=vlm, parameters=parameters)
+        _, result = agent.run(task=goal, obs=obs, info=info, max_steps=env.max_steps)
         report = result["report"]
         final = report.last_report
         fields.update(n_steps=report.n_steps, termination_reason=final.termination_reason if final else None,
@@ -98,8 +88,7 @@ def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emula
         extra.update(supervisor_extra(report=report, result=result))
         write_episode(directory=eval_episode(run_dir=out_dir, task_id=f"{task_name}_{instance}"), report=report, meta={
             "task_id": f"{task_name}_{instance}", "task": goal, "env": ENV_NAME, "model": vlm.model_name,
-            "executor": "m3a", "supervisor": settings["supervisor"],
-            "supervisor_model": settings["supervisor_model"] if settings["supervisor"] != "baseline" else None,
+            "agent": AGENT_VERSION, "executor": "m3a", "supervisor": "none",
             "success": fields["success"], "termination": fields["termination_reason"], "budget": complexity_steps,
             "answer": fields["answer"], "error": fields["error"], "seconds": seconds,
             "state": supervisor_state(result=result)})
@@ -127,26 +116,23 @@ def shard_of(*, names: list, shard: str) -> list:
 @click.option("--grpc_port", default=8554)
 @click.option("--rerun_failed/--no_rerun_failed", default=True)
 @click.option("--shard", default=None, help="k/n: every n-th task from the k-th (0-based).")
-@supervisor_options
+@seed_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, tasks, n_task_combinations,
-            task_random_seed, console_port, grpc_port, rerun_failed, shard, supervisor, supervisor_model,
-            supervisor_backend, supervisor_vllm_base_url, max_leg_steps, info_docs, overwrite,
-            ignore_config_violation):
-    """AndroidWorld (M3A) on the test suite through AndroidPlayEnv, under a GameBoyRL supervisor arm."""
-    settings = supervisor_settings(supervisor=supervisor, supervisor_model=supervisor_model,
-                                   supervisor_backend=supervisor_backend,
-                                   supervisor_vllm_base_url=supervisor_vllm_base_url, max_leg_steps=max_leg_steps,
-                                   info_docs=info_docs, model_name=model_name, model_backend=model_backend,
-                                   vllm_base_url=vllm_base_url)
+            task_random_seed, console_port, grpc_port, rerun_failed, shard, overwrite, ignore_config_violation, seed):
+    """AndroidWorld on the test suite through AndroidPlayEnv, with the final Android agent (cusi/agents/agent.py)."""
+    tasks = task_list(tasks=tasks)
+    if tasks:   # instance ids (Name_0) as in the results -> template names
+        tasks = ",".join(sorted({t.rsplit("_", 1)[0] if t.rsplit("_", 1)[-1].isdigit() else t
+                                 for t in tasks.split(",")}))
     from cusi.envs.android_world import AndroidEmulator
     from android_world.env import env_launcher
     out_dir = eval_run(parameters=parameters, env=ENV_NAME, run=run_name)
     run = EvalRun(directory=out_dir, config={
-        "env": ENV_NAME, "agent": "m3a", "model_name": model_name, "model_backend": model_backend,
+        "env": ENV_NAME, "agent": AGENT_VERSION, "model_name": model_name, "model_backend": model_backend,
         "tasks": tasks, "n_task_combinations": n_task_combinations, "task_random_seed": task_random_seed,
-        "temperature": TEMPERATURE, "max_new_tokens": MAX_NEW_TOKENS, "shard": shard, **settings},
+        "shard": shard, "seed": seed},
         overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     os.makedirs(eval_trajectories(run_dir=out_dir), exist_ok=True)
     names = suite_tasks(tasks=tasks)
@@ -166,8 +152,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
             log_info(f"[android eval] {task_id}", parameters=parameters)
             fields, episode, traj, connection, report, extra = run_one(
                 task_name=name, instance=i, suite_seed=task_random_seed, connection=connection,
-                emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, settings=settings,
-                out_dir=out_dir, parameters=parameters)
+                emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, out_dir=out_dir,
+                parameters=parameters)
             tokens = (0, 0) if report is None else (
                 (report.executor_input_tokens or 0) + (report.supervisor_input_tokens or 0),
                 (report.executor_output_tokens or 0) + (report.supervisor_output_tokens or 0))

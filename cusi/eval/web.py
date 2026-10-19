@@ -1,10 +1,12 @@
 """
-WebVoyager test-set evaluation through WebVoyagerPlayEnv, matching WebVoyager's run.py and auto_eval.py.
+WebVoyager test-set evaluation through WebVoyagerPlayEnv with the final Web agent, matching WebVoyager's run.py
+and auto_eval.py.
 One eval per process: fast_waits is a process-global of WebVoyager's run.py.
 """
 import glob
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,12 +18,11 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, storage_relative, web_source_task_file, web_task_dir
-from cusi.eval.supervision import (run_episode, run_pool, supervisor_extra, supervisor_options, supervisor_settings,
-                                   supervisor_state)
+from cusi.eval.supervision import run_pool, supervisor_extra, supervisor_state
+from cusi.eval.options import seed_option, task_list
+from cusi.agents.agent import AGENT_VERSION, make_agent
 
 MAX_ITER = 15            # run.sh --max_iter
-TEMPERATURE = 1.0        # run.sh --temperature
-MAX_NEW_TOKENS = 1000    # run.py call_model
 MAX_TASK_ATTEMPTS = 3    # run.py --max_task_attempts
 JUDGE_IMGS = 15          # evaluation/run_eval.sh --max_attached_imgs
 BROWSER_CRASHED = "The browser crashed."   # WebVoyagerPlayEnv's test-mode browser-death error
@@ -40,11 +41,20 @@ def load_tasks(*, task_file: str, tasks: str) -> list:
     return rows
 
 
-def write_artefacts(*, task_dir: str, executors: list, system_prompt: str) -> dict:
-    """run.py's chat (the final leg's); returns every leg's screenshots by run.py's name, numbered in episode order."""
+TASK_IN_PROMPT = re.compile(r"(Now given a task:)(.+?)(Please interact with)", re.S)   # what auto_eval reads
+
+
+def write_artefacts(*, task_dir: str, executors: list, system_prompt: str, task: str) -> dict:
+    """run.py's chat (the final leg's, with the user's task in place of a leg's subgoal, as auto_eval judges against
+    it); returns every leg's screenshots by run.py's name, numbered in episode order."""
     final = executors[-1] if executors else None
     messages = final.messages_for_log() if final is not None and final._messages else \
         [{"role": "system", "content": system_prompt}]
+    if len(messages) > 1:
+        content = messages[1]["content"]
+        part = content[0] if isinstance(content, list) else messages[1]
+        key = "text" if isinstance(content, list) else "content"
+        part[key] = TASK_IN_PROMPT.sub(lambda m: f"{m.group(1)} {task}  {m.group(3)}", part[key], count=1)
     with open(os.path.join(task_dir, "interact_messages.json"), "w", encoding="utf-8") as f:
         json.dump(messages, f, indent=2)
     screenshots, offset = {}, 0
@@ -73,13 +83,11 @@ def materialize_screenshots(*, run_dir: str) -> list:
 
 
 def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
-             settings: dict, run_dir: str, parameters=None, vlm=None) -> dict:
+             run_dir: str, parameters=None, vlm=None) -> dict:
     """One task with run.py's browser-death retries; vlm overrides the served model (tests)."""
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.webvoyager import WebVoyagerPlayEnv, load_webvoyager
-    from cusi.eval.episode import write_episode
     from cusi.eval.supervision import model
-    from cusi.agents.executors.webvoyager import WebVoyagerExecutor
     parameters = load_parameters(parameters)
     vlm = vlm or model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
     wv = load_webvoyager(project_root=parameters["project_root"])
@@ -93,15 +101,8 @@ def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, 
                                     fast_waits=False, headless=True, fix_box_color=True, window_width=1024,
                                     window_height=768, parameters=parameters)
             obs, info = env.reset()
-
-            def make_executor(previous_history=None):
-                return WebVoyagerExecutor(env=env, vlm=vlm, max_new_tokens=MAX_NEW_TOKENS, temperature=TEMPERATURE,
-                                          previous_history=previous_history, parameters=parameters)
-
-            supervisor, result = run_episode(
-                env_name="web", settings=settings, task=task["ques"], env=env, obs=obs, info=info,
-                make_executor=make_executor, max_steps=MAX_ITER, parameters=parameters,
-                run_kwargs={"env_name": "web", "max_consecutive_invalid": None, "stop_on_model_error": True})
+            agent = make_agent(env_name="web", env=env, vlm=vlm, parameters=parameters)
+            supervisor, result = agent.run(task=task["ques"], obs=obs, info=info, max_steps=MAX_ITER)
             report = result["report"]
             if any(s.error == BROWSER_CRASHED for r in report.executor_reports for s in r.env_steps):
                 crashed = "browser died mid-task"
@@ -120,11 +121,12 @@ def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, 
                     pass
         if crashed is None:
             executors = supervisor.executors if supervisor is not None else []
-            screenshots = write_artefacts(task_dir=task_dir, executors=executors, system_prompt=wv.SYSTEM_PROMPT)
+            screenshots = write_artefacts(task_dir=task_dir, executors=executors, system_prompt=wv.SYSTEM_PROMPT,
+                                          task=task["ques"])
             final = report.last_report if report is not None else None
             return _finish(task=task, task_dir=task_dir, run_dir=run_dir, report=report, result=result,
                            screenshots=screenshots,
-                           error=error or (final.error if final else None), settings=settings, model_name=model_name,
+                           error=error or (final.error if final else None), model_name=model_name,
                            seconds=time.time() - t0)
         log_warn(f"[web eval] task{task['id']}: browser died (attempt {attempt}/{MAX_TASK_ATTEMPTS}): {crashed}",
                  parameters=parameters)
@@ -135,8 +137,8 @@ def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, 
         time.sleep(5 * attempt)
 
 
-def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screenshots: dict, error, settings: dict,
-            model_name: str, seconds: float) -> dict:
+def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screenshots: dict, error, model_name: str,
+            seconds: float) -> dict:
     """Writes outcome.json and the episode artifacts; screenshots go in the episode's frames, mapped by name."""
     from cusi.eval.episode import write_episode
     final = report.last_report if report is not None else None
@@ -158,8 +160,7 @@ def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screensh
     episode_dir = eval_episode(run_dir=run_dir, task_id=task["id"])
     refs = write_episode(directory=episode_dir, report=report, named_images=screenshots, meta={
             "task_id": task["id"], "task": task["ques"], "env": "web", "start_url": task["web"], "model": model_name,
-            "executor": "webvoyager", "supervisor": settings["supervisor"],
-            "supervisor_model": settings["supervisor_model"] if settings["supervisor"] != "baseline" else None,
+            "agent": AGENT_VERSION, "executor": "webvoyager", "supervisor": "none",
             "termination": outcome["termination_reason"], "budget": MAX_ITER, "answer": outcome["answer"],
             "error": error, "seconds": seconds, "state": supervisor_state(result=result),
             "native_dir": os.path.relpath(task_dir, run_dir)})
@@ -202,34 +203,28 @@ def judge(*, run_dir: str, judge_model_name: str, judge_model_backend: str, judg
 @click.option("--tasks", default=None, help="Comma-separated task ids (default: every task in the file).")
 @click.option("--skip_judge", is_flag=True, help="Only run the agent; score later.")
 @click.option("--workers", default=1, show_default=True, help="Tasks run in parallel (one browser each).")
-@supervisor_options
+@seed_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, judge_model_name, judge_model_backend,
-            judge_vllm_base_url, run_name, task_file, tasks, skip_judge, workers, supervisor, supervisor_model,
-            supervisor_backend, supervisor_vllm_base_url, max_leg_steps, info_docs, overwrite,
-            ignore_config_violation):
-    """WebVoyager test-set evaluation through WebVoyagerPlayEnv, under a GameBoyRL supervisor arm."""
-    settings = supervisor_settings(supervisor=supervisor, supervisor_model=supervisor_model,
-                                   supervisor_backend=supervisor_backend,
-                                   supervisor_vllm_base_url=supervisor_vllm_base_url, max_leg_steps=max_leg_steps,
-                                   info_docs=info_docs, model_name=model_name, model_backend=model_backend,
-                                   vllm_base_url=vllm_base_url)
+            judge_vllm_base_url, run_name, task_file, tasks, skip_judge, workers, overwrite, ignore_config_violation,
+            seed):
+    """WebVoyager test-set evaluation through WebVoyagerPlayEnv, with the final Web agent (cusi/agents/agent.py)."""
     if task_file == "cusi":
         from cusi.envs.webvoyager import excluded_sites, filtered_task_file
         task_file = filtered_task_file(parameters=parameters)
         log_info(f"[web eval] task file {task_file}: WebVoyager without {excluded_sites(parameters=parameters)}",
                  parameters=parameters)
     task_file = task_file or web_source_task_file(parameters=parameters)
-    rows = load_tasks(task_file=task_file, tasks=tasks)
+    rows = load_tasks(task_file=task_file, tasks=task_list(tasks=tasks))
     log_info(f"[web eval] {len(rows)} tasks from {task_file}", parameters=parameters)
     run_dir = eval_run(parameters=parameters, env="web", run=run_name)
-    run = EvalRun(directory=run_dir, config={"env": "web", "model_name": model_name, "model_backend": model_backend,
+    run = EvalRun(directory=run_dir, config={"env": "web", "agent": AGENT_VERSION, "model_name": model_name,
+                                             "model_backend": model_backend,
                                              "judge_model_name": judge_model_name,
                                              "task_file": storage_relative(parameters=parameters, path=task_file),
                                              "tasks": [r["id"] for r in rows], "max_iter": MAX_ITER,
-                                             "temperature": TEMPERATURE, "max_new_tokens": MAX_NEW_TOKENS,
-                                             "workers": workers, **settings},
+                                             "workers": workers, "seed": seed},
                   overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     jobs = []
     for task in rows:
@@ -239,9 +234,9 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
                 os.path.exists(os.path.join(task_dir, "task_error.json")):
             continue
         jobs.append(dict(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
-                         vllm_base_url=vllm_base_url, data_file=task_file, settings=settings, run_dir=run_dir,
+                         vllm_base_url=vllm_base_url, data_file=task_file, run_dir=run_dir,
                          parameters=parameters if workers <= 1 else None))
-    log_info(f"[web eval] {run_name}: {len(jobs)} tasks to run ({len(rows)} in the file) under {supervisor}, "
+    log_info(f"[web eval] {run_name}: {len(jobs)} tasks to run ({len(rows)} in the file), "
              f"{workers} worker(s) -> {run_dir}", parameters=parameters)
 
     def on_result(job, out):

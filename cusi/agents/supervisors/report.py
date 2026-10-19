@@ -1,5 +1,5 @@
 """
-The record of one supervised episode: supervisor calls and executor legs, interleaved in order.
+The record of one episode: supervisor calls and executor legs, interleaved in order.
 """
 from dataclasses import dataclass, field
 from typing import Any, Optional
@@ -26,22 +26,22 @@ class SupervisorCall:
 @dataclass
 class LegEvent:
     report: LegReport
-    #: The plan step this leg attempted; None for the task itself.
-    target: Optional[str]
-    final: bool
-    self_terminate: bool
+    #: The plan step this leg attempted; None for the episode's task itself.
+    target: Optional[str] = None
+    #: The leg ran the episode's task (the last plan step, or no plan).
+    final: bool = True
+    #: The executor's done-check could end the leg (plan-step legs).
+    self_terminate: bool = False
     seconds: float = 0.0
 
 
 @dataclass
 class SupervisorReport:
-    task: str
+    task: Optional[str]
     supervisor_name: str
     env: str
     init_kwargs: dict = field(default_factory=dict)
     event_log: list = field(default_factory=list)
-    narrative: list = field(default_factory=list)
-    digest: Optional[str] = None
 
     @property
     def supervisor_calls(self) -> list:

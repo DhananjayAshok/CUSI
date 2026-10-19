@@ -1,0 +1,212 @@
+% Appendix section: executor design search on GameBoyWorlds (negative result), contrasted with WebVoyager.
+% Requires \usepackage{booktabs} (and \usepackage{multirow} is not needed).
+
+\section{Executor design search on GameBoyWorlds}
+\label{app:gameboy-executor-search}
+
+A natural objection to our GameBoyWorlds results is that the executor we use is too weak, and that a better-designed
+acting agent, with the same model, would close much of the gap. To test this, we ran a systematic, pre-registered
+search over executor designs, with the model held fixed. We ran exactly the same search on WebVoyager, where it found
+changes that matter: a $+10.0$ point gain on the full benchmark that holds on held-out tasks. On GameBoyWorlds, the
+same procedure screened 18 executor features over more than 3{,}000 dev episodes. None of them improved success: the
+best two moved it by $+1.2$ points, and 16 of 18 scored \emph{below} the baseline. This section documents the search
+so that the negative result can be judged on its own terms.
+
+\subsection{Setup}
+
+\paragraph{Fixed parts.} One open-weight vision-language model (Gemma-4-31B-it) is used for every model call; it is
+not fine-tuned, and sampling is unseeded, so repeats are independent runs. The supervisor of our agent framework is
+switched off in every arm, so all differences come from the executor. The baseline executor is the benchmark's native
+agent: at each step it sees the screenshot and its recent action history and presses one button. The step budget
+(175) and the success checks are the benchmark's own. The agent may not read game memory or the ROM; the one
+exception, used by a single feature (F04), is a reader for the text that the console is displaying on screen. There is
+no save-state lookahead.
+
+\paragraph{Splits.} Before any feature work, the 99 tasks (Pok\'emon Red and Crystal) were split once into 50 dev
+tasks (25 per game) and 49 held-out tasks. All selection used dev only.
+
+\paragraph{Noise floor.} The baseline was run 5 times on dev: 34, 32, 34, 38 and 36\% (mean 34.8\%). The floor is
+the largest gap between two baseline repeats or $1.96\cdot\mathrm{SD}(\text{paired diff})/\sqrt{n}$, whichever is
+larger: 10.5 points for a single repeat. Single runs are therefore far too noisy to judge a feature on this
+benchmark, so every feature ran at least 3 times, giving a screening threshold of $10.5/\sqrt{3} = 6.0$ points at 3
+repeats and $5.25$ at 4.
+
+\paragraph{Statistics.} Arms are compared task by task on the same tasks. Success is the mean over tasks of the
+per-task mean over repeats. 95\% confidence intervals bootstrap over tasks (5{,}000 resamples); W/L counts the tasks
+an arm wins or loses against the baseline.
+
+\subsection{Procedure}
+
+The procedure was written down before each stage was run, and is identical across benchmarks except for the
+thresholds, which follow each benchmark's noise floor.
+\begin{enumerate}
+  \item \textbf{Catalogue.} A survey of agent papers and open-source harnesses produced 54 executor-side features,
+  each with its prior evidence and a per-benchmark implementation note, ranked per benchmark by evidence over cost.
+  \item \textbf{Failure taxonomy.} 50 failed baseline dev episodes were labelled with one main failure each and
+  spot-checked against the trajectories: loop or no-op 27, screen misread 15, wrong plan 4, out of steps 4. The
+  shortlist was checked to cover the two dominant buckets.
+  \item \textbf{Smoke test.} Each prototype first ran live on 4 tasks, and the episode records were read to confirm
+  that it did what it claimed.
+  \item \textbf{Screening.} Each feature alone against the baseline on the 50 dev tasks. \emph{Promote} if the gain
+  is at least the threshold at under twice the baseline's model calls, or if it is neutral but clearly fixes its
+  target failure bucket; \emph{drop} if the gain is at most minus the threshold, or the calls double for no gain;
+  otherwise \emph{retest} once with one more repeat if the feature is in the top half of the prior ranking, and drop
+  it if not.
+  \item \textbf{Combination, leave-one-out and confirmation.} Promoted features would be combined greedily, pruned by
+  leave-one-out, and the final design confirmed on held-out tasks. On GameBoyWorlds no feature was promoted, so these
+  stages did not run.
+\end{enumerate}
+
+\subsection{Features screened}
+
+Table~\ref{tab:gb-screening} lists every feature screened. They span every family in the catalogue that has a
+GameBoyWorlds counterpart:
+\begin{itemize}
+  \item \textbf{Perception:} on-screen text as a text block (F04), $3\times$ screenshot upscaling (F07), and game-mode
+  detection (overworld, dialogue, menu, battle) from the screen (F54).
+  \item \textbf{Memory and history:} a longer action history (F26), a summarised history (F25), and an objectives
+  and places log written by the model (F28).
+  \item \textbf{Planning and knowledge:} a persistent plan (F21), a tips document (F29) and a game guide (F30), both
+  written from the model's prior knowledge.
+  \item \textbf{Loop handling:} a no-op ban that forbids repeating a press that changed nothing (F31), and a loop
+  warning when the same screen recurs (F32).
+  \item \textbf{Reasoning and verification:} a structured reasoning template (F19), a pre-execution critic (F38),
+  and a self-consistency vote over three samples (F37).
+  \item \textbf{Action space and budget:} several presses per decision (F16), macro actions such as ``walk $n$
+  tiles'' and ``advance dialogue'' (F17), and the remaining step budget shown each step (F10).
+  \item \textbf{An expectation line} (F62), taken from a recent Android agent: the model states the screen change it
+  expects from its action, and the next prompt shows that expectation and asks the model to compare it with the new
+  screen. We added this one late, as the only mechanism of two scaffolds that report solving AndroidWorld that was
+  not already covered here. It targets both main failure buckets (the model must notice when a press did not do what
+  it believed) at no extra model call.
+\end{itemize}
+Between them, the features aim at both dominant failure buckets: loops (F31, F32, F38, F62, F10, F21) and screen
+misreads (F04, F07, F54, F62).
+
+\begin{table}[t]
+\centering
+\small
+\caption{Executor features screened on the 50 GameBoyWorlds dev tasks, each alone against the baseline. The
+threshold is 6.0 points at 3 repeats and 5.25 at 4. Calls are model calls per task. No feature was promoted.}
+\label{tab:gb-screening}
+\begin{tabular}{llrrrrl}
+\toprule
+ID & Feature & Rep. & Success & $\Delta$ vs base [95\% CI] & W/L & Calls \\
+\midrule
+-- & Baseline (native executor) & 5 & 34.8 & -- & -- & 228 \\
+\midrule
+F07 & Screenshot upscaling ($3\times$) & 4 & 36.0 & $+1.2$ [$-5.3$, $+8.0$] & 8/7 & 231 \\
+F62 & Expectation line & 4 & 36.0 & $+1.2$ [$-4.8$, $+6.9$] & 11/8 & 233 \\
+F32 & Loop warning & 3 & 34.7 & $-0.1$ [$-5.6$, $+6.0$] & 6/7 & 231 \\
+F31 & No-op ban & 3 & 34.0 & $-0.8$ [$-5.9$, $+3.7$] & 7/6 & 242 \\
+F38 & Pre-execution critic & 3 & 33.3 & $-1.5$ [$-8.9$, $+6.4$] & 6/8 & 394 \\
+F28 & Objectives and places log & 3 & 32.7 & $-2.1$ [$-11.3$, $+6.5$] & 7/11 & 239 \\
+F10 & Step budget shown & 3 & 32.0 & $-2.8$ [$-7.1$, $+1.2$] & 3/6 & 234 \\
+F16 & Several presses per decision & 3 & 32.0 & $-2.8$ [$-10.3$, $+4.4$] & 8/11 & 180 \\
+F29 & Tips document from priors & 3 & 32.0 & $-2.8$ [$-11.9$, $+6.4$] & 6/7 & 225 \\
+F04 & On-screen text as text & 4 & 31.0 & $-3.8$ [$-8.5$, $+0.2$] & 3/8 & 238 \\
+F54 & Game-mode detection & 4 & 31.0 & $-3.8$ [$-8.4$, $+0.4$] & 3/9 & 235 \\
+F37 & Self-consistency vote ($k{=}3$) & 3 & 30.7 & $-4.1$ [$-9.6$, $+0.9$] & 4/8 & 492 \\
+F19 & Structured reasoning template & 3 & 30.7 & $-4.1$ [$-10.3$, $+1.9$] & 3/8 & 242 \\
+F17 & Macro actions & 4 & 29.5 & $-5.3$ [$-13.2$, $+1.8$] & 5/8 & 198 \\
+F26 & Longer history (15 steps) & 3 & 29.3 & $-5.5$ [$-10.1$, $-1.5$] & 2/8 & 241 \\
+F25 & Summarised history & 3 & 29.3 & $-5.5$ [$-13.3$, $+1.5$] & 4/8 & 120 \\
+F21 & Persistent plan & 3 & 28.0 & $-6.8$ [$-14.3$, $-0.0$] & 4/14 & 250 \\
+F30 & Game guide from priors & 2 & 22.0 & $-12.8$ [$-21.2$, $-5.6$] & 1/11 & 262 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Results}
+
+\paragraph{No feature helps.} The two best features gain $+1.2$ points, less than a quarter of the threshold; every
+other feature scores at or below the baseline. Four borderline features with a high prior rank (F07, F04, F54, F17) were
+retested with a fourth repeat, and none came near the threshold. Three features are
+reliably \emph{harmful}, with confidence intervals at or below zero: a longer history (F26), a persistent plan (F21)
+and a game guide written from the model's priors (F30). The last was stopped after 2 of 3 repeats by an early-drop
+rule we added midway through screening to free compute; the rule was applied only to this arm. Since nothing was
+promoted, the final GameBoyWorlds executor is the baseline. On the full benchmark it scores 31.3\% (99 tasks):
+38.0\% on the dev half and 24.5\% on the held-out half.
+
+\paragraph{The search could have detected a meaningful gain.} With 3--5 repeats per arm, each confidence interval
+spans roughly $\pm 6$ points. No feature's upper bound exceeds $+8.0$ points, and only the two $+1.2$ features have
+upper bounds above $+6.5$. So the search rules out any single feature worth more than about 8 points, which is less
+than the $+10$ points the same search found on WebVoyager. The negative result is not a matter of too few runs: the
+screening used 63 runs of the 50 dev tasks (more than 3{,}000 episodes) and more repeats per arm than on WebVoyager,
+because the benchmark is noisier.
+
+\paragraph{The failures the features target did not move.} Loops and screen misreads account for 42 of 50 labelled
+failures. Neither loop handling (F31, F32, F38, F62) nor richer screen inputs (F04, F07, F54) moved either bucket.
+Loop handling was hard even to target. An offline analysis of 150 baseline episodes found that revisiting a screen is
+normal for this agent: the loop warning fired on 35\% of all action calls. Neither exact-frame revisits nor image
+embedding similarity separated loop failures from other failures (AUC 0.50--0.58).
+
+\paragraph{Reading partial runs would have produced a false positive.} While F62 was running, the table at 35 of
+the 50 tasks read $+7.4$ points, above the threshold. The tasks still running were the long ones, which mostly fail;
+with all 50 tasks, the gain was $+1.2$. All decisions above were taken only on complete runs.
+
+\subsection{Contrast: the same search on WebVoyager}
+\label{app:gameboy-vs-web}
+
+The same procedure, with the same model, the same catalogue and the same rules, did find improvements on WebVoyager
+(250 dev tasks; threshold 4.8 points at 1 repeat). Of 18 arms screened (15 features, two of them in several
+variants), 4 were promoted at screening, all with confidence intervals above zero:
+\begin{itemize}
+  \item the remaining step budget shown each step (F10), $+7.2$ [$+3.3$, $+11.1$];
+  \item a forced answer near the budget end (F11), $+6.4$;
+  \item removing the agent's \texttt{Google} action, which often led to a CAPTCHA page the agent could not leave
+  (F14), $+5.6$;
+  \item five screenshots of history instead of three (F08), $+5.2$.
+\end{itemize}
+Greedy combination and leave-one-out kept F10, F14 and F08; each costs at least 2.7 points when removed. The final
+design raises success from 56.4\% to 66.4\% on the full benchmark ($+10.0$ [$+5.8$, $+14.2$], 429 tasks) and from
+57.0\% to 66.5\% on the 179 held-out tasks ($+9.5$ [$+2.8$, $+16.2$]), with no extra model calls. The search
+procedure can therefore find real, replicable executor gains when they exist.
+
+Table~\ref{tab:gb-vs-web} compares the features screened on both benchmarks. Features that helped on WebVoyager were
+flat or harmful on GameBoyWorlds. Showing the step budget is $+7.2$ on the web and $-2.8$ on GameBoyWorlds, and more
+visual history is $+5.2$ on the web while a longer history is $-5.5$ on GameBoyWorlds. The reasoning add-ons that
+were flat on the web (plans, templates, votes, tips) were clearly negative on GameBoyWorlds.
+
+\begin{table}[t]
+\centering
+\small
+\caption{The same features screened on WebVoyager (250 dev tasks) and on GameBoyWorlds (50 dev tasks), as gains in
+points over each benchmark's baseline. Bold marks a feature promoted at screening.}
+\label{tab:gb-vs-web}
+\begin{tabular}{lrr}
+\toprule
+Feature & WebVoyager & GameBoyWorlds \\
+\midrule
+Step budget shown (F10) & $\mathbf{+7.2}$ & $-2.8$ \\
+More history (F08 five screenshots; F26 15 steps) & $\mathbf{+5.2}$ & $-5.5$ \\
+On-screen or page text as text (F04) & $+2.8$ & $-3.8$ \\
+Tips document from priors (F29) & $+2.4$ & $-2.8$ \\
+Loop warning (F32) & $+1.6$ & $-0.1$ \\
+Persistent plan (F21) & $+0.8$ & $-6.8$ \\
+Self-consistency vote, $k{=}3$ (F37) & $+0.8$ & $-4.1$ \\
+Structured reasoning template (F19) & $-1.2$ & $-4.1$ \\
+\midrule
+Arms screened & 18 & 18 \\
+Promoted at screening & 4 & 0 \\
+Final design vs baseline, held-out & $+9.5$ [$+2.8$, $+16.2$] & -- (baseline kept) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Why the web gains do not transfer.} The WebVoyager gains came from the \emph{harness}, not from extra
+reasoning. Showing the budget made the agent answer before running out of iterations. Removing a trap action
+fixed the single largest failure cause in the web failure taxonomy (22 of 50 failures). More screenshots helped the
+agent keep track of multi-page navigation. GameBoyWorlds has no comparable harness defect. Its budget is long (the
+baseline uses 116 of 175 steps on average), its action space is a handful of console buttons, and its failures are
+loops and misreads of a low-resolution game screen. Prompting changes do not fix those for this model.
+
+\subsection{Limitations}
+
+Three shortlisted GameBoyWorlds features with high build cost were not built: a labelled grid overlay on the
+screenshot, a tile map of the screen built from the model's own per-tile classification, and a navigation tool that
+walks to a chosen cell over that map. Such tools appear in hobbyist Pok\'emon-playing harnesses with frontier models;
+we did not build them because each needs substantial engineering, and the tile map adds model calls. Thinking mode was not tested on any benchmark. Within these limits,
+the evidence is that, for this model, no prompting-level or harness-level change to the executor that we could find
+improves GameBoyWorlds performance. A meaningful improvement on this benchmark appears to need more than executor
+design.

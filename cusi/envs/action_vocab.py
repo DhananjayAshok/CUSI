@@ -32,6 +32,7 @@ def vocabulary(*, env_name: str) -> list:
         names = _indexed("click", K_WEB) + _indexed("type", K_WEB)
         for d in ("up", "down"):
             names += _indexed(f"scroll_{d}", K_WEB)
+        # "google" is no longer an action (decisions.md E8.2b); its slot stays so trained models keep their shapes.
         names += ["scroll_window_up", "scroll_window_down", "wait", "goback", "google", "answer"]
     else:
         raise ValueError(f"unknown env {env_name}")

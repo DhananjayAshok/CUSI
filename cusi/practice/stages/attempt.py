@@ -9,10 +9,11 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.practice.judging import derive_critique_hint, judge_leg
 from cusi.practice.stages.common import atomic_json, atomic_pickle, load_json, run_jobs
 from cusi.utils.paths import PracticePaths
+from cusi.agents.agent import merged_leg
 
 
 def attempt(*, spec, pool, vlm, paths: PracticePaths, max_attempts: int, lookback: int, judge_max_new_tokens: int,
-            executor_kwargs: dict, overwrite: bool, parameters: dict) -> None:
+            overwrite: bool, parameters: dict) -> None:
     out_dir = paths.attempts_dir
     os.makedirs(out_dir, exist_ok=True)
     csv_path = os.path.join(out_dir, "results.csv")
@@ -36,12 +37,12 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, max_attempts: int, lookbac
     def one(job, *, worker: int):
         group, scene, task = job
         env = pool.get(worker=worker, scene=scene)
-        executor = spec.make_executor(env=env, vlm=vlm, parameters=parameters, **executor_kwargs)
+        agent = spec.make_agent(env=env, vlm=vlm, parameters=parameters)
         hint, verdict, report = "", None, None
         for n_try in range(1, max_attempts + 1):
             obs, info = env.reset()
-            report = executor.run(task=task, hint=hint or None, max_steps=spec.max_steps, obs=obs, info=info,
-                                  allow_done_check=spec.name == "gameboy", env_name=spec.name)
+            _, result = agent.run(task=task, obs=obs, info=info, max_steps=spec.max_steps, guidance=hint or None)
+            report = merged_leg(report=result["report"])
             verdict = judge_leg(report=report, vlm=vlm, domain=spec.domain, lookback=lookback,
                                 max_new_tokens=judge_max_new_tokens)
             log_info(f"attempt [{group}] try {n_try}: {'success' if verdict['success'] else 'failure'} "

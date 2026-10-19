@@ -92,25 +92,27 @@ For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
 |---|---|---|---|
 | 0. Shared vLLM | `setup/vllm_scripts/` (installed into `shared_vllm_dir` by `setup/move_vllm_scripts.sh`) | `bash scripts/serve_vllm.sh` / `scripts/stop_vllm.sh` | `slurm/vllm_smoke.sh` |
 | 1. Practice pipeline | `cusi/practice/` (native executors: GameBoyRL, M3A, WebVoyager) | `python run_practice.py --env {gameboy,android,web} [--source curiosity] {propose,attempt,guidance,practice,clean,dataset,all}` | `slurm/practice_small.sh`, `slurm/curiosity_practice.sh` |
-| 2. Curiosity + world model | `cusi/explore/` (VLM LoRA PPO policy, e.g. Qwen3.5-0.8B; curiosity modules on `cusi.state`; replay, world model, decoder, embedder training) | `python run_explore.py --env X {ppo,tasks,world_model,decoder,wm_eval,elements,train_embedder}` | `slurm/explore.sh` |
+| 2. Curiosity + world model | `cusi/explore/` (curiosity modules on `cusi.state`; replay, world model, decoder, embedder training; the PPO policy was removed) | `python run_explore.py --env X {tasks,world_model,decoder,wm_eval,elements,train_embedder}` | — |
 | Shared state module | `cusi/state/` (image / text embedders, novelty archive with cells, novelty scorers; inference only) | used by `run_explore.py` and `cusi.search` | — |
 | Pre-exploration search | `cusi/search/` (tree, energy-sampling selection, random / VLM expanders, VLM prior; library only — the toy entry point was removed) | — | — |
-| Evaluation | `cusi/eval/` (test sets through `cusi.envs` in test mode, shown equivalent to the native harnesses: `plans/eval_plan.md`; episode artifacts + step videos per task: `cusi/eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--supervisor baseline\|revision\|subgoal\|info_subgoal_*] [--workers N]` | `slurm/eval.sh`, `slurm/eval_parity_{gameboy,android,web}.sh` |
-| Supervisors | `cusi/agents/supervisors/` (GameBoyRL's supervisor arms over any executor and env: `plans/agents.md`) | through `run_eval.py --supervisor` | `slurm/eval.sh` |
+| Evaluation | `cusi/eval/` (test sets through `cusi.envs` in test mode, shown equivalent to the native harnesses: `plans/eval_plan.md`; episode artifacts + step videos per task: `cusi/eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--workers N]` | `slurm/eval.sh`, `slurm/eval_pack.sh` |
+| Final agent | `cusi/agents/agent.py` (fixed per env: Web = WebVoyager, Android = M3A, both unsupervised; GameBoy = GameBoyRL executor + subgoal supervisor: `plans/final_port_plan.md`) | through `run_eval.py` | `slurm/eval.sh` |
 
 Outputs go to `storage_dir/practice/<env>/<model>/`, `storage_dir/explore/<env>/`,
 `storage_dir/eval/<env>/<run>/`.
 
 Plans and results:
-- `plans/curiosity_plan.md`, `plans/skill_discovery.md`: curiosity PPO and pre-exploration search.
+- `plans/curiosity_plan.md`, `plans/skill_discovery.md`: curiosity (the PPO path is removed) and pre-exploration search.
 - `plans/eval_plan.md`: evaluation through our envs vs the native harnesses (done; parity results inside).
 - `plans/agents.md`: GameBoyRL's supervisors on all three envs and episode artifacts for debug panels
   (built; status and test results in its section 8), and the supervisor ablation plan.
+- `plans/executor_design_report.md`, `plans/final_port_plan.md`: the executor/supervisor design search and the
+  final per-env agent.
 - `plans/results.md`: results of the supervisor ablation (done 2026-10-06; all envs × gemma-4 26B / 31B ×
   baseline / revision / subgoal): success per config, the best supervisor (subgoal on GameBoy 26B;
   baseline on Android and Web), why, costs, and how long each run took.
 
 Design
 decisions are in `plans/decisions.md`. Tests: `tests/practice_gameboy_prompt_test.py` (GameBoy prompts
-identical to GameBoyRL's), `tests/practice_strip_test.py`, `tests/practice_pipeline_mock_test.py`
-(all six stages with a scripted model), `tests/vllm_smoke.py`.
+identical to GameBoyRL's), `tests/practice_strip_test.py`,
+`tests/final_agent_test.py` (the final agent per env), `tests/vllm_smoke.py`.

@@ -19,17 +19,13 @@ loaded_parameters = load_parameters()
 @click.option("--model_name", required=True, help="Model name the vLLM server serves; used for every role.")
 @click.option("--model_backend", default="vllm")
 @click.option("--max_new_tokens", default=2000, help="Token budget for proposer/judge/guidance/clean calls.")
-@click.option("--executor_max_new_tokens", default=1000,
-              help="Token budget for executor calls (M3A's and WebVoyager's wrappers use 1000).")
-@click.option("--temperature", default=None, type=float, help="Executor sampling temperature (None: server default).")
 @click.option("--overwrite", is_flag=True, default=False)
 @click.option("--random_seed", default=loaded_parameters["random_seed"])
 @click.option("--vllm_port", default=loaded_parameters["vllm_port"], help="Port of the vLLM server to use.")
 @click.option("--source", default="zeroshot", type=click.Choice(TASK_SOURCES),
               help="zeroshot: proposed tasks; curiosity: tasks from run_explore.py tasks (skip propose/attempt).")
 @click.pass_context
-def main(ctx, env_name, model_name, model_backend, max_new_tokens, executor_max_new_tokens, temperature, overwrite,
-         random_seed, vllm_port, source):
+def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, random_seed, vllm_port, source):
     loaded_parameters["random_seed"] = random_seed
     loaded_parameters["vllm_port"] = vllm_port
     compute_secondary_parameters(loaded_parameters)
@@ -39,7 +35,6 @@ def main(ctx, env_name, model_name, model_backend, max_new_tokens, executor_max_
         "paths": PracticePaths(parameters=loaded_parameters, env_name=env_name, model_name=model_name, source=source),
         "source": source,
         "vlm": AgentVLM(model_name=model_name, model_backend=model_backend, parameters=loaded_parameters),
-        "executor_kwargs": {"max_new_tokens": executor_max_new_tokens, "temperature": temperature},
     }
     log_info(f"run_practice: env={env_name} model={model_name} -> {ctx.obj['paths'].root}",
              parameters=loaded_parameters)
@@ -65,8 +60,8 @@ def do_propose(obj, n_tasks):
 def do_attempt(obj, max_attempts, lookback):
     from cusi.practice.stages.attempt import attempt
     attempt(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], max_attempts=max_attempts,
-            lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"], executor_kwargs=obj["executor_kwargs"],
-            overwrite=obj["overwrite"], parameters=obj["parameters"])
+            lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"], overwrite=obj["overwrite"],
+            parameters=obj["parameters"])
 
 
 def do_guidance(obj, max_obs_at_once):
@@ -79,7 +74,7 @@ def do_practice(obj, n_attempts, n_random_actions, lookback):
     from cusi.practice.stages.practice import practice
     practice(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], n_attempts=n_attempts,
              n_random_actions=n_random_actions, lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"],
-             executor_kwargs=obj["executor_kwargs"], overwrite=obj["overwrite"], parameters=obj["parameters"])
+             overwrite=obj["overwrite"], parameters=obj["parameters"])
 
 
 def do_clean(obj, k, safety_margin):

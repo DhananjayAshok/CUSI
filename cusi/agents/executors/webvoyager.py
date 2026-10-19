@@ -1,14 +1,17 @@
 """
-WebVoyager's agent inside the shared skeleton: one chat per leg, built as WebVoyager's run.py builds it.
+WebVoyager's agent with the final Web design (decisions.md E4, E8.0): one chat per leg, built as WebVoyager's run.py
+builds it, plus the iteration budget in each observation (F10), no Google action (F14=google) and 5 screenshots kept
+in the chat (F08=5), all fixed behaviour. WebVoyager's system prompt comes from the submodule and is patched here;
+a missing anchor raises.
 """
 import os
 import re
 from typing import Optional
 from cusi.utils.log_handling import log_warn
-from cusi.envs.webvoyager import load_webvoyager
-from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
+from cusi.envs.webvoyager import MSG_NO_GOOGLE, load_webvoyager, remove_line, without_google
+from cusi.agents.executors.base import EXPLORE_GOAL, GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
 
-MAX_ATTACHED_IMGS = 3     # WebVoyager/run.sh --max_attached_imgs
+MAX_ATTACHED_IMGS = 5     # F08=5 (WebVoyager/run.sh: 3)
 _PLACEHOLDER = "__CUSI_IMAGE__"   # passed to format_msg, whose image part is then swapped for an index
 _PATTERN = r"Thought:|Action:|Observation:"
 # run.py's messages, verbatim.
@@ -16,6 +19,8 @@ MSG_FORMAT = "Format ERROR: Both 'Thought' and 'Action' should be included in yo
 MSG_EXEC_FAILED = ("The action you have chosen cannot be exected. Please double-check if you have selected the wrong"
                    " Numerical Label or Action or Action format. Then provide the revised Thought and Action.")
 OBS_PROMPT = "Observation: please analyze the attached screenshot and give the Thought and Action. "
+MSG_NO_ANSWER = "The ANSWER action is not available while exploring; keep exploring the website."
+LOW_BUDGET_LEFT = 3
 
 
 def init_message(*, task: str, url: str, guidance: Optional[str]) -> str:
@@ -27,10 +32,33 @@ def init_message(*, task: str, url: str, guidance: Optional[str]) -> str:
     return msg + OBS_PROMPT
 
 
+def budget_note(*, iteration: int, max_steps: int) -> str:
+    """F10: the iteration count, appended to each observation; a warning in the last LOW_BUDGET_LEFT iterations."""
+    left = max_steps - iteration + 1
+    note = f"\n[Budget] This is iteration {iteration} of {max_steps}; {left - 1} more after this one."
+    if left <= LOW_BUDGET_LEFT:
+        note += " You are running out of iterations: answer as soon as you have the information."
+    return note
+
+
+def system_prompt(*, base: str, explore: bool) -> str:
+    """WebVoyager's system prompt without the Google action (F14=google: it often lands on a CAPTCHA); exploring,
+    also without ANSWER."""
+    text = without_google(prompt=base)
+    if explore:
+        text = remove_line(text=text, pattern=r"7\. Answer\. [^\n]*\n")
+        text = remove_line(text=text, pattern=r"- ANSWER; \[content\]\n")
+    return text
+
+
 class WebVoyagerExecutor(Executor):
-    """WebVoyager on a WebVoyagerPlayEnv."""
+    """WebVoyager with the final Web design on a WebVoyagerPlayEnv; task None = exploring (no ANSWER action)."""
 
     name = "webvoyager"
+    env_name = "web"
+    MAX_NEW_TOKENS = 1000     # run.py call_model
+    TEMPERATURE = 1.0         # run.sh --temperature
+    STOP_ON_MODEL_ERROR = True
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -45,7 +73,8 @@ class WebVoyagerExecutor(Executor):
         self._warn_obs = ""
 
     def reset_memory(self) -> None:
-        self._messages = [{"role": "system", "content": self._wv.SYSTEM_PROMPT}]
+        self._messages = [{"role": "system",
+                           "content": system_prompt(base=self._wv.SYSTEM_PROMPT, explore=self.task is None)}]
         self._images = []
         self._n_previous = 0
         self.screenshots = []
@@ -72,6 +101,8 @@ class WebVoyagerExecutor(Executor):
                 parts.append({"type": "image", "image": len(self._images) - 1})
             else:
                 parts.append(dict(part))
+        first_text = next(p for p in parts if p["type"] == "text")
+        first_text["text"] += budget_note(iteration=self._it, max_steps=self.report.max_steps)
         return {"role": "user", "content": parts}
 
     def _compact(self, messages: list) -> tuple:
@@ -96,7 +127,7 @@ class WebVoyagerExecutor(Executor):
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
         self._it += 1
         if not self._fail_obs:
-            init_msg = init_message(task=self.task, url=self.env.start_url, guidance=hint)
+            init_msg = init_message(task=self.task or EXPLORE_GOAL, url=self.env.start_url, guidance=hint)
             self._messages.append(self._observation_message(obs=obs, init_msg=init_msg))
         else:
             self._messages.append({"role": "user", "content": self._fail_obs})
@@ -109,7 +140,13 @@ class WebVoyagerExecutor(Executor):
             self._fail_obs = MSG_FORMAT
             return Decision(invalid="format error", error=MSG_FORMAT)
         chosen_action = re.split(_PATTERN, response)[2].strip()
+        if chosen_action.startswith("Google"):
+            self._fail_obs = MSG_NO_GOOGLE
+            return Decision(invalid="pruned action", error=MSG_NO_GOOGLE)
         action_key, parsed = self._wv.extract_information(chosen_action)
+        if action_key == "answer" and self.task is None:
+            self._fail_obs = MSG_NO_ANSWER
+            return Decision(invalid="answer while exploring", error=MSG_NO_ANSWER)
         if action_key == "answer":
             return Decision(finish=True, answer=parsed["content"], action_text=f"Action: {chosen_action}")
         if action_key is None:
@@ -129,7 +166,7 @@ class WebVoyagerExecutor(Executor):
         name = info["pdf"].split("You downloaded a PDF file: ", 1)[-1].rstrip(".")
         path = os.path.join(self.env._work_dir, name)
         try:
-            answer = answer_from_pdf(model=self.vlm._model, pdf_path=path, question=self.task,
+            answer = answer_from_pdf(model=self.vlm._model, pdf_path=path, question=self.task or EXPLORE_GOAL,
                                      parameters=self._parameters)
         except Exception as e:
             log_warn(f"PDF answer failed for {path}: {e}", parameters=self._parameters)

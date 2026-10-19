@@ -30,6 +30,9 @@ DEFAULT_TEST_MAX_STEPS = 15   # WebVoyager/run.sh --max_iter
 # run.py's format error, verbatim.
 MSG_FORMAT = "Format ERROR: Both 'Thought' and 'Action' should be included in your reply."
 MSG_NO_ANSWER = "The ANSWER action is not available: there is no task to answer. No action was performed."
+# Google is not an action of this env (decisions.md E8.2b, F14=google: it often lands on a CAPTCHA). The menu below
+# and the agent's system prompt both drop it through without_google, and a Google action that arrives is rejected.
+MSG_NO_GOOGLE = "The Google action is not available. Use the website's own search and navigation."
 
 
 # --------------------------------------------------------------------------- bot-check pages
@@ -98,8 +101,23 @@ def load_webvoyager(*, project_root: str):
         return module
 
 
+def remove_line(*, text: str, pattern: str) -> str:
+    """text without the one line matching pattern; raises if there is not exactly one (the submodule text changed)."""
+    out, n = re.subn(pattern, "", text)
+    if n != 1:
+        raise ValueError(f"WebVoyager system prompt anchor matched {n} times (WebVoyager changed?): {pattern!r}")
+    return out
+
+
+def without_google(*, prompt: str) -> str:
+    """WebVoyager's system prompt without its Google action (the numbered entry and the format line)."""
+    prompt = remove_line(text=prompt, pattern=r"6\. Google, directly jump[^\n]*\n")
+    return remove_line(text=prompt, pattern=r"- Google\n")
+
+
 def action_menu(*, system_prompt: str, mode: str) -> str:
-    """The action list from WebVoyager's system prompt; free_play drops ANSWER."""
+    """The action list from WebVoyager's system prompt, without Google; free_play drops ANSWER."""
+    system_prompt = without_google(prompt=system_prompt)
     numbered = re.search(r"\n(1\. Click.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     formats = re.search(r"STRICTLY follow the format:\n(.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     lines = numbered.splitlines() + ["", "Action format:"] + formats.splitlines()
@@ -144,10 +162,16 @@ def filtered_task_file(*, parameters: dict) -> str:
         raise ValueError(f"web_excluded_sites names sites not in {source}: {sorted(unknown)}")
     path = web_task_file(parameters=parameters)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        for row in rows:
-            if row["web_name"] not in excluded:
-                f.write(json.dumps(row) + "\n")
+    text = "".join(json.dumps(row) + "\n" for row in rows if row["web_name"] not in excluded)
+    if os.path.exists(path):
+        with open(path) as f:
+            if f.read() == text:
+                return path
+    # Concurrent evals call this too: write to a private file and rename, so a reader never sees a partial file.
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
     return path
 
 
@@ -363,6 +387,11 @@ class WebVoyagerPlayEnv(TextActionEnv):
                                   scene_id=self.scene_id, stale=True)
             return self._obs(), 0.0, False, truncated, info
         parsed = canonical_action(action_key=action_key, info=parsed_info)
+
+        if action_key == "google":
+            info = self.make_info(valid=False, error=MSG_NO_GOOGLE, parsed_action=parsed, step=self._steps,
+                                  scene_id=self.scene_id, stale=True)
+            return self._obs(), 0.0, False, truncated, info
 
         if action_key == "answer":
             if self.mode == "test":

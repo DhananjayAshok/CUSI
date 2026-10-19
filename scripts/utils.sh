@@ -227,20 +227,6 @@ declare -A STOP_VLLM_DEFAULTS=(
     ["port"]="$vllm_port"
 )
 
-# scripts/submit_ablation.sh
-SUBMIT_ABLATION_ESSENTIALS=("models" "judge_model")
-declare -A SUBMIT_ABLATION_DEFAULTS=(
-    ["prefix"]="abl"
-    ["time"]="24:00:00"
-    ["time_min"]="2:00:00"   # Slurm may shorten a job's limit to this, e.g. to fit before a maintenance window
-    ["envs"]="gameboy android web"
-    ["supervisors"]="baseline revision subgoal"
-    ["gameboy_workers"]="8"
-    ["web_workers"]="4"
-    ["android_emulators"]="3"
-    ["partition"]="medium-lg"
-)
-
 # scripts/slurm/curiosity_practice.sh
 CURIOSITY_PRACTICE_ESSENTIALS=("env" "run" "model")
 declare -A CURIOSITY_PRACTICE_DEFAULTS=(
@@ -300,7 +286,6 @@ declare -A CURIOSITY_PARITY_DEFAULTS=(
 # scripts/slurm/eval.sh
 EVAL_ESSENTIALS=("env" "model" "run")
 declare -A EVAL_DEFAULTS=(
-    ["supervisor"]="baseline"
     ["workers"]="1"
     ["n_tasks"]="none"
     ["tasks"]="none"
@@ -311,27 +296,28 @@ declare -A EVAL_DEFAULTS=(
     ["vllm_port"]="none"
     ["overwrite"]="false"
     ["ignore_config_violation"]="false"
+    ["seed"]="0"
+    ["vllm_extra"]="none"
 )
 
-# scripts/slurm/explore.sh
-EXPLORE_ESSENTIALS=("env" "scene" "run" "policy_model" "curiosity_module" "image_embedder" "text_embedder")
-declare -A EXPLORE_DEFAULTS=(
-    ["total_steps"]="1536"
-    ["wm"]="false"
-    ["tasks"]="false"
-    ["extra"]="none"
-    ["model"]="none"
-)
-
-# scripts/slurm/policy_model_check.sh
-POLICY_MODEL_CHECK_ESSENTIALS=("models")
-declare -A POLICY_MODEL_CHECK_DEFAULTS=(
+# scripts/slurm/eval_pack.sh
+EVAL_PACK_ESSENTIALS=("env" "model" "arms")
+declare -A EVAL_PACK_DEFAULTS=(
+    ["workers"]="6"
+    ["vllm_port"]="none"
 )
 
 # scripts/slurm/practice_small.sh
 PRACTICE_SMALL_ESSENTIALS=("model")
 declare -A PRACTICE_SMALL_DEFAULTS=(
     ["envs"]="gameboy web android"
+)
+
+# scripts/slurm/vllm_python.sh
+VLLM_PYTHON_ESSENTIALS=("model" "script")
+declare -A VLLM_PYTHON_DEFAULTS=(
+    ["args"]="none"
+    ["vllm_port"]="none"
 )
 
 # scripts/slurm/vllm_smoke.sh

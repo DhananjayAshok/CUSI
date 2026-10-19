@@ -1,10 +1,11 @@
 """
-The environments as the pipeline uses them: scenes, executors and prompt domains.
+The environments as the pipeline uses them: scenes, the final agent and prompt domains.
 """
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable
 from cusi.practice.prompts import ANDROID_DOMAIN, WEB_DOMAIN, Domain, gameboy_domain
+from cusi.agents.agent import make_agent
 
 ENV_NAMES = ("gameboy", "android", "web")
 GAMEBOY_GAME = "pokemon_red"
@@ -24,7 +25,7 @@ class EnvSpec:
     max_steps: int               # step budget per leg (attempt and practice)
     max_workers: int             # concurrent environment instances
     make_env: Callable
-    make_executor: Callable
+    make_agent: Callable         # make_agent(env=, vlm=, parameters=) -> the env's final agent
     dataset_tags: tuple = ("action",)
 
 
@@ -38,8 +39,9 @@ def _android_env(*, scene: Scene, worker: int, parameters: dict):
     from cusi.envs.android_world import AndroidEmulator, AndroidPlayEnv
     port, grpc = 5554 + 2 * worker, 8554 + worker   # must match scripts/android_emulator.sh
     emulator = AndroidEmulator(port=port, grpc_port=grpc, snapshots=True, parameters=parameters)
+    # The agent re-observes before each decision (as M3A does), so the env does not wait for the screen to settle.
     return AndroidPlayEnv(mode="free_play", console_port=port, grpc_port=grpc, emulator=emulator,
-                          reset_mode="snapshot", parameters=parameters, **scene.kwargs)
+                          reset_mode="snapshot", stabilize_after_action=False, parameters=parameters, **scene.kwargs)
 
 
 def _web_env(*, scene: Scene, worker: int, parameters: dict):
@@ -47,19 +49,10 @@ def _web_env(*, scene: Scene, worker: int, parameters: dict):
     return WebVoyagerPlayEnv(mode="free_play", fast_waits=True, parameters=parameters, **scene.kwargs)
 
 
-def _gameboy_executor(**kwargs):
-    from cusi.agents.executors.gameboy import GameBoyExecutor
-    return GameBoyExecutor(**kwargs)
-
-
-def _m3a_executor(**kwargs):
-    from cusi.agents.executors.m3a import M3AExecutor
-    return M3AExecutor(**kwargs)
-
-
-def _web_executor(**kwargs):
-    from cusi.agents.executors.webvoyager import WebVoyagerExecutor
-    return WebVoyagerExecutor(**kwargs)
+def _agent_factory(env_name: str) -> Callable:
+    def make(*, env, vlm, parameters: dict):
+        return make_agent(env_name=env_name, env=env, vlm=vlm, parameters=parameters)
+    return make
 
 
 ENV_SPECS = {
@@ -67,20 +60,20 @@ ENV_SPECS = {
         name="gameboy", domain=gameboy_domain(game=GAMEBOY_GAME),
         scenes={"viridian": Scene("viridian", {"init_state": "location_viridian_city_starting_charmander"}),
                 "pewter": Scene("pewter", {"init_state": "location_pewter_city_starting_charmander"})},
-        max_steps=50, max_workers=8, make_env=_gameboy_env, make_executor=_gameboy_executor),
+        max_steps=50, max_workers=8, make_env=_gameboy_env, make_agent=_agent_factory("gameboy")),
     # AndroidWorld budgets 10 steps per unit of task complexity.
     "android": EnvSpec(
         name="android", domain=ANDROID_DOMAIN,
         # start_app: tasks start on the home screen, which would make the scenes look identical.
         scenes={"contacts": Scene("contacts", {"task": "ContactsAddContact", "start_app": "Contacts"}),
                 "settings": Scene("settings", {"task": "SystemWifiTurnOff", "start_app": "Settings"})},
-        max_steps=20, max_workers=1, make_env=_android_env, make_executor=_m3a_executor,
+        max_steps=20, max_workers=1, make_env=_android_env, make_agent=_agent_factory("android"),
         dataset_tags=("action", "summary")),
     "web": EnvSpec(
         name="web", domain=WEB_DOMAIN,
         scenes={"arxiv": Scene("arxiv", {"url": "https://arxiv.org/"}),
                 "github": Scene("github", {"url": "https://github.com/"})},
-        max_steps=15, max_workers=2, make_env=_web_env, make_executor=_web_executor),
+        max_steps=15, max_workers=2, make_env=_web_env, make_agent=_agent_factory("web")),
 }
 
 

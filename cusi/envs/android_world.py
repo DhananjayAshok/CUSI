@@ -48,9 +48,41 @@ def instance_seed(*, suite_seed: int, task_name: str, instance: int) -> int:
     return int(hashlib.sha256(unique.encode()).hexdigest(), 16) % (2 ** 32)
 
 
+# input_text as this env runs it (decisions.md E8.2): it takes clear_text (F55) and does not press Enter (F57). M3A's
+# own action text says otherwise, so the menu below and the agent's prompt both go through describe_actions.
+CLEAR_TEXT_OLD = '"index": <target_index>}`\n- Press the Enter'
+CLEAR_TEXT_NEW = ('"index": <target_index>, "clear_text": <true to first delete everything already in the field, false'
+                  ' to append; default false>}`\n- Press the Enter')
+INPUT_DESC_OLD = ("- Type text into a text field (this action contains clicking the text field, typing in the text and"
+                  " pressing the enter, so no need to click on the target field to start), use the numeric label on the"
+                  " bounding box to indicate the target text field:")
+INPUT_DESC_NEW = ("- Type text into a text field (this action clicks the text field and types the text; it does NOT"
+                  " press Enter, so use `keyboard_enter` afterwards if you need to submit or search), use the numeric"
+                  " label on the bounding box to indicate the target text field:")
+
+
+def _flat(old: str) -> str:
+    """A regex for old with any whitespace run matching any whitespace (M3A's prompt text wraps lines)."""
+    return r"\s+".join(re.escape(w) for w in re.sub(r"\s+", " ", old).strip().split(" "))
+
+
+def patch(*, prompt: str, old: str, new: str, flat: bool = False) -> str:
+    """prompt with its first `old` replaced by `new`; raises if `old` is missing (the submodule text changed)."""
+    out, n = re.subn(_flat(old) if flat else re.escape(old), lambda m: new, prompt, count=1)
+    if n != 1:
+        raise ValueError(f"M3A prompt anchor not found (android_world changed?): {old[:80]!r}")
+    return out
+
+
+def describe_actions(*, prompt: str) -> str:
+    """M3A text containing its action list, with input_text described as this env runs it."""
+    prompt = patch(prompt=prompt, old=CLEAR_TEXT_OLD, new=CLEAR_TEXT_NEW)
+    return patch(prompt=prompt, old=INPUT_DESC_OLD, new=INPUT_DESC_NEW, flat=True)
+
+
 def action_menu(*, mode: str) -> str:
-    """M3A's action list from its prompt; free_play drops `status` and `answer`."""
-    prefix = m3a.PROMPT_PREFIX.replace("{{", "{").replace("}}", "}")
+    """M3A's action list from its prompt, as this env runs it; free_play drops `status` and `answer`."""
+    prefix = describe_actions(prompt=m3a.PROMPT_PREFIX.replace("{{", "{").replace("}}", "}"))
     start = prefix.index("- If you think the task has been completed")
     lines = []
     for line in prefix[start:].split("\n- "):
@@ -71,6 +103,28 @@ def parse_action(*, text: str) -> tuple[Optional[dict], Optional[str]]:
     if not isinstance(parsed, dict) or "action_type" not in parsed:
         return None, MSG_PARSE_FAILED
     return parsed, None
+
+
+def add_resource_ids(*, text: str, ui_elements: list) -> str:
+    """M3A's element list with each element's resource id (short name) after its index."""
+    def sub(m):
+        i = int(m.group(1))
+        name = (ui_elements[i].resource_name or "") if i < len(ui_elements) else ""
+        name = name.split("/")[-1]
+        return m.group(0) + (f'"resource_id": "{name}", ' if name else "")
+    return re.sub(r'UI element (\d+): \{"index": \d+, ', sub, text)
+
+
+def type_without_enter(*, env, action: json_action.JSONAction) -> None:
+    """AndroidWorld's input_text (focus, optional clear, type) without its final Enter press."""
+    if action.index is not None or (action.x is not None and action.y is not None):
+        env.execute_action(json_action.JSONAction(action_type="click", index=action.index, x=action.x, y=action.y))
+        time.sleep(1.0)
+    if action.clear_text:
+        adb_utils.issue_generic_request(["shell", "input", "keycombination", "113", "29", "&&", "input", "keyevent",
+                                         "67"], env.controller)
+        time.sleep(1.0)
+    adb_utils.type_text(action.text, env.controller, timeout_sec=10)
 
 
 def canonical_action(*, action: json_action.JSONAction) -> dict:
@@ -371,6 +425,7 @@ class AndroidPlayEnv(TextActionEnv):
                     m3a_utils.add_ui_element_mark(frame, ui, i, size, env.physical_frame_boundary,
                                                   env.orientation)
         text = m3a._generate_ui_elements_description_list(state.ui_elements, size)
+        text = add_resource_ids(text=text, ui_elements=state.ui_elements)   # F60 (decisions.md E8.2)
         boxes = android_text_boxes(ui_elements=state.ui_elements, width=raw_pixels.shape[1],
                                    height=raw_pixels.shape[0])
         return frame.astype(np.uint8), (text, len(state.ui_elements)), raw_pixels, boxes
@@ -487,7 +542,10 @@ class AndroidPlayEnv(TextActionEnv):
 
     def _execute(self, env: interface.AsyncEnv, ja: json_action.JSONAction) -> Optional[str]:
         try:
-            env.execute_action(ja)
+            if ja.action_type == "input_text" and ja.text:   # F57: typing never presses Enter (decisions.md E8.2)
+                type_without_enter(env=env, action=ja)
+            else:
+                env.execute_action(ja)
         except Exception as e:
             log_info(f"execute_action failed: {e}", parameters=self._parameters)
             return MSG_EXEC_FAILED

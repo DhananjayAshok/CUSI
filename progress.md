@@ -360,3 +360,127 @@ Nothing is committed or pushed. The full status and per-variant results are in `
 - **Tests:** core, state, curiosity, VLM and store tests all pass. The GameBoy text reader check on pokemon_red read 38 of 40 text screens with 0 unknown glyphs.
 - **Repo hygiene:** `.gitignore` now ignores `/tmp*.sh`, `/tmp*.py` and `screenlog.*`. `tests/android_replay_debug.py` was moved out of the repo.
 - **Not committed:** `configs/private_vars.yaml` (real values) and the `GameBoyRL` pointer, which is unchanged.
+
+# Executor design plan (design_plan.md), from 2026-10-13
+
+Decisions: `plans/decisions.md` §E. Feature catalogue: `plans/executor_lit.md`. Tables: `storage/eval/design/tables_dz.md`
+(by `tmp_design_tables.py`).
+
+## Stage 1: dev splits, baselines, harness (2026-10-13)
+- **Dev splits** (E1.1): Web 150/429 (15 per site), Android 58/116, GameBoy 50/99 (25 Red + 25 Crystal), in
+  `storage/eval/design/dev_<env>.txt`.
+- **Harness:** `--features` / `--seed` on all three `run_eval.py` commands and `scripts/slurm/eval.sh`
+  (`cusi/eval/features.py`); `--tasks` takes a file; GameBoy takes `<game>_<row>` ids so one run covers Red and
+  Crystal. Each run dir gets a `meta_<hash>.yaml` of its arm. Prototype features: `tmp_exec_features.py`.
+  Submission: `tmp_submit_design.sh <env> <features> "<seeds>" [split]`.
+- **New Slurm pair** `vllm_python` (serve the model, run a script against it), for failure labelling.
+- **Baselines** (`dz_base_r{0,1,2}`, supervisor off): jobs 283976–283978 (GameBoy), 283979–283981 (Web),
+  283982–283984 (Android).
+- **Feature smoke runs** (4 tasks each, all prototype features on): 283986 (Web), 283987 (Android), 283988 (GameBoy).
+- **Literature review** running (output `plans/executor_lit.md`).
+- **Web smoke (job 283993; F10, F11, F41, F04, F32, F27, F21, F09, F14):** each feature does what it claims in the
+  episode records:
+  - plan and notes are carried each step;
+  - the budget, change and loop notes appear;
+  - F41 rejected two answers that came from the model's own knowledge after it was blocked.
+- **Harness trap found:** the `Google` action often lands on a Google CAPTCHA, and `GoBack` does not escape it. With no
+  way back to the task site, the agent burns its remaining iterations, then answers from memory. This hits 3 of 4
+  smoke tasks. F12 (a `GoTo [url]` action) is now prototyped for it.
+- **Second smoke round queued** (A5000 node): Web F12+F19+F49+F37+F08; GameBoy F38+F19+F37; GameBoy F16+F25;
+  Android F25+F08+F38+F19.
+- **Web failure taxonomy** (`storage/eval/design/failures_web.jsonl`; 50 failed dev episodes from `dz_base_r0/r1`,
+  labelled by gemma-4-31b-it with `tmp_failure_label.py`, job 284010):
+  - env_error 25, loop_noop 14, out_of_steps 6; early_finish, wrong_plan, screen_misread, invalid_action and
+    judge_error 1 each.
+  - **Spot-check:** all 25 env_error labels checked against the action traces; 22 of 25 used the agent's own
+    `Google` action (CAPTCHA), the others were site-side (GitHub sign-up block, Google Flights errors, Apple clicks).
+    Twelve other labels were read by hand; all were consistent with the trajectories.
+  - **So on Web,** the most failure mass is addressed by F14=google / F12 (CAPTCHA trap), then F32/F31/F09
+    (loops), then F10/F11 (steps).
+- **Web baseline:** r0 52.7%, r1 48.0% (r2 being judged).
+- **Web screening, repeat 0, submitted** (jobs 284011–284022): F12, F11, F10, F32, F41, F27, F14, F09, F04, F21,
+  F19, F08=1, each alone. More repeats follow once the noise floor (E1.4) is known. F14=google, F37 and F49 wait on
+  their smoke runs.
+- **GameBoy baseline (3 repeats):** 33.3% [22.0, 45.3]; per repeat 34 / 32 / 34%; 230 calls and 139k tokens per task;
+  1,083 s per task; 4.3 GPU-h per repeat. Noise floor 10.5 pt, so 3-repeat screening (E1.5).
+- **GameBoy screening submitted** (jobs 284024–284062), 3 repeats each: F04, F30, F54, F17, F32, F28, F21, F10,
+  F26=15, F07=3, F19, F38, F37=3. F16 and F25 wait on their smoke run.
+- **GameBoy smoke (F38+F19+F37):** the critic rejects about 1 in 8 proposals, often correctly (the agent believes it
+  is at the Pokémon Center while in a forest facing a sign). Cost is about 5× the calls with the vote.
+- **GameBoy failure taxonomy** (`failures_gameboy.jsonl`, 50 failed dev episodes from the 3 repeats, job 284023):
+  - loop_noop 27, screen_misread 15, wrong_plan 4, out_of_steps 4.
+  - **Spot-check:** 12 labels read against the trajectories, all consistent. Two match failures I had seen myself:
+    an NPC dialogue loop while the agent believes it faces the mirror (crystal_002), and the Cherrygrove sign mistaken
+    for the Pokémon Center door (crystal_000). Others: "Aww! It appeared to be caught!" read as a capture (red_008);
+    DOWN held at the end of a list (crystal_015).
+  - **So on GameBoy,** the most failure mass is addressed by loop handling (F32, F31, F38, F28, F17), then screen
+    reading (F04, F54, F07).
+- **Android smoke (F10, F11, F41, F32, F31, F27, F21, F34):** each feature appears as designed: F34 outcome
+  classes in the summaries (one correctly flagged a press that resumed instead of stopped a recording), plan and
+  notes carried, F41 verify calls.
+- **Android screening submitted** (2 repeats each, jobs 284108–284123): F41, F34, F32, F21, F27, F31, F10, F11.
+- **Web 250-task baseline:** 52.8%; floor 4.8 pt (E1.7).
+- **New:** a packed eval job pair (`slurm/eval_pack.sh`), 2+ arms sharing one vLLM server (GameBoy/Web), under test
+  (job 284102). The GameBoy single-arm jobs are held until it passes. F29 (model-written tips) prototyped, smoke
+  queued.
+- **GameBoy screening resubmitted as 24 packed jobs** (284129–284152), plus a packed baseline r3+r4 check (E2.6).
+- **Web screening round 1 decisions (E2.5):** promote F10 (+7.6) and F11 (+6.4); drop F08=1, F04, F09, F21 and F19;
+  retest F41, F32, F27 and F14 (packed jobs 284124–284127); new variant F08=5 (284128).
+- **Web round 2, part 1 (E2.7):** promote F14=google (+5.6, p = 0.049; it removes the CAPTCHA trap). Drop F37 vote
+  (+0.8 at 3× the calls) and F49 rewrite (+0.0).
+- **Android failure taxonomy (E2.8):** wrong_plan 11, early_finish 10, out_of_steps 10, loop_noop 7,
+  screen_misread 5, none 6.
+- **Android screening round 1 (E2.9, 2 repeats):** promote F27 notes (+7.0, 9 wins vs 2 losses). Drop F31 (+0.0)
+  and F41 (−3.5). Retest F32 (+3.5), F21 (+2.6) and F34 (+2.6) with a 3rd repeat (284168–284170). F10 and F11 still
+  running.
+- **Smoke runs passed:** Android F25+F08+F38+F19 (critic, 3 images per call, summaries) and F29 on all 3 envs.
+  F29 scored 0/4 on the Web and GameBoy smokes; it goes to screening anyway (smoke checks function, not effect).
+- **Submitted:** F29 screening (Web 284155; GameBoy 284156–284157) and Android F25, F08, F38, F19, F29 ×2
+  repeats (284158–284167).
+- **Combination and leave-one-out rules written** (E3.1, E3.2) before any combination run.
+- **Web screening, remaining (E2.11–E2.14, E2.20):** F08=5 promoted (+5.2). Dropped: F14=wait, F32, F27, F41,
+  F29, F08=8. F12 judge rerun pending (284095).
+- **Web combination (E3.3, E3.5, E3.6), greedy pass done:** F10 60.0% → +F14=google 63.6% → +F08=5 66.8%, i.e.
+  +14.0 over base (84 wins, 20 losses, p < 0.001). Running: F11-for-F10 swap (284239–284240) and leave-one-out
+  arm F14=google+F08=5 (284241–284243).
+- **Android screening complete (E2.15–E2.27):** promoted F27 notes (+7.0), F19 structured output (+5.3), F21 plan
+  (+4.4, 3 repeats). Dropped F31, F41, F08, F29, F38, F32, F34, F11, F10; F25 kept as a cost variant for the end.
+  Combination (E3.4): F27+F19 r1 (284232) and F27+F21 (284244–284245) running.
+- **GameBoy screening, 2 of 3 repeats in:** nothing above the floor yet (best F07=3 +2.2, F16 +1.2); F30 dropped
+  early under the added rule E2.19 (−12.8, p = 0.003). Remaining 3rd-repeat packs queued behind Web/Android
+  (nice 15).
+- **E4.1 (user decision):** the full-benchmark confirmation runs 1 repeat each of baseline and final design.
+- **Web final design (E3.7, E3.10):** F11-for-F10 swap −2.8, so F10 stays; leave-one-out keeps all three
+  (removing F10 −7.9, F14=google −7.6, F08=5 −2.7). **D = F10 + F14=google + F08=5**, 65.7% vs 52.8% on dev250.
+- **Android final design (E3.8, E3.9, E3.11):** F19 (−4.4) and F21 (+1.8) add nothing on top of F27. **D = F27**,
+  65.5% vs 60.5% on dev (3 repeats). F25 cost variant (F27+F25 ×3) running.
+- **GameBoy screening (E2.28–E2.31):** dropped F32, F28, F16, F25, F10, F26=15, F31, F21, F19, F37=3, F38; 4th
+  repeats for F54, F17, F07=3; F29 and F04 r2 running. Nothing promoted so far.
+- **Clean implementation (E5.1, E5.3, E5.4):** Web and Android switches on the executors, routed by
+  `cusi/eval/features.py`; identical prompts to the prototypes; `tests/executor_design_test.py`; live smokes passed.
+- **§7 (E5.2):** an in-episode archive revisit signal does not detect GameBoy loops better than the frame hash.
+- **Web full benchmark (E4.3):** 56.4% → 66.4% on 429 tasks (+10.0 [+5.8, +14.2], p < 0.001); held-out 179 tasks
+  57.0% → 66.5% (+9.5 [+2.8, +16.2], p = 0.009). Android full benchmark running (284344–284345).
+- **GameBoy screening complete (E2.32–E2.36, E3.12):** F04, F54, F17, F07=3 dropped after 4 repeats; F29 dropped.
+  Nothing promoted: the GameBoy design is the baseline executor.
+- **Android full benchmark (E4.5):** 62.2% → 63.0% (+0.9, n.s.); held-out +0.0. The dev gain of F27 does not
+  replicate. F25 cost variant (E3.13): −6.4 vs F27, not adopted; −1.5 vs base at half the calls (observation).
+- **GameBoy full benchmark (E4.6):** baseline 31.3% on 99 tasks; held-out 24.5%.
+- **F12 judge rerun cancelled** (E2.37): stuck 40 h on an A5000 request; superseded by F14=google.
+- **Write-up:** `plans/executor_design_report.md` (final designs, full and held-out results, every feature tried,
+  §7, caveats, what is left).
+- **Stage 6, AndroidWorld with Minitap + ARTEMIS ideas (E6.0–E6.9):** 10 features screened (F55–F64); only F61
+  (device context) promoted. Final candidate = Minitap bundle (F27 + F55–F61, higher on dev than F61 alone). Held-out,
+  3 repeats each: 60.3% → 68.4%, **+8.0 [+0.9, +15.8], p = 0.006 → confirmed**. Clean implementation pending.
+  GameBoy F62 transfer dropped (+1.2). Port collision fixed (mod 400). Appendix A.9 written; GameBoy appendix .tex in
+  `appendix_notes/gameboy_executor_search.tex`.
+- **Final port (E8.0–E8.8, 2026-10-19):**
+  - The fixed agent for each env is live in `cusi/agents/agent.py`:
+    - Web: WebVoyager with no Google;
+    - Android: the M3A Minitap bundle;
+    - GameBoy: GameBoyRL executor + subgoal supervisor.
+  - Checks:
+    - recorded replay on GameBoy: 49/49 episodes text-identical;
+    - dev parity: GameBoy 38.0% (vs 34.0), Web 68.4% (vs 65.7), Android 66.1% (vs 67.8), all PASS.
+  - The scaffolding is deleted: old supervisors, feature flags, PPO explore, the mock practice test and scratch
+    files.

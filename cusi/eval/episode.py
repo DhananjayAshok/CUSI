@@ -9,7 +9,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from cusi.agents.frames import FrameStore
 from cusi.agents.records import InvalidRecord, StepRecord, to_pil
-from cusi.agents.supervisors.report import LegEvent, SupervisorCall, SupervisorReport, jsonable
+from cusi.agents.supervisors.report import SupervisorCall, SupervisorReport, jsonable
 
 VIDEO_FPS = 1
 GAMEBOY_SCALE = 3
@@ -96,7 +96,7 @@ def video_frames(*, report: SupervisorReport) -> list:
                 f" | hint: {rep.hint}" if rep.hint else "")]))
         for call in rep.calls:
             if call.decision == "finish" and not call.steps:
-                out.append((current, [where, f"FINISH: the agent declared this leg done"
+                out.append((current, [where, "FINISH: the agent declared this leg done"
                                              + (f" (answer: {rep.answer})" if rep.answer else "")]))
             for step in call.steps:
                 step_no += 1

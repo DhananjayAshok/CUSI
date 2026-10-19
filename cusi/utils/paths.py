@@ -64,15 +64,6 @@ def web_source_task_file(*, parameters: dict) -> str:
     return os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
 
 
-def info_docs_dir(*, parameters: dict, game: str) -> str:
-    return os.path.join(_storage(parameters), "eval", "info_docs", game)
-
-
-def parametric_doc_file(*, parameters: dict, game: str, model_name: str) -> str:
-    """A model's cached parametric-knowledge document for a game."""
-    return os.path.join(info_docs_dir(parameters=parameters, game=game), f"parametric_{model_name.replace('/', '_')}.json")
-
-
 def eval_subsets_dir(*, parameters: dict, name: str) -> str:
     return os.path.join(_storage(parameters), "eval", f"{name}_subsets")
 

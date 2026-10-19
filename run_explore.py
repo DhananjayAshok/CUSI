@@ -1,5 +1,6 @@
 """
-Curiosity exploration and world-model training, one environment per process.
+Curiosity tasks and world-model / embedder / decoder training from exploration and search replays, one environment
+per process.
 
     python run_explore.py --env gameboy <command> [options]
 """
@@ -11,13 +12,9 @@ from cusi.utils.parameter_handling import load_parameters, compute_secondary_par
 from cusi.utils import paths
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
-from cusi.state import state_config, state_options
 
 loaded_parameters = load_parameters()
 
-# Per-environment episode length and rollout length.
-EPISODE_STEPS = {"gameboy": 30, "android": 20, "web": 15}
-ROLLOUT_STEPS = {"gameboy": 128, "android": 64, "web": 64}
 
 
 @click.group()
@@ -36,69 +33,6 @@ def main(ctx, env_name, random_seed, vllm_port):
 
 def _run_dirs(obj, run_names: str) -> list:
     return paths.explore_runs(parameters=obj["parameters"], env=obj["env_name"], run_names=run_names)
-
-
-@main.command()
-@click.option("--scene", required=True)
-@click.option("--run_name", required=True)
-@click.option("--policy_model", required=True, help="HF id of the VLM policy (e.g. Qwen/Qwen3.5-0.8B).")
-@click.option("--curiosity_module", required=True, type=click.Choice(["embedbuffer", "combinationbuffer", "world_model"]))
-@state_options(scorer=False)
-@click.option("--region_alpha", default=0.5, type=float, help="Region weight (combinationbuffer).")
-@click.option("--world_model_load_path", default=None, help="Trained world model dir (world_model module).")
-@click.option("--total_steps", default=1024)
-@click.option("--num_steps", default=None, type=int, help="Rollout length per update (default per env).")
-@click.option("--max_episode_steps", default=None, type=int, help="Episode truncation (default per env).")
-@click.option("--learning_rate", default=1e-5)
-@click.option("--target_kl", default=0.1, type=float, help="Stop an update when approx KL exceeds this.")
-@click.option("--update_epochs", default=2)
-@click.option("--num_minibatches", default=8)
-@click.option("--kl_coef", default=0.05)
-@click.option("--ent_coef", default=0.0)
-@click.option("--invalid_action_penalty", default=0.1, type=float,
-              help="Subtracted from the curiosity reward of an action the env rejects (0: off).")
-@click.option("--normalize_curiosity_reward", is_flag=True, help="Divide by a running std of the curiosity return.")
-@click.option("--reply_format", default="action_only", type=click.Choice(["action_only", "native"]))
-@click.option("--temperature", default=0.7)
-@click.option("--max_new_tokens", default=None, type=int, help="Default: sized to the reply format and env.")
-@click.option("--lora_r", default=128)
-@click.option("--lora_alpha", default=256)
-@click.option("--buffer_load_path", default=None, help="Curiosity prior (an earlier run's buffer/ dir).")
-@click.option("--worker", default=0, help="Android: which emulator (console port 5554 + 2*worker).")
-@click.pass_obj
-def ppo(obj, scene, run_name, policy_model, curiosity_module, region_alpha, world_model_load_path, total_steps,
-        num_steps, max_episode_steps, learning_rate, target_kl, update_epochs, num_minibatches, kl_coef, ent_coef,
-        invalid_action_penalty, normalize_curiosity_reward, reply_format, temperature, max_new_tokens, lora_r,
-        lora_alpha, buffer_load_path, worker, **state_kwargs):
-    """Curiosity PPO with the VLM policy on one scene.
-
-    Marked for deletion: replaced by the tree search's curiosity expander (plans/next_plan.md §E). Kept as the
-    generative-policy baseline until curiosity tasks and world-model training read search runs."""
-    from cusi.explore.ppo import CuriosityPPO
-    env_name, parameters = obj["env_name"], obj["parameters"]
-    config = state_config(state_kwargs)
-    spec = ENV_SPECS[env_name]
-    env = spec.make_env(scene=spec.scenes[scene], worker=worker, parameters=parameters)
-    out_dir = paths.explore_run(parameters=parameters, env=env_name, run=run_name)
-    try:
-        trainer = CuriosityPPO(
-            env_name=env_name, env=env, out_dir=out_dir, total_steps=total_steps, state_config=config,
-            curiosity_module=curiosity_module, policy_model=policy_model,
-            num_steps=num_steps or ROLLOUT_STEPS[env_name],
-            max_episode_steps=max_episode_steps or EPISODE_STEPS[env_name], learning_rate=learning_rate,
-            update_epochs=update_epochs, num_minibatches=num_minibatches, kl_coef=kl_coef, ent_coef=ent_coef,
-            target_kl=target_kl, region_alpha=region_alpha, world_model_load_path=world_model_load_path,
-            invalid_action_penalty=invalid_action_penalty, normalize_curiosity_reward=normalize_curiosity_reward,
-            buffer_load_path=buffer_load_path, buffer_save_path=os.path.join(out_dir, "buffer"),
-            reply_format=reply_format,
-            policy_kwargs={"temperature": temperature, "max_new_tokens": max_new_tokens, "lora_r": lora_r,
-                           "lora_alpha": lora_alpha},
-            seed=parameters["random_seed"], parameters=parameters)
-        with open(os.path.join(out_dir, "scene.txt"), "w") as f:
-            f.write(scene)
-        trainer.train()
-    finally:
-        env.close()
 
 
 @main.command()

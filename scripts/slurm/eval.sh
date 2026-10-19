@@ -1,24 +1,27 @@
 #!/usr/bin/env bash
-# One test-set evaluation (run_eval.py <env>) under one supervisor arm, against a vLLM server this
-# job starts fresh on its own port (prefix caching off), with the job's timing recorded
+# One test-set evaluation (run_eval.py <env>) of the env's final agent (cusi/agents/agent.py), against a vLLM
+# server this job starts fresh on its own port (prefix caching off), with the job's timing recorded
 # (plans/agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
 #
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model <model>
 # --judge_model). GameBoy runs on the node; Web and Android run in the CUSI container (Chromium;
-# the emulator, which needs /dev/kvm). The supervisor uses the executor's model and server.
+# the emulator, which needs /dev/kvm). A supervisor (GameBoy) uses the executor's model and server.
 #
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> \
-#       [--supervisor <value>] [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--vllm_port <value>]
+#       [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--seed <n>] [--vllm_port <value>]
 #   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
 #   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> --judge_only <judge_only> --judge_model <judge_model>   # score a finished run
 #   bash scripts/slurm/eval.sh --env <env> ... [--overwrite <value>] [--ignore_config_violation <value>]
+#   (--tasks may name a file of task ids, one per line)
+#   bash scripts/slurm/eval.sh --env <env> ... [--vllm_extra "<more vllm serve flags>"]   # e.g. "--dtype half" on pre-Ampere GPUs
 #
 # A run may only be resumed with the config it started with. --overwrite deletes the run dir (and its
 # <run>_s<i> shards) first; --ignore_config_violation resumes anyway.
 #
-# --vllm_port <vllm_port> to 8100 + (job id mod 800): serve_vllm.sh reuses a healthy server on its port
-# and stop_vllm.sh stops whatever serves there, so two jobs on a node must not share one.
+# --vllm_port <vllm_port> to 8100 + (job id mod 400): serve_vllm.sh reuses a healthy server on its port
+# and stop_vllm.sh stops whatever serves there, so two jobs on a node must not share one. The range
+# (8100-8499) stays below the Android emulators' gRPC ports (8554 and up).
 # Timing: <run dir>/timing.jsonl gets one line per job (node, GPUs, vLLM start-up, agent and judge
 # wall-clock).
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
@@ -34,7 +37,7 @@ RUN="${ARGS["run"]}"
 JOB="${SLURM_JOB_ID:-local$$}"
 PORT="${ARGS["vllm_port"]}"
 if [[ "$PORT" == "none" ]]; then
-    PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 800 ))
+    PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 400 ))
 fi
 URL="http://127.0.0.1:$PORT/v1/"
 RUN_DIR=$(python -m cusi.utils.paths eval_run --env "$ENV_NAME" --run "$RUN")
@@ -43,18 +46,21 @@ if [[ "${ARGS["overwrite"]}" == "true" && "${ARGS["judge_only"]}" != "true" ]]; 
 fi
 mkdir -p "$RUN_DIR"
 GPU_NAMES=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort | uniq -c | sed 's/^ *//' | paste -sd ';')
-echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none} ($GPU_NAMES)  env: $ENV_NAME  model: $MODEL  supervisor: ${ARGS["supervisor"]}  port: $PORT  -> $RUN_DIR"
+echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none} ($GPU_NAMES)  env: $ENV_NAME  model: $MODEL  port: $PORT  -> $RUN_DIR"
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 
 serve() {   # serve <model>; prints the start-up seconds
     local t0=$(date +%s)
-    bash scripts/serve_vllm.sh --model "$1" --port "$PORT" --extra "--no-enable-prefix-caching" >&2 || return 1
+    local extra="--no-enable-prefix-caching"
+    [[ "${ARGS["vllm_extra"]}" != "none" ]] && extra+=" ${ARGS["vllm_extra"]}"
+    bash scripts/serve_vllm.sh --model "$1" --port "$PORT" --extra "$extra" >&2 || return 1
     echo $(( $(date +%s) - t0 ))
 }
 
-FLAGS=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "$URL" --run_name "$RUN" --supervisor "${ARGS["supervisor"]}")
+FLAGS=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "$URL" --run_name "$RUN")
 [[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)
 [[ "${ARGS["tasks"]}" != "none" ]] && FLAGS+=(--tasks "${ARGS["tasks"]}")
+[[ "${ARGS["seed"]}" != "0" ]] && FLAGS+=(--seed "${ARGS["seed"]}")
 case "$ENV_NAME" in
     gameboy)
         FLAGS+=(--workers "${ARGS["workers"]}")
@@ -117,7 +123,7 @@ fi
 python - "$RUN_DIR/timing.jsonl" <<EOF
 import json, sys, time
 row = {"job": "$JOB", "node": "$(hostname)", "gpus": "${CUDA_VISIBLE_DEVICES:-none}", "gpu_names": "$GPU_NAMES",
-       "env": "$ENV_NAME", "model": "$MODEL", "supervisor": "${ARGS["supervisor"]}", "workers": "${ARGS["workers"]}",
+       "env": "$ENV_NAME", "model": "$MODEL", "workers": "${ARGS["workers"]}",
        "n_emulators": "${ARGS["n_emulators"]}", "judge_model": "${ARGS["judge_model"]}", "vllm_startup_seconds": $STARTUP,
        "agent_seconds": $AGENT, "judge_vllm_startup_seconds": $JUDGE_STARTUP, "judge_seconds": $JUDGE,
        "exit_status": $STATUS, "finished": time.strftime("%Y-%m-%d %H:%M:%S")}
