@@ -64,10 +64,6 @@ def web_source_task_file(*, parameters: dict) -> str:
     return os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
 
 
-def eval_subsets_dir(*, parameters: dict, name: str) -> str:
-    return os.path.join(_storage(parameters), "eval", f"{name}_subsets")
-
-
 # --------------------------------------------------------------------------- practice
 
 class PracticePaths:

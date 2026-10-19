@@ -300,13 +300,6 @@ declare -A EVAL_DEFAULTS=(
     ["vllm_extra"]="none"
 )
 
-# scripts/slurm/eval_pack.sh
-EVAL_PACK_ESSENTIALS=("env" "model" "arms")
-declare -A EVAL_PACK_DEFAULTS=(
-    ["workers"]="6"
-    ["vllm_port"]="none"
-)
-
 # scripts/slurm/practice_small.sh
 PRACTICE_SMALL_ESSENTIALS=("model")
 declare -A PRACTICE_SMALL_DEFAULTS=(

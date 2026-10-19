@@ -11,7 +11,7 @@ import click
 from huggingface_hub import HfApi
 from cusi.utils import log_error, log_info, log_warn
 from cusi.utils.parameter_handling import load_parameters
-from cusi.utils.paths import eval_run_dirs, eval_subsets_dir, web_task_file
+from cusi.utils.paths import eval_run_dirs, web_task_file
 
 loaded_parameters = load_parameters()
 
@@ -26,7 +26,7 @@ def _rel(*, parameters: dict, path: str) -> str:
 
 def _eval_inputs(*, parameters: dict) -> list:
     """Shared inputs an eval run needs to be resumed or judged elsewhere."""
-    return [web_task_file(parameters=parameters), eval_subsets_dir(parameters=parameters, name="mem10")]
+    return [web_task_file(parameters=parameters)]
 
 
 def evals_push(*, parameters: dict, run_name: str, envs: list) -> list:

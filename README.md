@@ -95,7 +95,7 @@ For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
 | 2. Curiosity + world model | `cusi/explore/` (curiosity modules on `cusi.state`; replay, world model, decoder, embedder training; the PPO policy was removed) | `python run_explore.py --env X {tasks,world_model,decoder,wm_eval,elements,train_embedder}` | — |
 | Shared state module | `cusi/state/` (image / text embedders, novelty archive with cells, novelty scorers; inference only) | used by `run_explore.py` and `cusi.search` | — |
 | Pre-exploration search | `cusi/search/` (tree, energy-sampling selection, random / VLM expanders, VLM prior; library only — the toy entry point was removed) | — | — |
-| Evaluation | `cusi/eval/` (test sets through `cusi.envs` in test mode, shown equivalent to the native harnesses: `plans/eval_plan.md`; episode artifacts + step videos per task: `cusi/eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--workers N]` | `slurm/eval.sh`, `slurm/eval_pack.sh` |
+| Evaluation | `cusi/eval/` (test sets through `cusi.envs` in test mode, shown equivalent to the native harnesses: `plans/eval_plan.md`; episode artifacts + step videos per task: `cusi/eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--workers N]` | `slurm/eval.sh` |
 | Final agent | `cusi/agents/agent.py` (fixed per env: Web = WebVoyager, Android = M3A, both unsupervised; GameBoy = GameBoyRL executor + subgoal supervisor: `plans/final_port_plan.md`) | through `run_eval.py` | `slurm/eval.sh` |
 
 Outputs go to `storage_dir/practice/<env>/<model>/`, `storage_dir/explore/<env>/`,
