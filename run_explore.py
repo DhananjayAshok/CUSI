@@ -82,12 +82,13 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
     dirs = _run_dirs(obj, run_names)
     out = paths.world_model_dir(parameters=obj["parameters"], env=obj["env_name"],
                                 name=name or paths.runs_label(run_names=run_names))
-    embedder = None if image_embedder is None else build_image_embedder(
-        image_embedder=image_embedder, env_name=obj["env_name"], encoder_model=encoder_model,
-        embedder_load_path=embedder_load_path, parameters=obj["parameters"])
-    train_world_model(replay_dirs=[paths.explore_replay(run_dir=d) for d in dirs], out_dir=out, action_space_dir=dirs[0],
-                      epochs=epochs, embedder=embedder, seed=obj["parameters"]["random_seed"],
-                      parameters=obj["parameters"])
+    config = None if image_embedder is None else {"image_embedder": image_embedder, "encoder_model": encoder_model,
+                                                  "embedder_load_path": embedder_load_path}
+    embedder = None if config is None else build_image_embedder(env_name=obj["env_name"],
+                                                                parameters=obj["parameters"], **config)
+    train_world_model(replay_dirs=[paths.explore_replay(run_dir=d) for d in dirs], out_dir=out,
+                      env_name=obj["env_name"], epochs=epochs, embedder=embedder, embedder_config=config,
+                      seed=obj["parameters"]["random_seed"], parameters=obj["parameters"])
 
 
 @main.command(name="train_embedder")
@@ -137,7 +138,8 @@ def decoder(obj, run_names, name, epochs, max_frames):
 
 
 @main.command(name="wm_eval")
-@click.option("--name", required=True, help="world_model/<name> and decoder/<name>.")
+@click.option("--name", required=True, help="world_model/<name>; its decoder is decoder/<name>, or the fine-tuned "
+              "SigLIP's own decoder when the world model was trained on one.")
 @click.option("--run_names", default=None, help="Replay to draw examples from (default: the world model's).")
 @click.option("--n_examples", default=6)
 @click.pass_obj
@@ -147,10 +149,23 @@ def wm_eval(obj, name, run_names, n_examples):
     from PIL import Image
     from cusi.explore.decoder import EmbeddingDecoder
     from cusi.explore.world_model import transitions_from_replay
-    from cusi.state.scorers.world_model import WorldModel
+    from cusi.state import build_image_embedder
+    from cusi.state.scorers.world_model import WorldModel, read_meta
     from cusi.explore.replay import load_episodes
     wm_dir = paths.world_model_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
-    dec_dir = paths.decoder_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
+    config = read_meta(directory=wm_dir).get("embedder_config")
+    embedder = None if config is None else build_image_embedder(env_name=obj["env_name"],
+                                                                parameters=obj["parameters"], **config)
+    if config is not None and config["image_embedder"] == "siglip":
+        # the reconstruction fine-tune trains a decoder on its own embeddings
+        if not config.get("embedder_load_path"):
+            raise click.UsageError("wm_eval needs a decoder: a zero-shot SigLIP world model has none "
+                                   "(train it on a fine-tuned SigLIP, whose directory holds one)")
+        dec_dir = config["embedder_load_path"]
+    elif config is not None:
+        raise click.UsageError(f"wm_eval has no decoder for a world model re-embedded with {config['image_embedder']}")
+    else:
+        dec_dir = paths.decoder_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
     summary = json.load(open(os.path.join(wm_dir, "train_summary.json")))["summary"]
     replay_dirs = summary["replay_dirs"] if run_names is None else \
         [paths.explore_replay(run_dir=d) for d in _run_dirs(obj, run_names)]
@@ -159,6 +174,10 @@ def wm_eval(obj, name, run_names, n_examples):
     rng = np.random.default_rng(0)
     rows = []
     episodes = [ep for d in replay_dirs for ep in load_episodes(directory=d)]
+    if embedder is not None:
+        for ep in episodes:
+            for s, e in zip(ep, embedder.embed(frames=[s["frame"] for s in ep]).numpy()):
+                s["embedding"] = e
     candidates = [(e, t) for e, ep in enumerate(episodes) for t in range(1, len(ep))
                   if ep[t]["action_index"] is not None and ep[t]["valid"]]
     if not candidates:   # no valid action in the replay: show the no-op transitions instead
@@ -183,7 +202,7 @@ def wm_eval(obj, name, run_names, n_examples):
     grid = np.concatenate(rows, axis=0)
     out_png = os.path.join(wm_dir, "predictions.png")
     Image.fromarray(grid).save(out_png)
-    data = transitions_from_replay(replay_dirs=replay_dirs)
+    data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder)
     from cusi.explore.world_model import evaluate
     keep = np.where(data["action"] >= 0)[0]
     metrics = evaluate(model=wm, data=data, idx=keep, device=device)

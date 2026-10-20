@@ -250,6 +250,12 @@ declare -A SEARCH_DEFAULTS=(
     ["ignore_config_violation"]="false"
 )
 
+# scripts/slurm/explore_train.sh
+EXPLORE_TRAIN_ESSENTIALS=("env" "command")
+declare -A EXPLORE_TRAIN_DEFAULTS=(
+    ["extra"]="none"
+)
+
 # scripts/slurm/search_env_test.sh
 SEARCH_ENV_TEST_ESSENTIALS=("env")
 declare -A SEARCH_ENV_TEST_DEFAULTS=(

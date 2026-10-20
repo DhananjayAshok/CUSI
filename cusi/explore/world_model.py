@@ -3,13 +3,12 @@ World model training on replay buffers: predict the next frame's embedding from 
 """
 import json
 import os
-import shutil
-from typing import Any
+from typing import Any, Optional
 import numpy as np
 import torch
 import torch.nn as nn
 from cusi.utils.log_handling import log_info
-from cusi.envs.action_vocab import ACTION_SPACE_FILENAME, ActionVocab
+from cusi.envs.action_vocab import ActionVocab
 from cusi.explore.replay import iter_replay, load_episodes
 from cusi.state.scorers.world_model import WORLD_MODEL_META_FILENAME, WorldModel
 
@@ -63,15 +62,19 @@ def stored_embedder_name(*, replay_dirs: list) -> str:
     raise ValueError(f"No replay rows in {replay_dirs}")
 
 
-def train_world_model(*, replay_dirs: list, out_dir: str, action_space_dir: str, epochs: int = 50,
+def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs: int = 50,
                       batch_size: int = 256, lr: float = 1e-3, val_frac: float = 0.1, seed: int = 0,
-                      embedder=None, device: str = None, parameters: dict[str, Any] = None) -> dict:
+                      embedder=None, embedder_config: Optional[dict] = None, device: str = None,
+                      parameters: dict[str, Any] = None) -> dict:
+    """embedder re-embeds the replay frames (None: the stored embeddings); embedder_config is how to rebuild it
+    (image_embedder, encoder_model, embedder_load_path), kept in the meta for wm_eval."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    spec = ActionVocab.load_spec(directory=action_space_dir)
+    vocab = ActionVocab(env_name=env_name)
+    spec = {"env": env_name, "n_actions": len(vocab), "names": vocab.names}
     data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder)
     meta = {"image_embedder": embedder.name, "embedder_meta": embedder.meta()} if embedder is not None else \
         {"image_embedder": stored_embedder_name(replay_dirs=replay_dirs), "embedder_meta": None}
-    meta.update({"env": spec["env"], "emb_dim": int(data["next"].shape[1])})
+    meta.update({"env": env_name, "emb_dim": int(data["next"].shape[1]), "embedder_config": embedder_config})
     valid = data["action"] >= 0
     for k in data:
         data[k] = data[k][valid]
@@ -111,7 +114,7 @@ def train_world_model(*, replay_dirs: list, out_dir: str, action_space_dir: str,
     model.save(directory=out_dir)
     with open(os.path.join(out_dir, WORLD_MODEL_META_FILENAME), "w") as f:
         json.dump(meta, f, indent=1)
-    shutil.copy(os.path.join(action_space_dir, ACTION_SPACE_FILENAME), os.path.join(out_dir, ACTION_SPACE_FILENAME))
+    vocab.save(directory=out_dir)
     summary = {"n_transitions": int(n), "n_train": int(len(train_idx)), "n_val": int(len(val_idx)),
                "action_counts": {spec["names"][a]: int(c) for a, c in zip(*np.unique(data["action"], return_counts=True))},
                "final": history[-1], "replay_dirs": replay_dirs}
