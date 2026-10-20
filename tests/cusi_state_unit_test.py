@@ -81,7 +81,7 @@ def main():
     check(np.array_equal(masked[outside], frame[outside]) and (masked[20:30, 20:50] == 200).all(),
           "masking fills the box with its ring colour and leaves the rest unchanged")
 
-    # encoder + archive: text weighting, dedup on image AND key set, cells
+    # encoder + archive: text weighting, dedup on image AND key set
     tri = build_text_embedder(text_embedder="trigram")
     enc = StateEncoder(image=build_image_embedder(image_embedder="random_patch", env_name="gameboy"),
                        text=tri, w_image=0.5, mask_text=False)
@@ -90,10 +90,8 @@ def main():
     obs = [{"frame": gb[i % 3], "texts": {}, "text_boxes": screens[i % 3]} for i in range(6)]
     obs.append({"frame": gb[0], "texts": {}, "text_boxes": screens[1]})        # same image, other text
     embs = enc.encode(obs_list=obs, info_list=[{}] * 7)
-    arch = NoveltyArchive(metric="cosine", text_embedder=tri, w_image=0.5, cell_threshold=0.9)
-    cells = [arch.cell_of(e) for e in embs[:6]]
+    arch = NoveltyArchive(metric="cosine", text_embedder=tri, w_image=0.5)
     added = [arch.add(e) for e in embs]
-    check(cells == [0, 1, 2, 0, 1, 2] and arch.cell_counts == [2, 2, 2], f"cells {cells}, counts {arch.cell_counts}")
     check(added == [True] * 3 + [False] * 3 + [True] and len(arch) == 4,
           f"dedup needs the same image and key set: added {added}")
     check(arch.novelty(embs[0]) < 1e-5 and abs(enc.similarity(a=embs[0], b=embs[0]) - 1) < 1e-5,
@@ -134,9 +132,9 @@ def main():
     check(len(arch) == 4, "copy / restore")
     with tempfile.TemporaryDirectory() as d:
         arch.save(directory=d)
-        arch2 = NoveltyArchive(metric="cosine", text_embedder=tri, w_image=0.5, cell_threshold=0.9)
+        arch2 = NoveltyArchive(metric="cosine", text_embedder=tri, w_image=0.5)
         arch2.load_from(directory=d)
-        check(len(arch2) == 4 and arch2.cell_counts == [2, 2, 2] and arch2.texts == arch.texts
+        check(len(arch2) == 4 and arch2.texts == arch.texts
               and torch.allclose(arch2.similarities(embs[1]), arch.similarities(embs[1])), "save / load (format 2)")
 
     # unseen-text region scorer

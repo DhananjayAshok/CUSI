@@ -1,13 +1,13 @@
 """
 The novelty archive: a deduplicated, compacting store of visited states (image vector + interned text-box keys), with
-cells and region stores. Text similarity to every stored state is one sparse product plus a padded gather
+region stores. Text similarity to every stored state is one sparse product plus a padded gather
 (plans/next_plan.md §0.2).
 """
 import os
 from typing import Optional
 import numpy as np
 import torch
-from cusi.state.encoders.text import EMPTY, BoxSet, TextEmbedder, chamfer
+from cusi.state.encoders.text import EMPTY, BoxSet, TextEmbedder
 from cusi.state.keys import KeyStore
 from cusi.state.regions import REGION_TYPES
 from cusi.state.state import StateEmbedding, check_metric, combine, image_novelty, image_similarities
@@ -21,8 +21,7 @@ GATHER_CHUNK = 20_000_000
 class NoveltyArchive:
     def __init__(self, *, metric: str = "cosine", text_embedder: Optional[TextEmbedder] = None,
                  w_image: float = 1.0, dedup_threshold: float = 0.001, max_size: int = 10_000,
-                 compact_to: Optional[int] = None, cell_threshold: Optional[float] = None,
-                 text_seen_threshold: float = 0.9) -> None:
+                 compact_to: Optional[int] = None, text_seen_threshold: float = 0.9) -> None:
         check_metric(metric)
         self.metric = metric
         self.text_embedder = text_embedder or TextEmbedder()
@@ -30,15 +29,12 @@ class NoveltyArchive:
         self.w_image = 1.0 if not self.has_text else float(w_image)
         self.dedup_threshold, self.max_size = dedup_threshold, max_size
         self.compact_to = compact_to if compact_to is not None else max_size // 2
-        self.cell_threshold = cell_threshold
         self.text_seen_threshold = text_seen_threshold
         self.images: Optional[torch.Tensor] = None     # (N, D)
         self.store = KeyStore()
         self.state_keys: list = []                     # per state: int64 key ids
         self.state_weights: list = []                  # per state: float32 weights
         self._padded = None                            # (ids (N, L) with pad = len(keys), weights (N, L))
-        self.cells: list = []                          # StateEmbedding per cell
-        self.cell_counts: list = []
         self.regions: dict = {}
         self.n_compactions = 0
 
@@ -91,15 +87,6 @@ class NoveltyArchive:
         return out.astype(np.float32)
 
     # ------------------------------------------------------------ similarity
-
-    def _similarities(self, *, e: StateEmbedding, images: torch.Tensor, texts: list) -> torch.Tensor:
-        """Against an explicit list of states (cells)."""
-        sims = image_similarities(query=e.image, matrix=images, metric=self.metric)
-        if self.w_image < 1.0:
-            t = [chamfer(a=e.text or EMPTY, b=x or EMPTY) for x in texts]
-            text_sims = torch.tensor([np.nan if v is None else v for v in t], dtype=sims.dtype)
-            sims = combine(image_sim=sims, text_sim=text_sims, w_image=self.w_image)
-        return sims
 
     def similarities(self, e: StateEmbedding) -> torch.Tensor:
         if len(self) == 0:
@@ -196,31 +183,6 @@ class NoveltyArchive:
                 keep.append(int(members[d.argmin()]))
         self._keep_states(keep)
 
-    # ------------------------------------------------------------ cells
-
-    def cell_of(self, e: StateEmbedding, *, count: bool = True) -> int:
-        """The cell e falls in (opening a new one if no cell passes cell_threshold)."""
-        if self.cell_threshold is None:
-            raise ValueError("cell_of needs a NoveltyArchive built with cell_threshold")
-        cid = None
-        if self.cells:
-            images = torch.stack([c.image for c in self.cells])
-            sims = self._similarities(e=e, images=images, texts=[c.text for c in self.cells])
-            best = int(sims.argmax())
-            if float(sims[best]) >= self.cell_threshold:
-                cid = best
-        if cid is None:
-            self.cells.append(e)
-            self.cell_counts.append(0)
-            cid = len(self.cells) - 1
-        if count:
-            self.cell_counts[cid] += 1
-        return cid
-
-    @property
-    def n_cells(self) -> int:
-        return len(self.cells)
-
     # ------------------------------------------------------------ regions
 
     def region(self, name: str):
@@ -233,14 +195,11 @@ class NoveltyArchive:
 
     def copy(self) -> dict:
         return {"images": None if self.images is None else self.images.clone(), "texts": self.texts,
-                "cells": list(self.cells), "cell_counts": list(self.cell_counts),
                 "regions": {k: v.copy() for k, v in self.regions.items()}}
 
     def restore(self, snapshot: dict) -> None:
         self.images = None if snapshot["images"] is None else snapshot["images"].clone()
         self._set_texts(snapshot["texts"])
-        self.cells = list(snapshot["cells"])
-        self.cell_counts = list(snapshot["cell_counts"])
         self.regions = {k: v.copy() for k, v in snapshot["regions"].items()}
 
     def _set_texts(self, texts: list) -> None:
@@ -269,7 +228,7 @@ class NoveltyArchive:
         state_keys = [keys.add_many(keys=t.keys).tolist() for t in texts]
         torch.save({"format": FORMAT, "images": None if images is None else images.cpu(), "keys": list(keys.keys),
                     "state_keys": state_keys, "state_weights": [list(t.weights) for t in texts],
-                    "cells": self.cells, "cell_counts": self.cell_counts, "metric": self.metric,
+                    "metric": self.metric,
                     "text_embedder": self.text_embedder.name}, path)
         for buf in self.regions.values():
             buf.save(directory=directory, merge=merge)
@@ -282,7 +241,6 @@ class NoveltyArchive:
         data = _read(path=path, text_embedder=self.text_embedder.name, directory=directory)
         self.images = data["images"]
         self._set_texts(data["texts"])
-        self.cells, self.cell_counts = list(data["cells"]), list(data["cell_counts"])
         self.regions = {}
         for name, cls in REGION_TYPES.items():
             buf = cls.load(directory=directory, seen_threshold=self.text_seen_threshold)
@@ -301,5 +259,4 @@ def _read(*, path: str, text_embedder: str, directory: str) -> dict:
     keys = data["keys"]
     texts = [BoxSet(keys=tuple(keys[k] for k in ks), weights=tuple(ws))
              for ks, ws in zip(data["state_keys"], data["state_weights"])]
-    return {"images": data["images"], "texts": texts, "cells": data.get("cells", []),
-            "cell_counts": data.get("cell_counts", [])}
+    return {"images": data["images"], "texts": texts}

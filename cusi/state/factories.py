@@ -58,10 +58,9 @@ def build_encoder(*, config: dict, env_name: str, device: Optional[str] = None,
                         metric=config.get("similarity_metric", "cosine"), mask_text=config.get("mask_text", True))
 
 
-def build_archive(*, encoder: StateEncoder, cell_threshold: Optional[float] = None,
-                  max_size: int = 10_000, text_seen_threshold: float = 0.9) -> NoveltyArchive:
+def build_archive(*, encoder: StateEncoder, max_size: int = 10_000, text_seen_threshold: float = 0.9) -> NoveltyArchive:
     return NoveltyArchive(metric=encoder.metric, text_embedder=encoder.text, w_image=encoder.w_image,
-                          cell_threshold=cell_threshold, max_size=max_size, text_seen_threshold=text_seen_threshold)
+                          max_size=max_size, text_seen_threshold=text_seen_threshold)
 
 
 def build_scorer_from_config(*, config: dict, env_name: str, encoder: StateEncoder, device: Optional[str] = None):
