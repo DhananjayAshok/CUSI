@@ -235,7 +235,11 @@ class M3AExecutor(Executor):
         self._notes = read_notes(response=response) or self._notes
         if self._subgoals:
             self._done |= completed_subgoals(response=response, n=len(self._subgoals))
-        reason, action = m3a_utils.parse_reason_action_output(response)
+        try:
+            reason, action = m3a_utils.parse_reason_action_output(response)
+        except TypeError:       # the action parsed to a non-JSON value, e.g. a set from '{"click"}'
+            self._summaries.append(MSG_BAD_ACTION)
+            return Decision(invalid="unparseable action", error=MSG_BAD_ACTION)
         if (not reason) or (not action):
             self._summaries.append(MSG_BAD_FORMAT)
             return Decision(invalid="bad format", error=MSG_BAD_FORMAT)
