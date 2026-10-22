@@ -92,7 +92,7 @@ class WebVoyagerExecutor(Executor):
 
     def _observation_message(self, *, obs: dict, init_msg: str) -> dict:
         msg = self._wv.format_msg(self._it, init_msg, self._pdf_obs, self._warn_obs, _PLACEHOLDER,
-                                  obs["texts"]["web_elements"])
+                                  obs["elements"])
         parts = []
         for part in msg["content"]:
             if part["type"] == "image_url":

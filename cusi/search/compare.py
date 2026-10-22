@@ -1,5 +1,5 @@
 """
-Compare search runs (plans/next_plan.md §E.7, step 5): what each run's archive holds against the env steps and time
+Compare search runs (plans/archive/next_plan.md §E.7, step 5): what each run's archive holds against the env steps and time
 it cost, whichever expander produced it.
 
     python -m cusi.search.compare --env gameboy --runs curiosity_global_v1,random_k30_v1,gemma_vlm_v2

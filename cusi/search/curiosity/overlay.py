@@ -1,5 +1,5 @@
 """
-The curiosity session's reward archive (plans/next_plan.md §E.5.1): a fixed base B0 that is only read, plus the current
+The curiosity session's reward archive (plans/archive/next_plan.md §E.5.1): a fixed base B0 that is only read, plus the current
 episode's own states, which are dropped when the episode ends. Steps are scored against B0 ∪ the episode, so the
 reward is stationary across a session. It offers the NoveltyArchive interface the scorers use.
 """
@@ -60,5 +60,5 @@ def local_base(*, like: NoveltyArchive, embedding, obs: dict) -> NoveltyArchive:
                        dedup_threshold=like.dedup_threshold, max_size=like.max_size,
                        text_seen_threshold=like.text_seen_threshold)
     b.add(embedding)
-    b.region(UNSEEN_TEXT).score(boxes=text_boxes_of(obs=obs), add=True)
+    b.region(UNSEEN_TEXT).add(boxes=text_boxes_of(obs=obs))
     return b

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One test-set evaluation (run_eval.py <env>) of the env's final agent (cusi/agents/agent.py), against a vLLM
 # server this job starts fresh on its own port (prefix caching off), with the job's timing recorded
-# (plans/agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
+# (plans/archive/agents.md section 7). Run from the CUSI root (Slurm wrapper: slurm/eval.sh).
 #
 # GPUs: vLLM uses every visible GPU (-tp = visible count); they must hold --model <model>
 # --judge_model). GameBoy runs on the node; Web and Android run in the CUSI container (Chromium;
@@ -11,6 +11,7 @@
 #       [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--seed <n>] [--vllm_port <value>]
 #   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
 #   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
+#   bash scripts/slurm/eval.sh --env android ... [--android_wait <seconds>]   # sleep after each action (default 2)
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> --judge_only <judge_only> --judge_model <judge_model>   # score a finished run
 #   bash scripts/slurm/eval.sh --env <env> ... [--overwrite <value>] [--ignore_config_violation <value>]
 #   (--tasks may name a file of task ids, one per line)
@@ -67,7 +68,8 @@ case "$ENV_NAME" in
         [[ "${ARGS["n_tasks"]}" != "none" ]] && FLAGS+=(--n_tasks "${ARGS["n_tasks"]}") ;;
     web)
         FLAGS+=(--workers "${ARGS["workers"]}" --task_file "${ARGS["task_file"]}") ;;
-    android) ;;
+    android)
+        [[ "${ARGS["android_wait"]}" != "none" ]] && FLAGS+=(--wait_after_action_seconds "${ARGS["android_wait"]}") ;;
     *) echo "Unknown --env $ENV_NAME"; exit 1 ;;
 esac
 

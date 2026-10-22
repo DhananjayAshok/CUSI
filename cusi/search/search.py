@@ -16,8 +16,9 @@ RESTORE_MODES = ("state", "replay")
 
 class TreeSearch:
     def __init__(self, *, envs, encoder, scorer, archive, expander, stats, selector: EnergySelector,
-                 k_steps: int, node_threshold: float, features=None, decision_scorer=None, score_top_m: int = 8,
-                 describer=None, noop_similarity: float = 0.999,
+                 k_steps: int, node_threshold: float, closing_node: bool, archive_nodes_only: bool,
+                 features=None, decision_scorer=None, score_top_m: int = 8, describer=None,
+                 noop_similarity: float = 0.999,
                  restore: str = "state", replay_similarity: float = 0.95, store=None, logger=None,
                  parameters: dict[str, Any] = None) -> None:
         """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features: a VLMFeatures run on every
@@ -25,8 +26,10 @@ class TreeSearch:
         highest energy (0: all) against their scene's discovered features; the scores are P(n). describer: a
         TransitionDescriber run on every finished expansion. restore: "state" saves and loads a state per node; "replay" saves none and
         rebuilds a node by reset + its root->node actions, accepted when the result's similarity to the node is
-        >= replay_similarity. store: a SearchStore that commits the roots and every expansion, and resume() reads
-        back."""
+        >= replay_similarity. closing_node: an expansion's last step always becomes a node; without it, only steps
+        reaching node_threshold do, so a fruitless expansion adds none. archive_nodes_only: only states that become
+        nodes enter the novelty archive (and text buffer), so novelty is the distance to the nearest node.
+        store: a SearchStore that commits the roots and every expansion, and resume() reads back."""
         if restore not in RESTORE_MODES:
             raise ValueError(f"restore must be one of {RESTORE_MODES}, got {restore!r}")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
@@ -38,19 +41,15 @@ class TreeSearch:
         self.node_scores: dict = {}       # node id -> latest decision score (never scored: 1.0)
         self._n_discovered = None
         self.k_steps, self.node_threshold, self.noop_similarity = k_steps, node_threshold, noop_similarity
+        self.closing_node, self.archive_nodes_only = closing_node, archive_nodes_only
         self.restore, self.replay_similarity = restore, replay_similarity
         self.store, self.logger, self._parameters = store, logger, parameters
         self.tree = Tree()
         self.iteration = 0
         self.total_steps = 0
-        self.start_time = time.time()
         self.records: list = []
         self._at: dict = {}       # env key -> (node id, env) the env is currently in, so its restore can be skipped
         self.max_expansions: Optional[int] = None    # caps the expansions one iteration may add (several plans)
-
-    @property
-    def elapsed(self) -> float:
-        return time.time() - self.start_time
 
     # ------------------------------------------------------------ nodes
 
@@ -276,7 +275,7 @@ class TreeSearch:
                 n_challenge += 1
             else:
                 value, components = self.scorer.score(prev=prev, action=action, next=nxt, archive=self.archive,
-                                                      add=True)
+                                                      add=not self.archive_nodes_only)
             changed = self.encoder.similarity(a=prev.embedding, b=emb) < self.noop_similarity
             valid = bool(info2.get("valid", True))
             n_valid += valid
@@ -290,18 +289,21 @@ class TreeSearch:
             episode_over = terminated or truncated
             # a materialised episode (curiosity) ends where it ended, or where its replay diverged
             stop = checks is not None and (not checks(obs=obs2, info=info2, embedding=emb) or self.expander.done())
-            end = t == self.k_steps - 1 or episode_over or stop
+            end = self.closing_node and (t == self.k_steps - 1 or episode_over or stop)
             if (value >= self.node_threshold and not challenge) or end:
                 child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
                                         value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
                 step.node_id = child.id
+                if self.archive_nodes_only and not challenge:     # the node's state is now seen
+                    self.scorer.remember(next=nxt, archive=self.archive)
                 exp.children.append(child.id)
                 parent_id, seg_start = child.id, t + 1
             prev, obs, info = nxt, obs2, info2
             if episode_over or stop:
                 break
         exp.expander_info = self.expander.info()
-        if episode_over:
+        if episode_over or not exp.steps or exp.steps[-1].node_id is None:
+            # ended, or past its last node (no closing node): the env is in no node's state, so the next restore runs
             self._at.pop(node.env_key, None)
         else:
             self._at[node.env_key] = (parent_id, env)

@@ -70,7 +70,7 @@ class Expansion:
     yield_value: float = 0.0
     stats: dict = field(default_factory=dict)
     expander: str = "random"               # random | vlm | curiosity
-    expander_info: dict = field(default_factory=dict)   # expander-specific (plans/next_plan.md §E.6)
+    expander_info: dict = field(default_factory=dict)   # expander-specific (plans/archive/next_plan.md §E.6)
     description: Optional[str] = None      # what happened over its steps (TransitionDescriber), if run
     discovered: Optional[list] = None      # the features its steps surfaced (TransitionDescriber)
     window_descriptions: Optional[list] = None   # per-window descriptions of a sliced describe

@@ -190,6 +190,12 @@ class AndroidPlayEnv(TextActionEnv):
     """An AndroidWorld task scene as a text-action gym.Env; info["raw_frame"] is the unlabelled screenshot."""
 
     env_description = "an Android phone"
+    # M3A's action prompt puts this before its UI element list (android_world/agents/m3a.py); the VLM explorer shows
+    # it before obs["elements"], so both agents choose indices from the same list.
+    elements_intro = ("Here is a list of detailed information for some of the UI elements (notice that some elements"
+                      " in this list may not be visible in the current screen and so you can not interact with it,"
+                      " can try to scroll the screen to reveal it first), the numeric indexes are consistent with the"
+                      " ones in the labeled screenshot:")
 
     def __init__(
         self,
@@ -343,7 +349,7 @@ class AndroidPlayEnv(TextActionEnv):
     def _refresh_a11y(self, env: interface.AsyncEnv, timeout: float = 30.0) -> None:
         """Make the a11y tree describe the current screen. After a snapshot load or an emulator restart the a11y
         forwarder can keep serving the tree from before (e.g. a scrolled list), or none, until a window event; the
-        CLOSE_SYSTEM_DIALOGS broadcast causes one without changing the screen (tests/android_replay_debug.py). Then
+        CLOSE_SYSTEM_DIALOGS broadcast causes one without changing the screen. Then
         wait until the tree has app elements again."""
         self._adb("shell", "am", "broadcast", "-a", "android.intent.action.CLOSE_SYSTEM_DIALOGS")
         time.sleep(1.0)
@@ -439,7 +445,7 @@ class AndroidPlayEnv(TextActionEnv):
         self._raw_frame = raw_pixels
         goal = self._task.goal if self.mode == "test" else ""
         return {"frame": frame, "texts": {"ui_elements": ui_elements}, "text_boxes": boxes,
-                "actions": self.actions_text, "goal": goal}
+                "actions": self.actions_text, "goal": goal, "elements": ui_elements}
 
     def observe(self) -> tuple:
         """Re-observe the screen (stabilized) without acting, as M3A does at each step start."""

@@ -82,6 +82,3 @@ class EvalRun:
         return out
 
 
-def call_tokens(report) -> tuple:
-    """(input, output) tokens over a LegReport's calls."""
-    return (sum(c.input_tokens or 0 for c in report.calls), sum(c.output_tokens or 0 for c in report.calls))

@@ -16,6 +16,7 @@ import time
 from typing import Any, Optional
 import numpy as np
 from PIL import Image
+from selenium.common.exceptions import JavascriptException
 from urllib3.exceptions import HTTPError as WebDriverHang
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
@@ -33,6 +34,17 @@ MSG_NO_ANSWER = "The ANSWER action is not available: there is no task to answer.
 # Google is not an action of this env (decisions.md E8.2b, F14=google: it often lands on a CAPTCHA). The menu below
 # and the agent's system prompt both drop it through without_google, and a Google action that arrives is rejected.
 MSG_NO_GOOGLE = "The Google action is not available. Use the website's own search and navigation."
+MSG_NO_LABELS = ("No element on this page has a numerical label, so Click and Type cannot be used here. "
+                 "Use Scroll, GoBack or Wait.")
+MSG_OUT_OF_BOUNDS = ("That action left the website for a browser page ({url}), so it was undone. "
+                     "Stay on the website.")
+#: Browser-internal pages (the new-tab page after GoBack from the first page, settings, ...) are out of bounds:
+#: no element on them can be labelled, and they are not website content.
+OUT_OF_BOUNDS_PREFIXES = ("chrome://", "chrome-untrusted://", "chrome-search://")
+# run.py's format_msg puts this sentence before the element list on every observation; the explorer prompt reuses it.
+ELEMENTS_INTRO = ("I've provided the tag name of each element and the text it contains (if text exists). Note that "
+                  "<textarea> or <input> may be textbox, but not exactly. Please focus more on the screenshot and "
+                  "then refer to the textual information.")
 
 
 # --------------------------------------------------------------------------- bot-check pages
@@ -45,15 +57,25 @@ CHALLENGE_PHRASES = ("verify you are human", "verifying you are human", "checkin
                      "checking if the site connection is secure", "unusual traffic", "are you a robot",
                      "press & hold", "press and hold", "complete the security check", "you have been blocked",
                      "enable javascript and cookies to continue", "pardon our interruption", "request unsuccessful",
-                     "access denied", "not a robot", "solve the captcha", "complete the captcha")
+                     "access denied", "not a robot", "solve the captcha", "complete the captcha",
+                     "slide right to secure your access", "slide right to complete the puzzle")
 #: A matched phrase or marker counts only on a page with less body text than this (a real page may mention them).
 CHALLENGE_MAX_TEXT = 1500
 # [title, first 3000 chars of the body text, whether a bot-check widget/iframe is in the DOM]
+# Removes the set-of-mark overlays WebVoyager's get_web_element_rect appends to <body> (fixed, dashed outline,
+# max z-index, no pointer events).
+_CLEAR_LABELS_JS = """
+for (const el of Array.from(document.body ? document.body.children : [])) {
+  const st = el.style;
+  if (st && el.tagName === 'DIV' && st.position === 'fixed' && st.pointerEvents === 'none'
+      && st.zIndex === '2147483647' && st.outline.includes('dashed')) el.remove();
+}
+"""
 _CHALLENGE_JS = """
 const sel = '#challenge-form, #challenge-running, #challenge-stage, #cf-challenge-running, .cf-turnstile,'
   + ' [name="cf-turnstile-response"], iframe[src*="challenges.cloudflare.com"], iframe[src*="hcaptcha.com"],'
   + ' iframe[src*="recaptcha"], .h-captcha, .g-recaptcha, #px-captcha, #captcha-container, #ddos-protection,'
-  + ' form[action*="captcha"]';
+  + ' form[action*="captcha"], iframe[src*="captcha-delivery.com"]';     // DataDome
 let marker = false;
 try { marker = !!document.querySelector(sel); } catch (e) {}
 const body = document.body ? (document.body.innerText || '') : '';
@@ -83,6 +105,16 @@ def challenge_reason(*, title: str, text: str, marker: bool) -> Optional[str]:
         if phrase in body:
             return f"text: {phrase!r}"
     return None
+
+
+def elements_text(*, web_eles_text: str, n_labels: int) -> str:
+    """The element list WebVoyager's agent is shown after ELEMENTS_INTRO (run.py format_msg's web_text); on a page
+    with no labelled element, a note that Click and Type cannot be used."""
+    return web_eles_text if n_labels else MSG_NO_LABELS
+
+
+def out_of_bounds(*, url: Optional[str]) -> bool:
+    return bool(url) and url.startswith(OUT_OF_BOUNDS_PREFIXES)
 
 
 def load_webvoyager(*, project_root: str):
@@ -188,6 +220,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
     """A WebVoyager start page as a text-action gym.Env."""
 
     env_description = "a web browser"
+    elements_intro = ELEMENTS_INTRO      # the VLM explorer shows it before obs["elements"], as the eval agent does
 
     def __init__(
         self,
@@ -296,8 +329,27 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _observe(self):
         """Set-of-mark screenshot and element text as run.py builds them, plus the unlabelled raw frame."""
-        rects, web_eles, web_eles_text = self._wv.get_web_element_rect(self._driver,
-                                                                        fix_color=self._args.fix_box_color)
+        for attempt in range(3):
+            try:
+                rects, web_eles, web_eles_text = self._wv.get_web_element_rect(self._driver,
+                                                                                fix_color=self._args.fix_box_color)
+                break
+            except (self._wv.StaleElementReferenceException, JavascriptException) as e:
+                # The page changed while it was being labelled, or the labelling script fails on it (e.g. a non-HTML
+                # document): drop the overlays already drawn and relabel. A page that still can't be labelled is
+                # observed without element labels rather than ending the episode.
+                try:
+                    self._driver.execute_script(_CLEAR_LABELS_JS)
+                except JavascriptException:
+                    pass
+                reason = str(e).splitlines()[0][:150]
+                if attempt == 2:
+                    log_warn(f"labelling failed 3 times ({reason}); observing the page without element labels",
+                             parameters=self._parameters)
+                    rects, web_eles, web_eles_text = [], [], ""
+                    break
+                log_warn(f"labelling failed ({reason}); retrying", parameters=self._parameters)
+                time.sleep(1)
         png = self._driver.get_screenshot_as_png()
         try:
             for rect in rects:
@@ -337,7 +389,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
     def _obs(self) -> dict:
         frame, web_eles_text = self._last_obs
         return {"frame": frame, "texts": {"web_elements": web_eles_text}, "text_boxes": list(self._text_boxes),
-                "actions": self.actions_text, "goal": self._goal}
+                "actions": self.actions_text, "goal": self._goal,
+                "elements": elements_text(web_eles_text=web_eles_text, n_labels=len(self._web_eles))}
 
     def sample_action(self, *, rng=None) -> str:
         """Click a labelled element or scroll the window; never actions that leave the scene or need content."""
@@ -403,6 +456,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
             return self._obs(), 0.0, False, truncated, info
 
         extra = {}
+        prev_url = self._url
         try:
             fail_obs, pdf_obs, warn_obs, self._download_files = self._wv.exec_action(
                 action_key, parsed_info, self._driver, self._web_eles, None, self._args,
@@ -417,6 +471,14 @@ class WebVoyagerPlayEnv(TextActionEnv):
                                       scene_id=self.scene_id, stale=True, **extra)
                 return self._obs(), 0.0, False, truncated, info
             self._observe()
+            if out_of_bounds(url=self._url) and not out_of_bounds(url=prev_url):
+                left = self._url
+                self._driver.get(prev_url)
+                self._wait_for_stable_layout()
+                self._observe()
+                info = self.make_info(valid=False, error=MSG_OUT_OF_BOUNDS.format(url=left), parsed_action=parsed,
+                                      step=self._steps, scene_id=self.scene_id, url=self._url, out_of_bounds=left)
+                return self._obs(), 0.0, False, truncated, info
         except (self._wv.WebDriverException, WebDriverHang) as e:
             if not (isinstance(e, WebDriverHang) or self._wv._is_browser_dead(e)):
                 raise

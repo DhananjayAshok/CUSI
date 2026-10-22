@@ -298,7 +298,7 @@ Consequences:
 #### A. State comparison: the shared `cusi/state/` module
 
 Embeddings (used, not trained) and novelty scoring are shared with curiosity PPO and specified
-in **`plans/curiosity_plan.md` §3.2**. In short:
+in **`plans/archive/curiosity_plan.md` §3.2**. In short:
 - **Layer 1, encoders:** `image_embedding` (`random_patch` / `cnn` / `siglip` zero-shot or
   fine-tuned / other learned models) and `text_embedding` (`dense` / `tfidf` / `overlap` /
   `none`) → `StateEmbedding`, plus a weighted similarity.
@@ -394,7 +394,7 @@ All act through the env's text actions (`env.step(text)`).
     no task is given").
   - Parsed by the env's own action parsing.
   - To be replaced by the standardised agent when it lands.
-- **Curiosity PPO: ON HOLD.** Not wired in until the curiosity work in `plans/curiosity_plan.md` is
+- **Curiosity PPO: ON HOLD.** Not wired in until the curiosity work in `plans/archive/curiosity_plan.md` is
   settled, so the two tracks don't overwrite each other. The shared part (scoring novelty)
   is already common through `cusi.state`. What would remain is search-side only: starting PPO
   episodes from selected nodes, and feeding it the search's archive.
@@ -469,9 +469,9 @@ items 1–5, 7 and 8 get **throwaway toy versions** only to check that the piece
 9. **Android:** lazy nodes + a snapshot disk budget (order of work step 5) are required
    before any run with more than ~20 nodes (3.6 GB per snapshot).
 10. **Web:**
-    - the challenge-page detector (`plans/web_voyager_plan.md` §1), or the tree fills with
+    - the challenge-page detector (`plans/archive/web_voyager_plan.md` §1), or the tree fills with
       Cloudflare/captcha pages that score as highly novel;
-    - the unlabelled screenshot (`plans/curiosity_plan.md` §3.1), or set-of-mark labels add fake
+    - the unlabelled screenshot (`plans/archive/curiosity_plan.md` §3.1), or set-of-mark labels add fake
       novelty;
     - restore time (~17 s).
 11. **Durable states.** Saved states die with the process: `close()` deletes them, and

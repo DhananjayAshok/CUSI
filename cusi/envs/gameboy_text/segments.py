@@ -1,5 +1,5 @@
 """
-Pixel-level glyph segmentation for games with variable-width fonts (plans/next_plan.md §0, "Per-game risks"): inside
+Pixel-level glyph segmentation for games with variable-width fonts (plans/archive/next_plan.md §0, "Per-game risks"): inside
 a text region, ink pixels (those differing from the region's paper colour) are split into lines by blank rows and into
 glyphs by blank columns; each glyph bitmap is matched exactly against a labelled set. Still template matching, not OCR.
 

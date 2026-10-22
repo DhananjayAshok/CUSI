@@ -1,7 +1,7 @@
 """
 Judging a finished leg, deriving a critique hint, and distilling guidance from frames.
 """
-from typing import Any, Optional
+from typing import Optional
 from cusi.utils.parsing import parse_key_value
 from cusi.practice.prompts import (CONSOLIDATE_GUIDANCE_PROMPT, CRITIQUE_CONSOLIDATE_PROMPT, CRITIQUE_SLICE_PROMPT,
                                    DESCRIBE_CONSOLIDATE_PROMPT, DESCRIBE_SLICE_PROMPT, JUDGE_ANSWER_NOTE,

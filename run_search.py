@@ -1,5 +1,5 @@
 """
-Pre-exploration tree search over one environment's scenes (plans/tree_search_plan.md). The run directory is
+Pre-exploration tree search over one environment's scenes (plans/archive/tree_search_plan.md). The run directory is
 storage/search/<env>/<run_name>; rerunning the same command resumes it, and a larger --max_expansions extends it.
 
     python run_search.py --env gameboy --run_name <run> --max_expansions 200 \
@@ -21,6 +21,30 @@ loaded_parameters = load_parameters()
 #: Android runs every scene on one emulator, so only one scene env is live at a time and nodes are rebuilt by replay.
 DEFAULT_RESTORE = {"gameboy": "state", "web": "state", "android": "replay"}
 PATH_KEYS = ("embedder_load_path", "world_model_load_path")
+#: Per expander: (actions per expansion, node threshold, what one expansion's actions are). Each becomes the flags
+#: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.
+EXPANDER_DEFAULTS = {"random": (100, 0.2, "actions per expansion (one walk)"),
+                     "vlm": (10, 0.1, "actions per expansion"),
+                     "curiosity": (10, 0.1, "PPO episode length, so the most actions a committed episode adds")}
+
+
+def expander_options(command):
+    for name, (steps, threshold, steps_help) in reversed(EXPANDER_DEFAULTS.items()):
+        command = click.option(f"--{name}_node_threshold", default=threshold, show_default=True,
+                               help=f"{name}: a step whose novelty reaches this becomes a node.")(command)
+        command = click.option(f"--{name}_steps", default=steps, show_default=True,
+                               help=f"{name}: {steps_help}.")(command)
+    return command
+
+
+def stop_reason(*, search, max_expansions, saturation_patience):
+    expansions = search.tree.expansions
+    if len(expansions) >= max_expansions:
+        return "max_expansions"
+    recent = expansions[-saturation_patience:] if saturation_patience > 0 else []
+    if len(recent) == saturation_patience > 0 and not any(e.children for e in recent):
+        return "saturated"
+    return None
 
 
 @click.command()
@@ -28,9 +52,16 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 @click.option("--run_name", required=True)
 @click.option("--scenes", default=None, help="Comma-separated scenes (default: all of the env's).")
 @click.option("--max_expansions", required=True, type=int, help="Total expansions in the run (raise it to extend).")
-@click.option("--k_steps", default=10, show_default=True, help="Actions per expansion.")
-@click.option("--node_threshold", default=0.1, show_default=True,
-              help="A step whose novelty reaches this becomes a node (as does each expansion's last step).")
+@expander_options
+@click.option("--closing_node/--no_closing_node", default=False, show_default=True,
+              help="Also make each expansion's last step a node, however novel. Off: a fruitless expansion adds no "
+                   "node.")
+@click.option("--archive_nodes_only/--archive_all_steps", default=True, show_default=True,
+              help="Add only states that become nodes to the novelty archive (novelty = distance to the nearest "
+                   "node).")
+@click.option("--saturation_patience", default=0, show_default=True,
+              help="Stop once this many expansions in a row have added no node (0: never; --max_expansions still caps "
+                   "the run).")
 @click.option("--c", "c_puct", default=2.0, show_default=True, help="Exploration-bonus weight in the energy.")
 @click.option("--tau", default=0.05, show_default=True, help="Selection temperature.")
 @click.option("--normalise_p/--raw_p", default=True, show_default=True,
@@ -75,12 +106,12 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
               help="On resume, first restore up to this many nodes and compare them with what they stored.")
 @state_options(scorer=True)
 @run_options
-def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_puct, tau, normalise_p, q_ema,
-         roots_only,
-         expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs, rl_commit_episodes, keep_policies, max_type_strings,
-         policy_vision_encoder, policy_text_encoder, features, max_features, describe, vlm_score, score_top_m, default_score, model_name, model_backend,
-         vllm_base_url, restore, replay_similarity,
-         noop_similarity, seed, verify_restores, overwrite, ignore_config_violation, **kwargs):
+def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, saturation_patience, c_puct,
+         tau, normalise_p, q_ema, roots_only, expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs,
+         rl_commit_episodes, keep_policies, max_type_strings, policy_vision_encoder, policy_text_encoder, features,
+         max_features, describe, vlm_score, score_top_m, default_score, model_name, model_backend, vllm_base_url,
+         restore, replay_similarity, noop_similarity, seed, verify_restores, overwrite, ignore_config_violation,
+         **kwargs):
     from cusi.search.envs import SceneEnvs
     from cusi.search.search import TreeSearch
     from cusi.search.selection import EnergySelector
@@ -105,6 +136,9 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
         raise click.UsageError("--expander curiosity needs --policy_vision_encoder and --policy_text_encoder.")
     if expander == "curiosity" and rl_num_envs > 1 and restore == "replay":
         raise click.UsageError("parallel curiosity copies (--rl_num_envs > 1) need saved node states.")
+    per_expander = {name: (kwargs.pop(f"{name}_steps"), kwargs.pop(f"{name}_node_threshold"))
+                    for name in EXPANDER_DEFAULTS}
+    k_steps, node_threshold = per_expander[expander]
     sconfig = state_config(kwargs)
     curiosity = {"reward_buffer": reward_buffer, "rl_total_steps": rl_total_steps, "rl_max_minutes": rl_max_minutes,
                  "rl_num_envs": rl_num_envs, "rl_commit_episodes": rl_commit_episodes,
@@ -112,7 +146,9 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
                  "policy_vision_encoder": policy_vision_encoder,
                  "policy_text_encoder": policy_text_encoder} if expander == "curiosity" else {}
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
-              "node_threshold": node_threshold, "c": c_puct, "tau": tau, "normalise_p": normalise_p, "q_ema": q_ema, "roots_only": roots_only,
+              "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
+              "saturation_patience": saturation_patience, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
+              "q_ema": q_ema, "roots_only": roots_only,
               "expander": expander, "features": features, "max_features": max_features, "describe": describe,
               "vlm_score": vlm_score, "score_top_m": score_top_m, "default_score": default_score,
               "model_name": model_name if uses_vlm else None,
@@ -173,9 +209,10 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
 
     envs = SceneEnvs(make=make, scenes=scene_names, exclusive=env_name == "android")
     search = TreeSearch(envs=envs, encoder=encoder, scorer=scorer, archive=archive, expander=explorer, stats=stats,
-                        selector=EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only, normalise_p=normalise_p,
-                                                 seed=seed),
-                        k_steps=k_steps, node_threshold=node_threshold, features=node_features,
+                        selector=EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only,
+                                                normalise_p=normalise_p, seed=seed),
+                        k_steps=k_steps, node_threshold=node_threshold, closing_node=closing_node,
+                        archive_nodes_only=archive_nodes_only, features=node_features,
                         decision_scorer=decision_scorer, score_top_m=score_top_m, describer=describer,
                         noop_similarity=noop_similarity, restore=restore, replay_similarity=replay_similarity,
                         store=store, parameters=parameters)
@@ -185,7 +222,8 @@ def main(env_name, run_name, scenes, max_expansions, k_steps, node_threshold, c_
     try:
         if search.resume() and verify_restores > 0:
             verified = search.verify_restores(limit=verify_restores)
-        reason = search.run(stop=lambda s: "max_expansions" if len(s.tree.expansions) >= max_expansions else None)
+        reason = search.run(stop=lambda s: stop_reason(search=s, max_expansions=max_expansions,
+                                                       saturation_patience=saturation_patience))
     finally:
         envs.close()
         if hasattr(explorer, "close"):

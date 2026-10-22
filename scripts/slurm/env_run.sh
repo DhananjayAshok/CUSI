@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run one command where an env lives: GameBoy on the node, Web in the CUSI container, Android in the container with
-# one emulator started (needs /dev/kvm). For live checks (e.g. tests.text_boxes_live). Run from the CUSI root
+# one emulator started (needs /dev/kvm). For live checks. Run from the CUSI root
 # (Slurm wrapper: slurm/env_run.sh). --nv true exposes the visible GPUs inside the container.
 #
 #   bash scripts/slurm/env_run.sh --env <env> --cmd <cmd> [--nv <value>]

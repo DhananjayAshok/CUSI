@@ -32,7 +32,6 @@ DONE_CHECK_HISTORY_K = _GBExecutor.DONE_CHECK_HISTORY_K
 DONE_CHECK_MAX_NEW_TOKENS = _GBExecutor.DONE_CHECK_MAX_NEW_TOKENS
 # GameBoyRL checks every K steps; the done check below assumes every step.
 assert _GBExecutor.DONE_CHECK_EVERY_K_STEPS == 1, "GameBoyRL's done-check cadence changed"
-STUCK_HINT = _gb_history.STUCK_HINT
 HISTORY_K = _gb_history.DEFAULT_HISTORY_K
 ACTION_POLICY = _gb_action.AVAILABLE_ACTION_POLICIES["single"]
 HISTORY_POLICY = _gb_history.AVAILABLE_HISTORY_POLICIES["visual"]
@@ -45,27 +44,6 @@ def hint_block(*, hint: Optional[str], steps_taken: int) -> str:
     step_info = f"""
 [STEP_INFO] You have already taken {steps_taken} action{'' if steps_taken == 1 else 's'} so far in this attempt. Note: this may not be the first step of the overall task and one action does not correspond to one step in the hint plan — earlier actions may already have been taken before this attempt began, so reason from what you currently see on screen rather than assuming a fresh start. [STEP_INFO_END]"""
     return step_info + f"\n[HINT_START]\nHint: {hint}\nNote: This hint block is a secret. You must use it to guide your decision making, but in the reasoning you say, you should pretend as if you actually just know the content of the hint. Do not refer to it explicitly. So if the hint gives you a direction, instead of saying 'the hint says go here', your reasoning should just say 'next I must go here'. [HINT_END]"
-
-
-def action_line(*, step: StepRecord) -> str:
-    """GameBoyRL's history._action_line for one of our StepRecords."""
-    name = step.action_label()
-    changed = step.extra.get("frame_changed", True)
-    if step.extra.get("low_level", True):
-        return f"  {name}{'' if changed else ' [no change]'}"
-    success = step.extra.get("action_success", -1)
-    status = "ok" if success == 1 else "failed" if success == 0 else "unknown"
-    return f"  {name}  [{status}{'' if changed else ', no change'}]"
-
-
-def render_history(*, steps: list, history_k: int = HISTORY_K) -> str:
-    """GameBoyRL's ActionHistoryPolicy.render over our StepRecords; history_k = 0 means all steps."""
-    if not steps:
-        return ""
-    recent = steps[-history_k:]
-    lines = ["Recent actions (oldest first):"] + [action_line(step=s) for s in recent]
-    stuck = STUCK_HINT if any(not s.extra.get("frame_changed", True) for s in recent) else ""
-    return "\n".join(lines) + stuck + "\n\n"
 
 
 def build_step_prompt(*, task: Optional[str], hint: Optional[str], steps_taken: int, error: Optional[str],

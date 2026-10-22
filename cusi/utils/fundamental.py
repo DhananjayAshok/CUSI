@@ -50,15 +50,6 @@ def meta_dict_to_str(
     return meta_str
 
 
-def logger_print_dict(
-    logger: logging.Logger, meta_dict: dict[str, Any], n_indents: int = 1
-) -> None:
-    meta_dict_str = meta_dict_to_str(
-        meta_dict, print_mode=True, n_indents=n_indents, skip_write_timestamp=False
-    )
-    logger.info(meta_dict_str)
-
-
 def file_makedir(file_path: str) -> None:
     """Create the parent directories of ``file_path`` if missing."""
     dirname = os.path.dirname(file_path)

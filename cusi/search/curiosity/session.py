@@ -1,5 +1,5 @@
 """
-One curiosity RL session (plans/next_plan.md §E.4–E.5.1): a fresh policy trained with PPO from one node, every episode
+One curiosity RL session (plans/archive/next_plan.md §E.4–E.5.1): a fresh policy trained with PPO from one node, every episode
 restoring the node, rewards from the stationary archive B0 ∪ the episode's own states. The session returns its best
 episode (by its own return) and the final policy.
 """

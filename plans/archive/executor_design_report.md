@@ -1,9 +1,9 @@
-# Executor design: results (design_plan.md)
+# Executor design: results (plans/archive/design_plan.md)
 
 The best executor for a fixed model (`google/gemma-4-31b-it`, also the Web judge), supervisor off, on Web
 (WebVoyager), Android (AndroidWorld, M3A) and GameBoy (GameBoyRL, Pokémon Red and Crystal). No fine-tuning; GameBoy
 reads nothing from RAM/ROM except the allowed VRAM text reader. Every decision and its rule, written before the
-stage ran, is in `plans/decisions.md` §E; the feature catalogue and sources are in `plans/executor_lit.md`; per-arm
+stage ran, is in `plans/decisions.md` §E; the feature catalogue and sources are in `plans/archive/executor_lit.md`; per-arm
 tables are in `storage/eval/design/tables_*.md` (from `tmp_design_tables.py`).
 
 ## 1. Final designs and the full benchmark
@@ -18,7 +18,7 @@ tables are in `storage/eval/design/tables_*.md` (from `tmp_design_tables.py`).
 Full benchmark: 1 repeat of base and design per env (user decision E4.1), clean implementation (§4), same tasks,
 paired. Diffs are points; CI = bootstrap over tasks; W/L = tasks won/lost; p = exact McNemar.
 
-**Against the earlier eval (`plans/results.md`, 31B, same budgets):** Web baseline then 53.4% (best arm: baseline;
+**Against the earlier eval (`plans/archive/results.md`, 31B, same budgets):** Web baseline then 53.4% (best arm: baseline;
 the supervisors cost 3–12 points); the Web design (66.4%) is 13 points above every earlier arm. Android baseline then
 61.3% (supervisors −8 to −25). GameBoy baseline then 36.7% (49 tasks, not the same task set as the 99 here); there the supervisors were the only thing that helped
 (revision/subgoal 40.8%, n.s.), and no executor feature did.

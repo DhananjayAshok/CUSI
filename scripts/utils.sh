@@ -256,15 +256,6 @@ declare -A EXPLORE_TRAIN_DEFAULTS=(
     ["extra"]="none"
 )
 
-# scripts/slurm/search_env_test.sh
-SEARCH_ENV_TEST_ESSENTIALS=("env")
-declare -A SEARCH_ENV_TEST_DEFAULTS=(
-    ["run"]="none"
-    ["first"]="6"
-    ["second"]="10"
-    ["k_steps"]="5"
-)
-
 # scripts/slurm/env_run.sh
 ENV_RUN_ESSENTIALS=("env" "cmd")
 declare -A ENV_RUN_DEFAULTS=(
@@ -299,6 +290,7 @@ declare -A EVAL_DEFAULTS=(
     ["judge_model"]="none"
     ["judge_only"]="false"
     ["n_emulators"]="1"
+    ["android_wait"]="none"
     ["vllm_port"]="none"
     ["overwrite"]="false"
     ["ignore_config_violation"]="false"
@@ -317,11 +309,6 @@ VLLM_PYTHON_ESSENTIALS=("model" "script")
 declare -A VLLM_PYTHON_DEFAULTS=(
     ["args"]="none"
     ["vllm_port"]="none"
-)
-
-# scripts/slurm/vllm_smoke.sh
-VLLM_SMOKE_ESSENTIALS=("model")
-declare -A VLLM_SMOKE_DEFAULTS=(
 )
 
 # setup/android/app_setup.sh
@@ -352,11 +339,4 @@ declare -A ANDROID_INSPECT_APPS_DEFAULTS=(
 CONTAINER_BUILD_ESSENTIALS=()
 declare -A CONTAINER_BUILD_DEFAULTS=(
     ["force"]="false"
-)
-
-# setup/verify/e2e.sh
-VERIFY_E2E_ESSENTIALS=()
-declare -A VERIFY_E2E_DEFAULTS=(
-    ["webvoyager"]="true"
-    ["android_world"]="true"
 )

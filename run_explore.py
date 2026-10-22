@@ -74,8 +74,9 @@ def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups
               help="Re-embed the replay frames with this embedder (default: the stored embeddings).")
 @click.option("--encoder_model", default=None, help="SigLIP 2 model id (with --image_embedder siglip).")
 @click.option("--embedder_load_path", default=None, help="Trained cnn / fine-tuned siglip checkpoint.")
+@click.option("--residual", is_flag=True, help="Predict the change from the current embedding.")
 @click.pass_obj
-def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, embedder_load_path):
+def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, embedder_load_path, residual):
     """Train the world model on replay buffers."""
     from cusi.explore.world_model import train_world_model
     from cusi.state import build_image_embedder
@@ -88,7 +89,7 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
                                                                 parameters=obj["parameters"], **config)
     train_world_model(replay_dirs=[paths.explore_replay(run_dir=d) for d in dirs], out_dir=out,
                       env_name=obj["env_name"], epochs=epochs, embedder=embedder, embedder_config=config,
-                      seed=obj["parameters"]["random_seed"], parameters=obj["parameters"])
+                      residual=residual, seed=obj["parameters"]["random_seed"], parameters=obj["parameters"])
 
 
 @main.command(name="train_embedder")
@@ -174,15 +175,22 @@ def wm_eval(obj, name, run_names, n_examples):
     rng = np.random.default_rng(0)
     rows = []
     episodes = [ep for d in replay_dirs for ep in load_episodes(directory=d)]
+    # Examples and metrics come from the world model's held-out episodes (episode ids number the episodes of its
+    # replay dirs in load order), unless another replay was asked for or the model predates the recorded split.
+    val_eps = set(summary["val_episodes"]) if run_names is None and summary.get("val_episodes") else None
+    if val_eps is None:
+        log_warn("wm_eval: no held-out split for this replay; examples and metrics include training transitions",
+                 parameters=obj["parameters"])
     if embedder is not None:
         for ep in episodes:
             for s, e in zip(ep, embedder.embed(frames=[s["frame"] for s in ep]).numpy()):
                 s["embedding"] = e
-    candidates = [(e, t) for e, ep in enumerate(episodes) for t in range(1, len(ep))
-                  if ep[t]["action_index"] is not None and ep[t]["valid"]]
+    eval_eps = [e for e in range(len(episodes)) if val_eps is None or e in val_eps]
+    candidates = [(e, t) for e in eval_eps for t in range(1, len(episodes[e]))
+                  if episodes[e][t]["action_index"] is not None and episodes[e][t]["valid"]]
     if not candidates:   # no valid action in the replay: show the no-op transitions instead
-        candidates = [(e, t) for e, ep in enumerate(episodes) for t in range(1, len(ep))
-                      if ep[t]["action_index"] is not None]
+        candidates = [(e, t) for e in eval_eps for t in range(1, len(episodes[e]))
+                      if episodes[e][t]["action_index"] is not None]
     for e, t in [candidates[i] for i in rng.choice(len(candidates), size=min(n_examples, len(candidates)),
                                                    replace=False)]:
         ep = episodes[e]
@@ -204,8 +212,11 @@ def wm_eval(obj, name, run_names, n_examples):
     Image.fromarray(grid).save(out_png)
     data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder)
     from cusi.explore.world_model import evaluate
-    keep = np.where(data["action"] >= 0)[0]
-    metrics = evaluate(model=wm, data=data, idx=keep, device=device)
+    keep = data["action"] >= 0
+    if val_eps is not None:
+        keep &= np.isin(data["episode"], list(val_eps))
+    metrics = evaluate(model=wm, data=data, idx=np.where(keep)[0], device=device)
+    metrics["held_out"] = val_eps is not None
     with open(os.path.join(wm_dir, "eval.json"), "w") as f:
         json.dump(metrics, f, indent=1)
     log_info(f"wm_eval: {metrics}; columns = current | real next | decoded real next | predicted(taken) |"

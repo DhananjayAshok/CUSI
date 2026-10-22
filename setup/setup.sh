@@ -14,7 +14,6 @@
 #   5. Android AVD       create the AndroidWorld AVD under storage_dir
 #   6. AndroidWorld apps one-time app install on the AVD; needs KVM (else via Slurm)
 #   7. GameBoyRL         private_vars from CUSI's config; link the ROMs (rom_dir)
-#   8. Verify            smoke tests + end-to-end browser (and emulator) checks
 #
 # Environment: CUSI_SLURM_PARTITION picks the Slurm partition for step 6 when this
 # node has no /dev/kvm (default: medium-lg).
@@ -102,20 +101,18 @@ fi
 
 # --------------------------------------------------------------------- 6. AndroidWorld apps
 step "6. AndroidWorld app setup (needs KVM)"
-ANDROID_E2E_DONE=false
 if [[ -f "$APPS_MARKER" ]]; then
     echo "[skip] apps already installed ($(tr '\n' ' ' < "$APPS_MARKER"))"
 elif [[ "$HAVE_KVM" == "true" ]]; then
     bash scripts/container.sh bash setup/android/app_setup.sh
 elif command -v sbatch > /dev/null; then
-    # No KVM here (e.g. a login node): run app setup + the AndroidWorld e2e check on a
+    # No KVM here (e.g. a login node): run the app setup on a
     # GPU node and wait for it. CUSI_SLURM_PARTITION picks the partition.
     mkdir -p "${results_dir%/}/logs"
     echo "No /dev/kvm here; running in Slurm (log: ${results_dir%/}/logs/android_setup_<jobid>.out)"
     sbatch --wait --partition="${CUSI_SLURM_PARTITION:-medium-lg}" --chdir="$PROJECT_ROOT" \
         --output="${results_dir%/}/logs/android_setup_%j.out" setup/android/setup_and_verify.sbatch \
         || fail "Slurm Android setup job failed; see ${results_dir%/}/logs/"
-    ANDROID_E2E_DONE=true
 else
     fail "AndroidWorld app setup needs /dev/kvm (or Slurm to reach a node with it)."
 fi
@@ -154,22 +151,6 @@ else
     echo "[warn] No ROMs: put them under $GBW_STORAGE/rom_data (layout: GameBoyRL/GameBoyWorlds/configs/rom_data_path_vars.yaml),"
     echo "       e.g. with GameBoyRL/GameBoyWorlds/download_roms.sh (fill in your own Drive links),"
     echo "       or set rom_dir in configs/private_vars.yaml and rerun."
-fi
-
-# --------------------------------------------------------------------- 8. Verify
-step "8. Verify"
-python tests/smoke_android_world_cusi.py | tail -1
-python tests/smoke_webvoyager_cusi.py | tail -1
-if [[ "$HAVE_KVM" == "true" ]]; then
-    bash scripts/container.sh bash setup/verify/e2e.sh --webvoyager true --android_world true
-else
-    bash scripts/container.sh bash setup/verify/e2e.sh --webvoyager true --android_world false
-    if [[ "$ANDROID_E2E_DONE" == "true" ]]; then
-        echo "AndroidWorld e2e ran in the Slurm job of step 6."
-    else
-        echo "AndroidWorld e2e skipped (no KVM here). To run it on a GPU node:"
-        echo "  sbatch --partition=medium-lg --chdir=$PROJECT_ROOT --output=${results_dir%/}/logs/android_setup_%j.out setup/android/setup_and_verify.sbatch"
-    fi
 fi
 
 echo

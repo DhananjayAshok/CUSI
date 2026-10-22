@@ -3,15 +3,15 @@
 - **Date:** 2026-10-13.
 - **Purpose:** turn prior work (papers, agent harnesses, the `initial_browse.md` survey, GameBoyRL's own arms) into a
   catalogue of **features**. A feature is one switch we can flip on our executors (or supervisor) with the fixed model
-  `google/gemma-4-31b-it`. The catalogue sets the screening order in `design_plan.md` §5. The failure taxonomy (§2c) has not
+  `google/gemma-4-31b-it`. The catalogue sets the screening order in `plans/archive/design_plan.md` §5. The failure taxonomy (§2c) has not
   been run yet, so no `failures:` sources appear.
 - **Method:** web search plus the arXiv abstract/HTML pages, READMEs and blog write-ups of the harnesses, read on
   2026-10-13. Numbers marked **(verified)** were read from the paper text or tables during this review. Numbers marked
   **(abstract)** come from the abstract only. Numbers marked **(recalled)** are from memory of a well-known abstract and
   were not re-read. Where a number could not be found, the entry says "not reported" or "not verified".
-- **Source labels** (as in `design_plan.md` §2b): `paper:<short name, year>`, `harness:<repo>`, `browse:<repo>`
+- **Source labels** (as in `plans/archive/design_plan.md` §2b): `paper:<short name, year>`, `harness:<repo>`, `browse:<repo>`
   (a feature described in `initial_browse.md`), `failures:<bucket>` (none yet), `user` (from the seed list in
-  `design_plan.md` §3), `ours` (this repo's state-space work, or our own earlier eval results in
+  `plans/archive/design_plan.md` §3), `ours` (this repo's state-space work, or our own earlier eval results in
   `storage/eval/ablation_tables.md`).
 - **Failure-bucket codes** (design plan §2c), used in the catalogue:
   - `GRD` grounding miss;

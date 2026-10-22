@@ -362,7 +362,7 @@ One click file, `debug_curiosity.py`, rough and outside the main framework:
 
 ---
 
-## 7. Issues from the first run that matter here (plans/decisions.md / plans/end_report.md)
+## 7. Issues from the first run that matter here (plans/decisions.md / plans/archive/end_report.md)
 
 - **PPO ratio (D2.6, D2.7, D2.15; end report item 1).** The sequence-level ratio over ~150
   tokens either clips almost everything or, with the token-mean variant, effectively turns

@@ -3,7 +3,7 @@ Weighted mix of region and embedding novelty; a part with weight 0 is neither co
 """
 from cusi.state.scorers.base import Scorer
 from cusi.state.scorers.embedding import frame_novelty
-from cusi.state.scorers.region import region_novelty
+from cusi.state.scorers.region import region_novelty, remember_text
 
 
 class CombinationScorer(Scorer):
@@ -20,3 +20,9 @@ class CombinationScorer(Scorer):
         region = region_novelty(prev=prev, next=next, archive=archive, add=add) \
             if self.region_alpha > 0.0 else 0.0
         return self.region_alpha * region + (1 - self.region_alpha) * frame, {"frame": frame, "region": region}
+
+    def remember(self, *, next, archive):
+        if self.region_alpha < 1.0:
+            archive.add(next.embedding)
+        if self.region_alpha > 0.0:
+            remember_text(next=next, archive=archive)

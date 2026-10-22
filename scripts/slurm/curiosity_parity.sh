@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GameBoy parity check for the curiosity expander (plans/next_plan.md §E.7, step 5): one root, local reward buffer,
+# GameBoy parity check for the curiosity expander (plans/archive/next_plan.md §E.7, step 5): one root, local reward buffer,
 # image-only (embedding) novelty, <steps> env steps, against GameBoyRL's cleanrl ppo_curiosity (embedbuffer, curiosity
 # reset every episode) from the same init state. Both print their episode returns; the summary compares the last 100.
 # Runs on the node; the curiosity policy uses the first visible GPU if any. Run from the CUSI root
@@ -26,7 +26,7 @@ ENV_ID="gameboy_worlds-pokemon_red-default-${ARGS["init_state"]}-low_level-${ARG
 GBRL=$!
 
 python -u run_search.py --env gameboy --run_name "${ARGS["run"]}" --scenes "${ARGS["scene"]}" --max_expansions 1 \
-    --roots_only --k_steps "${ARGS["k_steps"]}" --image_embedder random_patch --text_embedder none \
+    --roots_only --curiosity_steps "${ARGS["k_steps"]}" --image_embedder random_patch --text_embedder none \
     --novelty_scorer embedding --expander curiosity --reward_buffer local --rl_total_steps "${ARGS["steps"]}" \
     --rl_max_minutes 240 --rl_num_envs "${ARGS["num_envs"]}" --policy_vision_encoder mobilenet_v3_small \
     --policy_text_encoder "${ARGS["policy_text_encoder"]}" --seed "${ARGS["seed"]}" --overwrite \

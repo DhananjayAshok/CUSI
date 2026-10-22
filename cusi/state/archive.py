@@ -1,7 +1,7 @@
 """
 The novelty archive: a deduplicated, compacting store of visited states (image vector + interned text-box keys), with
 region stores. Text similarity to every stored state is one sparse product plus a padded gather
-(plans/next_plan.md §0.2).
+(plans/archive/next_plan.md §0.2).
 """
 import os
 from typing import Optional

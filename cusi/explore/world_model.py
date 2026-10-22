@@ -64,8 +64,8 @@ def stored_embedder_name(*, replay_dirs: list) -> str:
 
 def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs: int = 50,
                       batch_size: int = 256, lr: float = 1e-3, val_frac: float = 0.1, seed: int = 0,
-                      embedder=None, embedder_config: Optional[dict] = None, device: str = None,
-                      parameters: dict[str, Any] = None) -> dict:
+                      embedder=None, embedder_config: Optional[dict] = None, residual: bool = False,
+                      device: str = None, parameters: dict[str, Any] = None) -> dict:
     """embedder re-embeds the replay frames (None: the stored embeddings); embedder_config is how to rebuild it
     (image_embedder, encoder_model, embedder_load_path), kept in the meta for wm_eval."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,7 +87,7 @@ def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs:
     is_val = np.array([e in val_eps for e in data["episode"]])
     train_idx, val_idx = np.where(~is_val)[0], np.where(is_val)[0]
     torch.manual_seed(seed)
-    model = WorldModel(emb_dim=data["next"].shape[1], n_actions=spec["n_actions"]).to(device)
+    model = WorldModel(emb_dim=data["next"].shape[1], n_actions=spec["n_actions"], residual=residual).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     obs_t = torch.tensor(data["obs"], device=device)
     act_t = torch.tensor(data["action"], device=device)
@@ -116,6 +116,7 @@ def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs:
         json.dump(meta, f, indent=1)
     vocab.save(directory=out_dir)
     summary = {"n_transitions": int(n), "n_train": int(len(train_idx)), "n_val": int(len(val_idx)),
+               "val_episodes": sorted(int(e) for e in val_eps),
                "action_counts": {spec["names"][a]: int(c) for a, c in zip(*np.unique(data["action"], return_counts=True))},
                "final": history[-1], "replay_dirs": replay_dirs}
     with open(os.path.join(out_dir, "train_summary.json"), "w") as f:

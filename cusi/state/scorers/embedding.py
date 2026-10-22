@@ -22,3 +22,6 @@ class EmbeddingScorer(Scorer):
     def score(self, *, prev, action, next, archive, add=True, seed_frame=False):
         value = frame_novelty(next=next, archive=archive, add=add, seed_frame=seed_frame)
         return value, {"frame": value}
+
+    def remember(self, *, next, archive):
+        archive.add(next.embedding)

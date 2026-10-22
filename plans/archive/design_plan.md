@@ -5,8 +5,8 @@ supervisor adaptation) for a fixed model. The work runs as a controlled experime
 features, screen each feature, combine the winners, and confirm the final designs on the full benchmarks.
 
 Related files:
-- `plans/executor_lit.md`: the literature review and feature catalogue (step 2).
-- `progress.md`: the running log of results and status.
+- `plans/archive/executor_lit.md`: the literature review and feature catalogue (step 2).
+- `plans/archive/progress.md`: the running log of results and status.
 - `plans/decisions.md`: judgement calls.
 - `storage/eval/...`: the eval runs.
 - `storage/eval/ablation_tables.md`: the earlier supervisor ablation, whose method this plan reuses.
@@ -80,7 +80,7 @@ designs whose success is similar (§1).
 
 ### 2a. Literature and harnesses
 
-The output is `plans/executor_lit.md`. I search actively, not only from memory: web search, paper reference lists,
+The output is `plans/archive/executor_lit.md`. I search actively, not only from memory: web search, paper reference lists,
 and the GitHub repos and READMEs of each harness. Starting points:
 - **Web:** WebVoyager (its own harness), SeeAct, Agent-E, WebArena and VisualWebArena baselines,
   Set-of-Mark prompting, AgentOccam, the Browser-Use and OpenHands web agents, tree search for web agents
@@ -224,7 +224,7 @@ Each feature has a guess at the failure buckets it addresses. Screening checks t
    doesn't hurt is dropped (the simpler design wins ties).
 
 Decision rules are written into `plans/decisions.md` *before* each stage runs. Every run, result and decision is
-logged in `progress.md` with its feature IDs.
+logged in `plans/archive/progress.md` with its feature IDs.
 
 ---
 
@@ -271,7 +271,7 @@ without its own paired evidence.
 ## 8. Order of work
 
 1. Pick the dev splits; run the baselines with 3 seeds; measure the noise floor.
-2. The literature search and `plans/executor_lit.md`, plus the failure taxonomy, at the same time as step 1.
+2. The literature search and `plans/archive/executor_lit.md`, plus the failure taxonomy, at the same time as step 1.
 3. Rank the features; prototype and screen them per env, highest ranked first. The three envs run in parallel.
 4. Combination, then leave-one-out, per env.
 5. Clean implementations of the winners in `base.py` and the env executors.
@@ -279,4 +279,4 @@ without its own paired evidence.
 7. Full-benchmark confirmation with 3 seeds.
 8. The final write-up.
 
-Status lives in `progress.md`. This file changes only if the plan itself changes.
+Status lives in `plans/archive/progress.md`. This file changes only if the plan itself changes.

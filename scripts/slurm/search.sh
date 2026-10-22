@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Pre-exploration tree search (run_search.py, plans/tree_search_plan.md) on one env. Run from the CUSI root
+# Pre-exploration tree search (run_search.py, plans/archive/tree_search_plan.md) on one env. Run from the CUSI root
 # (Slurm wrapper: slurm/search.sh). Resubmitting the same command resumes the run; a larger --max_expansions
 # extends it.
 #
-# GPUs: none needed with --image_embedder random_patch and the random expander. The search process uses the first
-# visible GPU (SigLIP etc.); with --model <model> (VLM explorer, node features, descriptions or decision scores), vLLM serves it
-# on the remaining visible GPUs, or on the only one if just one is visible. GameBoy runs on the node; Web and
+# GPUs: the search process needs one only for a cnn / siglip image embedder, the world_model novelty scorer or the
+# curiosity expander's policy; it then takes the first visible GPU. With --model <model> (VLM explorer, node features,
+# descriptions or decision scores), vLLM serves it on the other visible GPUs (on the only one if just one is visible),
+# or on all of them when the search needs none. GameBoy runs on the node; Web and
 # Android in the CUSI container (Android starts one emulator, which needs /dev/kvm).
 #
 #   bash scripts/slurm/search.sh --env <env> --run <run> --max_expansions <max_expansions> \
@@ -14,7 +15,7 @@
 #       [--vllm_port <value>] \
 #       [--extra <value>] [--overwrite <value>] [--ignore_config_violation <value>]
 #
-# --extra passes further run_search.py flags verbatim, e.g. --extra "--k_steps 20 --scenes viridian".
+# --extra passes further run_search.py flags verbatim, e.g. --extra "--random_steps 20 --scenes viridian".
 # --overwrite deletes the run dir first; --ignore_config_violation resumes a run despite a changed config.
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
@@ -50,13 +51,23 @@ fi
 EXTRA=()
 [[ "${ARGS["extra"]}" != "none" ]] && read -r -a EXTRA <<< "${ARGS["extra"]}"
 
+SEARCH_NEEDS_GPU=false
+if [[ "${ARGS["image_embedder"]}" == "cnn" || "${ARGS["image_embedder"]}" == "siglip" \
+      || "${ARGS["novelty_scorer"]}" == "world_model" || "${ARGS["expander"]}" == "curiosity" ]]; then
+    SEARCH_NEEDS_GPU=true
+fi
 SEARCH_GPU=""
-if [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]]; then
+if [[ -n "${CUDA_VISIBLE_DEVICES:-}" && "$SEARCH_NEEDS_GPU" == "true" ]]; then
     SEARCH_GPU=$(echo "$CUDA_VISIBLE_DEVICES" | cut -d, -f1)
 fi
+echo "Search process GPU: ${SEARCH_GPU:-none}"
 if [[ "$MODEL" != "none" ]]; then
-    VLLM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | cut -d, -f2- -s)
-    VLLM_GPUS="${VLLM_GPUS:-$CUDA_VISIBLE_DEVICES}"
+    if [[ -n "$SEARCH_GPU" ]]; then
+        VLLM_GPUS=$(echo "$CUDA_VISIBLE_DEVICES" | cut -d, -f2- -s)
+        VLLM_GPUS="${VLLM_GPUS:-$CUDA_VISIBLE_DEVICES}"
+    else
+        VLLM_GPUS="$CUDA_VISIBLE_DEVICES"
+    fi
     CUDA_VISIBLE_DEVICES="$VLLM_GPUS" bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" || exit 1
     trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 fi

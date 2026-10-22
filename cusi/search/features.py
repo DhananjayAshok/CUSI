@@ -1,5 +1,5 @@
 """
-Node features (plans/next_plan.md §A): once per new node, a VLM lists the interesting features or functionalities that
+Node features (plans/archive/next_plan.md §A): once per new node, a VLM lists the interesting features or functionalities that
 exploring from its screen could surface. The decision scorer (§B) later checks them against what has been discovered.
 """
 from cusi.search.describe import parse_bullets

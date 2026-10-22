@@ -1,6 +1,6 @@
 """
 Energy-based node selection: p(n) ∝ exp(E(n) / τ), E(n) = Q(n) + c * P(n) * sqrt(N_total) / (1 + N(n)).
-P(n) is the node's VLM decision score (plans/next_plan.md §B) when scoring is on, else default_prior. With
+P(n) is the node's VLM decision score (plans/archive/next_plan.md §B) when scoring is on, else default_prior. With
 normalise_p (the default) P is normalised over the candidates, as a PUCT prior: otherwise every unexpanded node gets
 the full sqrt(N_total) bonus and the search only ever chains fresh nodes (calibrated on gameboy/gemma_vlm_v1 with
 cusi/search/calibrate.py).

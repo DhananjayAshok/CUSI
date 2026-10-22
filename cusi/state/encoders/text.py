@@ -1,6 +1,6 @@
 """
 The text channel: a screen's text boxes as a set of (role, normalised text) keys, each a hashed character-trigram
-vector (plans/next_plan.md §0.2). Two screens compare by chamfer similarity over their boxes (same role only, area
+vector (plans/archive/next_plan.md §0.2). Two screens compare by chamfer similarity over their boxes (same role only, area
 weighted); `none` turns the channel off.
 """
 import re

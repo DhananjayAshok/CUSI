@@ -1,6 +1,6 @@
 """
 Region novelty kept inside a NoveltyArchive, the same on every env: the area-weighted share of a screen's text boxes
-whose (role, normalised text) was never seen (plans/next_plan.md §0.2).
+whose (role, normalised text) was never seen (plans/archive/next_plan.md §0.2).
 """
 import copy
 import json
@@ -54,11 +54,18 @@ class UnseenTextBuffer:
                     credit = min(credit, (len(text) - len(pt)) / len(text))
             total += w * credit
         if add:
-            self.store.add_many(keys=keys)
-            if len(self.store) > self.max_size:
-                kept = self._rng.choice(len(self.store), self.max_size // 2, replace=False)
-                self.store = KeyStore([self.store.keys[i] for i in sorted(kept)])
+            self._store(keys=keys)
         return float(total)
+
+    def add(self, *, boxes: list) -> None:
+        """Mark the boxes' text as seen without scoring it."""
+        self._store(keys=list(box_set(boxes).keys))
+
+    def _store(self, *, keys: list) -> None:
+        self.store.add_many(keys=keys)
+        if len(self.store) > self.max_size:
+            kept = self._rng.choice(len(self.store), self.max_size // 2, replace=False)
+            self.store = KeyStore([self.store.keys[i] for i in sorted(kept)])
 
     def copy(self) -> "UnseenTextBuffer":
         out = UnseenTextBuffer(seen_threshold=self.seen_threshold, max_size=self.max_size)

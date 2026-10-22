@@ -4,10 +4,8 @@ Curiosity modules: a cusi.state scorer plus the PPO-side archive lifetime and re
 from typing import Any, Optional
 import numpy as np
 from cusi.utils.log_handling import log_info
-from cusi.state import NoveltyArchive, StateRecord, build_archive, build_scorer
+from cusi.state import NoveltyArchive, StateRecord
 from cusi.state.scorers.base import Scorer
-
-CURIOSITY_MODULES = {"embedbuffer": "embedding", "combinationbuffer": "combination", "world_model": "world_model"}
 
 
 class RunningStd:
@@ -74,16 +72,3 @@ class CuriosityModule:
             self.archive.save(directory=self.save_path, merge=True)
 
 
-def get_curiosity_module(*, curiosity_module: str, env_name: str, encoder, region_alpha: float = 0.5,
-                         world_model_load_path: Optional[str] = None, buffer_load_path: Optional[str] = None,
-                         save_path: Optional[str] = None, invalid_action_penalty: float = 0.1,
-                         normalize_curiosity_reward: bool = False, device: Optional[str] = None,
-                         parameters: dict[str, Any] = None) -> CuriosityModule:
-    if curiosity_module not in CURIOSITY_MODULES:
-        raise ValueError(f"--curiosity_module must be one of {sorted(CURIOSITY_MODULES)}, got {curiosity_module!r}")
-    scorer = build_scorer(novelty_scorer=CURIOSITY_MODULES[curiosity_module], env_name=env_name,
-                          region_alpha=region_alpha, world_model_load_path=world_model_load_path, encoder=encoder,
-                          device=device)
-    return CuriosityModule(scorer=scorer, archive=build_archive(encoder=encoder), buffer_load_path=buffer_load_path,
-                           save_path=save_path, invalid_action_penalty=invalid_action_penalty,
-                           normalize_curiosity_reward=normalize_curiosity_reward, parameters=parameters)

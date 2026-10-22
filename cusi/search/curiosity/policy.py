@@ -1,5 +1,5 @@
 """
-The curiosity policy (plans/next_plan.md §E.3): frozen pretrained encoders (a MobileNetV3-Small trunk for the frame,
+The curiosity policy (plans/archive/next_plan.md §E.3): frozen pretrained encoders (a MobileNetV3-Small trunk for the frame,
 MiniLM for strings) feed a small trained fusion transformer with a pointer head over the legal candidates.
 
 Frozen features are computed once per observation (FrozenEncoders.observe) and kept in the rollout, so PPO updates

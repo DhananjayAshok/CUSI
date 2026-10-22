@@ -14,3 +14,7 @@ class Scorer(ABC):
     def score(self, *, prev: Optional[StateRecord], action: Any, next: StateRecord, archive: NoveltyArchive,
               add: bool = True, seed_frame: bool = False) -> tuple:
         """(value, components); seed_frame stores next and gives the frame part 0 without scoring it."""
+
+    @abstractmethod
+    def remember(self, *, next: StateRecord, archive: NoveltyArchive) -> None:
+        """Store next in the archive without scoring it (what score(add=True) would have stored)."""

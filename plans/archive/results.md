@@ -1,11 +1,11 @@
 # Supervisor ablation: results
 
-Run 2026-10-06, plan in `plans/agents.md` section 7, build and tests in `plans/agents.md` section 8. Full tables
+Run 2026-10-06, plan in `plans/archive/agents.md` section 7, build and tests in `plans/archive/agents.md` section 8. Full tables
 (including which tasks each arm won or lost against baseline): `storage_dir/eval/ablation_tables.md`,
 written by `report_ablation.py` (removed 2026-10-06; the tables remain). Per-task episode artifacts (events, every
 prompt and frame, step video): `storage_dir/eval/<env>/abl_<model>_<supervisor>[_s<k>]/episodes/`.
 
-**Code state.** The ablation ran with GameBoyRL's leg design: 5-step legs, and executor memory reset at every leg. Both defaults changed afterwards (2026-10-06): legs are 10 steps, and every leg now inherits the previous leg's executor memory (plans/agents.md section 9). The code that produced these numbers was never committed on its own. `--max_leg_steps 5` restores the leg length, but the per-leg memory reset has no switch in the committed code.
+**Code state.** The ablation ran with GameBoyRL's leg design: 5-step legs, and executor memory reset at every leg. Both defaults changed afterwards (2026-10-06): legs are 10 steps, and every leg now inherits the previous leg's executor memory (plans/archive/agents.md section 9). The code that produced these numbers was never committed on its own. `--max_leg_steps 5` restores the leg length, but the per-leg memory reset has no switch in the committed code.
 
 **Question:** for each config (env × model), which GameBoyRL supervisor arm gives the best test-set
 success, and what does each cost?
@@ -69,7 +69,7 @@ Differences are in points against baseline on the same tasks.
 
 ### Short budgets: the plan uses up the steps before the agent can finish
 - Android and Web score the agent's own finishing action: M3A `status`, WebVoyager `ANSWER`.
-  - Under `subgoal`, that action only goes through the env on the final target. On earlier targets it just ends the leg (plans/agents.md decision).
+  - Under `subgoal`, that action only goes through the env on the final target. On earlier targets it just ends the leg (plans/archive/agents.md decision).
   - With 3–3.5 plan steps, 5-step legs and retries, a 10–15-step budget often runs out on an intermediate target.
 - **Android:** the final target was reached in only 46% (26B) and 74% (31B) of episodes. Success when it was not reached is exactly 0.
 - **Web:** the final target was reached in only 40% / 59% of episodes. Success when it was not reached is 6–9%, from episodes whose last leg was a non-final leg that happened to answer; the judge reads that leg's chat.
@@ -251,6 +251,6 @@ Split each `subgoal` run by whether the episode reached its final target, and co
 - **GameBoy is small (49 tasks).** Only 26B `subgoal` vs baseline is significant; the 31B differences are 2 tasks out of 49.
 - **Web on live sites is noisy run to run.** In the parity check the native harness agreed with itself on 20 of 24 tasks. The paired differences on 429 tasks are still significant for every 26B comparison and for 31B `subgoal`; 31B `revision` (−3.3, p=0.07) is not.
 - **The Web judge is the 31B model**, so the 31B Web runs are judged by their own model. Comparisons within a model are unaffected, but the 26B vs 31B gap may carry some self-preference.
-- **BBC News** scored 0% for every arm, from the known cookie-modal bug in WebVoyager's element mapping (`plans/web_voyager_plan.md`). It is excluded from the Web numbers (see Setup) until that bug is fixed.
-- **Fixed settings.** The supervisors ran with GameBoyRL's settings throughout (5-step legs, 3 attempts per target, final-attempt multiplier 3, 2 replans, 8 frames per judge slice). Prompt wording for Android and Web is our own (plans/agents.md decision 1).
+- **BBC News** scored 0% for every arm, from the known cookie-modal bug in WebVoyager's element mapping (`plans/archive/web_voyager_plan.md`). It is excluded from the Web numbers (see Setup) until that bug is fixed.
+- **Fixed settings.** The supervisors ran with GameBoyRL's settings throughout (5-step legs, 3 attempts per target, final-attempt multiplier 3, 2 replans, 8 frames per judge slice). Prompt wording for Android and Web is our own (plans/archive/agents.md decision 1).
 - **Possible next steps:** longer legs, keeping executor memory across legs, or sending the agent's finish through the env when the budget is nearly spent. Each could change the Android and Web picture; none was tested here.

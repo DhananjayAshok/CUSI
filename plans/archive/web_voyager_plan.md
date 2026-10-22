@@ -57,7 +57,7 @@ We don't try to beat bot protection on those sites.
 | **Cambridge Dictionary** | 43 | 0/11. First page loads, every later navigation in the session gets Cloudflare Turnstile (reproduced with plain Playwright) | blocked |
 | **Allrecipes** | 45 | 2/12. Cloudflare "Verify you are human" for headless Chrome even with a normal user agent (SynthAgent, WebCoach). In the full run it showed up as tab crashes | blocked |
 | Booking, Google Flights, Google Map | 44, 42, 41 | Flagged as "expected to CAPTCHA" but scored 4/11, 3/11, 9/10. The low scores look like calendar/filter difficulty, not blocking. Unverified | probe |
-| BBC News | 42 | 0/11, but not a block: the cookie modal's "Accept and Continue" can't be clicked. A WebVoyager element-mapping bug | **fixable; excluded 2026-10-06 until fixed** (0/42 for every agent in the supervisor ablation, `plans/results.md`) |
+| BBC News | 42 | 0/11, but not a block: the cookie modal's "Accept and Continue" can't be clicked. A WebVoyager element-mapping bug | **fixable; excluded 2026-10-06 until fixed** (0/42 for every agent in the supervisor ablation, `plans/archive/results.md`) |
 | ArXiv, GitHub, Huggingface, Apple, Coursera, ESPN, Wolfram Alpha | | No blocking seen. ArXiv, GitHub and Huggingface survived repeated navigation in SynthAgent | keep |
 
 Per-site counts are n≈11 from one shard, so they're weak as success rates. The blocking

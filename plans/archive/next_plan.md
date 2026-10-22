@@ -534,7 +534,7 @@ text_sim(A, B) = ½ (sim(A→B) + sim(B→A))
 
 # VLM features and decision scores, sliced descriptions
 
-Follows `plans/tree_search_plan.md` (tree search built; VLM explorer with tree context and
+Follows `plans/archive/tree_search_plan.md` (tree search built; VLM explorer with tree context and
 `--describe` done). Three pieces:
 
 - **A. Node features:** each node gets a list of features it could surface, instead of a prior score.
@@ -697,7 +697,7 @@ A static HTML page per run:
 3. B (decision scores, top-M cache, saved records, rebuilt on load). Tests: scores and verdicts
    persisted, cache rebuilt on resume, and a node whose features are all discovered scores 0.
 4. A real-VLM GameBoy run (explorer + describe + features + scores), together with calibrating
-   `node_threshold` and `tau` (`plans/tree_search_plan.md`). Then Web and Android.
+   `node_threshold` and `tau` (`plans/archive/tree_search_plan.md`). Then Web and Android.
 
 ## Choices (defaults accepted 2026-10-11)
 

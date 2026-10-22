@@ -1,5 +1,5 @@
 """
-Legal actions (candidates) for the curiosity policy, per env (plans/next_plan.md §E.2). A candidate is an action type,
+Legal actions (candidates) for the curiosity policy, per env (plans/archive/next_plan.md §E.2). A candidate is an action type,
 an optional target element (an index into the screen's element list) and an optional argument (typed string or app
 name), mapped to the env's own text action, so the env interfaces do not change.
 """

@@ -1,4 +1,4 @@
-# Decisions taken while implementing plans/plan.md (autonomous run, started 2026-10-04)
+# Decisions taken while implementing plans/archive/plan.md (autonomous run, started 2026-10-04)
 
 Each entry: what was decided, and why. Numbers continue the plan's decision table where useful.
 
@@ -195,9 +195,9 @@ Each entry: what was decided, and why. Numbers continue the plan's decision tabl
   rewards with the current curiosity code (used for the Web run, recorded before D2.16), and the
   Web curiosity-practice job uses `--z_min 2.5`. Defaults are unchanged.
 
-## Executor design plan (design_plan.md), from 2026-10-13
+## Executor design plan (plans/archive/design_plan.md), from 2026-10-13
 
-Feature IDs (Fxx) refer to `plans/executor_lit.md`. Rules are written here before the stage they govern runs.
+Feature IDs (Fxx) refer to `plans/archive/executor_lit.md`. Rules are written here before the stage they govern runs.
 
 - **E1.1 Dev splits** (chosen once, seeded `random.Random(20261013)`, `tmp_design_split.py`; files in
   `storage/eval/design/dev_<env>.txt`, full sets in `full_<env>.txt`):
@@ -736,7 +736,7 @@ Feature IDs (Fxx) refer to `plans/executor_lit.md`. Rules are written here befor
   tasks to finish were the long, mostly failed ones), a reminder that partial tables are not read for decisions.
   GameBoy stays at the baseline executor (E3.12); 18 executor features tried there, none promoted.
 ### Stage 7: supervisor features (user request, 2026-10-17: "Try all of these features for all of the envs and tell me if any work. You can be dirty about it.")
-- **E7.0 Motivation** (plans/results.md): supervisors lost on Android/Web (plans used up the 10–15 step budget on
+- **E7.0 Motivation** (plans/archive/results.md): supervisors lost on Android/Web (plans used up the 10–15 step budget on
   intermediate targets; the scored finish only went through on the final target; 0% success when the final target
   was never reached) and helped only on GameBoy (noisy regression check, 52–61% "undone"; strict judge).
 - **E7.1 Features** (prototypes in `tmp_sup_features.py`, on GameBoyRL's `subgoal` supervisor unless noted; source
@@ -787,7 +787,7 @@ Feature IDs (Fxx) refer to `plans/executor_lit.md`. Rules are written here befor
   GameBoy run the executor with GameBoyRL's supervised token cap (8000 vs 2000 for the baseline), as the earlier
   supervisor runs did. Web smoke: one task lost to a browser renderer timeout (infrastructure).
 - **E7.6 Screening findings (as they land).**
-  - **Web judge bug (found here; affects every Web subgoal run, including the earlier ones in plans/results.md).**
+  - **Web judge bug (found here; affects every Web subgoal run, including the earlier ones in plans/archive/results.md).**
     WebVoyager's auto_eval reads the task from the saved chat (`interact_messages.json`), and `write_artefacts`
     saves the *final leg's* chat. Under a subgoal plan, the final leg's "task" is the last subgoal, so the judge
     scored about 40% of tasks (92–102 of ~245 per arm) against the subgoal text, not the user's task. Two arms
@@ -813,7 +813,7 @@ Feature IDs (Fxx) refer to `plans/executor_lit.md`. Rules are written here befor
       threshold, it goes to held-out confirmation (GameBoy test split, 3 repeats, pooled CI excluding 0).
   - **Web re-judge result:** fixing the task text barely moves scores. Old→new: subgoal 44.4→44.0, S5 48.0→46.8,
     S7 44.8→43.6, S9 44.0→41.6. Judging against the subgoal inflated these arms by 0.4–2.4 points, so the earlier
-    Web supervisor results in plans/results.md hold up roughly; the conclusion (subgoal hurts on Web) is unchanged.
+    Web supervisor results in plans/archive/results.md hold up roughly; the conclusion (subgoal hurts on Web) is unchanged.
   - **Slip (process):** rerunning `tmp.sh` resubmitted the 3 re-judge jobs (284757–9), because the file still held
     the sbatch lines and the grep hid the output. I cancelled them before any finished a judge. results.jsonl has
     250 rows and no duplicates for each arm, and scores.json matches the tables. Lesson: overwrite tmp.sh before
@@ -950,7 +950,7 @@ Feature IDs (Fxx) refer to `plans/executor_lit.md`. Rules are written here befor
   emulator gRPC ports.
 
 ### Stage 8: final port (user request, 2026-10-18: "I want the code at the root repo to force the best option, and not take in flags to switch stuff.")
-Plan: `plans/final_port_plan.md`, including the user's decisions on it.
+Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
 - **E8.0 Frozen setups.**
   - Web: WebVoyager + F10 + F14=google + F08=5, no supervisor.
   - Android: M3A + F27 + F55–F61, no supervisor.
@@ -1167,3 +1167,7 @@ Plan: `plans/final_port_plan.md`, including the user's decisions on it.
     - Mean task time 219 s; mean tokens per task 41.0k in, 0.8k out.
   - **Wall time:** GameBoy 3.0 h; Web 2.8 h for the agent plus 1.0 h for the judge; Android 2.7 h on
     3 emulators.
+
+- **Android 1 s action wait (job 285649, 2026-10-22): not made the default.** On 57 tasks scored in both runs,
+  success fell from 63.2% (2 s) to 57.9% (1 s), −5.3 pt, with 5 tasks lost and 2 gained. That is within the
+  ~6 pt noise band, but negative. Each step was only 6% faster (33.7 s → 31.6 s).

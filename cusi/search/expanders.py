@@ -68,7 +68,7 @@ Earlier explorations that started from that same screen (do something different 
 
 Text currently on the screen:
 {texts}
-
+{elements}
 Your actions so far in this exploration (oldest first):
 {history}
 {error}
@@ -122,9 +122,13 @@ class VLMExplorer:
     def prompt(self, *, env, obs: dict) -> str:
         history = "\n".join(f"- {a}" for a in self.history[-self.history_k:]) or "(none)"
         error = f"\nYour previous action failed: {self._last_error}\n" if self._last_error else ""
+        # The element list the env's own agent is shown (Web: WebVoyager's numbered elements), so labels can be
+        # chosen from what exists.
+        elements = f"\n{env.elements_intro}\n{obs['elements']}\n" if obs.get("elements") is not None else ""
         return EXPLORE_PROMPT.format(env_description=env.env_description, actions=obs.get("actions", ""),
                                      path=self._path, tried=self._tried,
-                                     texts=screen_text(boxes=obs.get("text_boxes", [])), history=history, error=error)
+                                     texts=screen_text(boxes=obs.get("text_boxes", [])), elements=elements,
+                                     history=history, error=error)
 
     def next_action(self, *, env, obs: dict, info: dict) -> tuple:
         frame = frame_for_embedding(obs=obs, info=info) if self.use_raw_frame else obs["frame"]

@@ -1,6 +1,6 @@
-# End report: plans/plan.md implementation (autonomous run, 2026-10-04)
+# End report: plans/archive/plan.md implementation (autonomous run, 2026-10-04)
 
-Everything in plans/plan.md's "Order of work" was built and run at small scale on eclair. Design
+Everything in plans/archive/plan.md's "Order of work" was built and run at small scale on eclair. Design
 decisions are in `plans/decisions.md` (D0.x, D1.x, D2.x); this report covers what exists, what ran,
 the results, and what needs your attention. **Nothing was committed** (your settings deny
 `git add/commit`); see "Uncommitted changes" at the end.
@@ -142,7 +142,7 @@ sbatch ... slurm/curiosity_practice.sh --env gameboy --run x --model $M
 New: `cusi/practice/`, `cusi/explore/`, `run_practice.py`, `run_explore.py`,
 `scripts/{serve_vllm,stop_vllm}.sh`, `scripts/practice_report.py`,
 `slurm/*.sh`, `scripts/slurm/*.sh`, `tests/{vllm_smoke,practice_gameboy_prompt_test,practice_strip_test,practice_pipeline_mock_test}.py`,
-`plans/decisions.md`, `plans/end_report.md`. Modified: `cusi/envs/{base,gameboy,android_world,webvoyager}.py`,
+`plans/decisions.md`, `plans/archive/end_report.md`. Modified: `cusi/envs/{base,gameboy,android_world,webvoyager}.py`,
 `scripts/utils.sh` (`parse_args` helper), `scripts/container.sh`, `setup/pyproject.toml` +
 `uv.lock` (added `tabulate`), `README.md`, `configs/config.env`. Outside CUSI:
 `/nas/eclairnas01/users/ashokd/vllm/`. `configs/private_vars.yaml` was not touched by me.

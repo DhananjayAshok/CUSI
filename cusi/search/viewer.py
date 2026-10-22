@@ -1,5 +1,5 @@
 """
-The run viewer (plans/next_plan.md §D): a static page per search run, <run dir>/viewer/index.html, with
+The run viewer (plans/archive/next_plan.md §D): a static page per search run, <run dir>/viewer/index.html, with
 - the tree with node thumbnails;
 - per node: features, the latest decision score with its verdicts, Q / N / P and flags;
 - every expansion stepped through frame by frame (actions, values, texts), with its description, discovered features

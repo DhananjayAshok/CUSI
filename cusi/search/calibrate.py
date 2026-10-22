@@ -1,5 +1,5 @@
 """
-Offline calibration of the selection (plans/tree_search_plan.md, plans/next_plan.md §B step 6): every saved decision
+Offline calibration of the selection (plans/archive/tree_search_plan.md, plans/archive/next_plan.md §B step 6): every saved decision
 record holds each candidate's Q, N and P, so the selection distribution can be recomputed for other c, tau and P
 normalisations without rerunning the search; step values give node_threshold quantiles.
 

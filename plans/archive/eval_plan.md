@@ -121,7 +121,7 @@ Most of the machinery exists. What has to change for score equivalence:
     set-of-mark `screenshot{N}.png` files. Then run `auto_eval.py` unchanged with the same
     judge model. (Our executor's reports keep unlabelled frames; auto_eval needs the labelled
     ones.)
-17. Build the filtered task file from `plans/web_voyager_plan.md` (sites we exclude), used by both
+17. Build the filtered task file from `plans/archive/web_voyager_plan.md` (sites we exclude), used by both
     options.
 
 ---
@@ -210,6 +210,6 @@ the native harness's own run-to-run noise".
    `--reply_format action_only`, while native agents reason first. Do we evaluate our
    policies in their training format (our prompter, not comparable with published agents)
    or require training in `native` format so the native replicas can run them?
-3. **Web test set:** which sites to exclude (the `plans/web_voyager_plan.md` list), and which
+3. **Web test set:** which sites to exclude (the `plans/archive/web_voyager_plan.md` list), and which
    judge model.
 4. **Budgets:** GameBoy 175 (shell wrapper) or 200 (`run_benchmark.py` default)?

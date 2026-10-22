@@ -1,6 +1,6 @@
-# Progress notes (plans/next_plan.md implementation)
+# Progress notes (plans/archive/next_plan.md implementation)
 
-Nothing is committed or pushed. The full status and per-variant results are in `plans/next_plan.md`, under
+Nothing is committed or pushed. The full status and per-variant results are in `plans/archive/next_plan.md`, under
 "Implementation status (2026-10-11)". This file lists the decisions you should know about, newest last.
 
 ## Decisions I made
@@ -361,9 +361,9 @@ Nothing is committed or pushed. The full status and per-variant results are in `
 - **Repo hygiene:** `.gitignore` now ignores `/tmp*.sh`, `/tmp*.py` and `screenlog.*`. `tests/android_replay_debug.py` was moved out of the repo.
 - **Not committed:** `configs/private_vars.yaml` (real values) and the `GameBoyRL` pointer, which is unchanged.
 
-# Executor design plan (design_plan.md), from 2026-10-13
+# Executor design plan (plans/archive/design_plan.md), from 2026-10-13
 
-Decisions: `plans/decisions.md` §E. Feature catalogue: `plans/executor_lit.md`. Tables: `storage/eval/design/tables_dz.md`
+Decisions: `plans/decisions.md` §E. Feature catalogue: `plans/archive/executor_lit.md`. Tables: `storage/eval/design/tables_dz.md`
 (by `tmp_design_tables.py`).
 
 ## Stage 1: dev splits, baselines, harness (2026-10-13)
@@ -377,7 +377,7 @@ Decisions: `plans/decisions.md` §E. Feature catalogue: `plans/executor_lit.md`.
 - **Baselines** (`dz_base_r{0,1,2}`, supervisor off): jobs 283976–283978 (GameBoy), 283979–283981 (Web),
   283982–283984 (Android).
 - **Feature smoke runs** (4 tasks each, all prototype features on): 283986 (Web), 283987 (Android), 283988 (GameBoy).
-- **Literature review** running (output `plans/executor_lit.md`).
+- **Literature review** running (output `plans/archive/executor_lit.md`).
 - **Web smoke (job 283993; F10, F11, F41, F04, F32, F27, F21, F09, F14):** each feature does what it claims in the
   episode records:
   - plan and notes are carried each step;
@@ -467,7 +467,7 @@ Decisions: `plans/decisions.md` §E. Feature catalogue: `plans/executor_lit.md`.
   replicate. F25 cost variant (E3.13): −6.4 vs F27, not adopted; −1.5 vs base at half the calls (observation).
 - **GameBoy full benchmark (E4.6):** baseline 31.3% on 99 tasks; held-out 24.5%.
 - **F12 judge rerun cancelled** (E2.37): stuck 40 h on an A5000 request; superseded by F14=google.
-- **Write-up:** `plans/executor_design_report.md` (final designs, full and held-out results, every feature tried,
+- **Write-up:** `plans/archive/executor_design_report.md` (final designs, full and held-out results, every feature tried,
   §7, caveats, what is left).
 - **Stage 6, AndroidWorld with Minitap + ARTEMIS ideas (E6.0–E6.9):** 10 features screened (F55–F64); only F61
   (device context) promoted. Final candidate = Minitap bundle (F27 + F55–F61, higher on dev than F61 alone). Held-out,

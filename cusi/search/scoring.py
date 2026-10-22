@@ -1,5 +1,5 @@
 """
-VLM decision scores (plans/next_plan.md §B): at selection time, each candidate node's features are checked against
+VLM decision scores (plans/archive/next_plan.md §B): at selection time, each candidate node's features are checked against
 what its scene's expansions have discovered. The score, the share of features still undiscovered, is P(n) in the
 energy. Scores are cached per node; each decision re-scores the candidates with the highest energy.
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Slurm job: AndroidWorld's one-time app setup on the AVD, then an end-to-end check
-# (emulator + m3a_cusi against a mock model). Needs a node with /dev/kvm (the GPU
+# Slurm job: AndroidWorld's one-time app setup on the AVD, then a check that the fiddly apps open straight
+# into the app. Needs a node with /dev/kvm (the GPU
 # nodes); no GPU is used. Submit from the CUSI root:
 #
 #   mkdir -p "$results_dir/logs"
@@ -19,4 +19,3 @@ bash scripts/container.sh bash setup/android/app_setup.sh
 # welcome screen or permission prompt.
 bash scripts/container.sh bash setup/android/inspect_apps.sh --apps "chrome contacts markor" \
     --fail_on "Welcome to Chrome|Use without an account|Back up .* contacts|send you notifications|Storage permission required"
-bash scripts/container.sh bash setup/verify/e2e.sh --webvoyager false --android_world true

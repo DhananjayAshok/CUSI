@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plans/plan.md Part 2.6 -> Part 1: infer tasks from an exploration run's high-novelty trajectories,
+# plans/archive/plan.md Part 2.6 -> Part 1: infer tasks from an exploration run's high-novelty trajectories,
 # then guidance -> practice -> clean -> dataset on them (run_practice.py --source <source>
 # Run from the CUSI root (Slurm wrapper: slurm/curiosity_practice.sh).
 #

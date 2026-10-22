@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plans/plan.md Part 1 small-scale test: start vLLM, then run all six practice stages (2 scenes x 3
+# plans/archive/plan.md Part 1 small-scale test: start vLLM, then run all six practice stages (2 scenes x 3
 # proposed tasks, normal step budgets) for each environment, the environments in parallel
 # against the one server. Run from the CUSI root (Slurm wrapper: slurm/practice_small.sh).
 #

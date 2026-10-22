@@ -1,7 +1,7 @@
 # Agents plan: GameBoyRL's supervisors on all three envs, and episode artifacts
 
 Written 2026-10-05. **Sections 1–6 built 2026-10-06** (status and differences from the plan in
-section 8); the section 7 ablation ran on 2026-10-06, with results in `plans/results.md`. Builds on `plans/eval_plan.md` (evaluation through our envs, done and
+section 8); the section 7 ablation ran on 2026-10-06, with results in `plans/archive/results.md`. Builds on `plans/archive/eval_plan.md` (evaluation through our envs, done and
 shown equivalent to the native harnesses) and the GameBoy executor port (all 9 GameBoyRL arms,
 byte-identical requests against native on a mock server).
 
@@ -202,7 +202,7 @@ native harness).
 - GameBoy: `pokemon_red`, all 49 benchmark tasks (CUSI's game). The other 21 GameBoyWorlds games
   (~1,000 tasks) are out unless asked for.
 - Android: the `android_world` family, 116 tasks × 1 instance, seed 30.
-- Web: `WebVoyager_data.jsonl` (642 tasks) minus the sites `plans/web_voyager_plan.md` excludes
+- Web: `WebVoyager_data.jsonl` (642 tasks) minus the sites `plans/archive/web_voyager_plan.md` excludes
   (blocked / captcha / login); that filtered task file must exist first.
 - **Web judge fixed** for all Web runs: `google/gemma-4-31b-it` through the unchanged
   `auto_eval.py`, so settings differ only in the agent, not the grader.
@@ -224,7 +224,7 @@ measurements:
 | Android | 116 × ≤ 10×complexity steps, 2 calls/step + 2 s pause | ~5–8 h | 1.5–3× |
 | Web | ~550–640 × ≤ 15 steps | ~12–15 h at 1 browser; ~3–4 h at 4 | 1.5–3× |
 
-**Analysis (written to `plans/results.md` when done, not here; README points to it):**
+**Analysis (written to `plans/archive/results.md` when done, not here; README points to it):**
 - Per config: success rate per supervisor with 95% bootstrap CIs, and paired comparisons against
   `baseline` (`cusi.utils` `paired_bootstrap`, tasks paired); the best supervisor per config.
 - Breakdowns: GameBoy subgoals reached; Android per task template and difficulty
@@ -297,7 +297,7 @@ measurements:
 
 ## 9. Executor memory across legs, 10-step legs (2026-10-06, after the ablation)
 
-The ablation (`plans/results.md`) showed two step costs on Android and Web:
+The ablation (`plans/archive/results.md`) showed two step costs on Android and Web:
 - Legs cut off at 5 steps rarely clear a plan step: 13–19%, against 77–86% for legs the agent ended itself.
 - Retries redo work after the executor's memory is reset. A `subgoal` retry re-types text the previous leg already typed 71–84% of the time, against 28–47% within a baseline episode.
 

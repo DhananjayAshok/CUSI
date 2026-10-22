@@ -1,5 +1,5 @@
 """
---expander curiosity (plans/next_plan.md §E.5): expanding a node trains a fresh policy from it in one curiosity RL
+--expander curiosity (plans/archive/next_plan.md §E.5): expanding a node trains a fresh policy from it in one curiosity RL
 session; the expansion is the session's best episode, materialised by replaying its actions from the node through the
 search's ordinary step loop (scored against the global archive). GameBoy replays are checked frame by frame and a
 mismatch fails the run; Web and Android replays are checked by embedding similarity, and the expansion stops at the

@@ -32,6 +32,9 @@ class TextActionEnv(gym.Env, ABC):
 
     #: What is being operated, for environment-agnostic prompts. Subclasses set it.
     env_description: str = "an interactive environment"
+    #: Envs whose actions pick elements by index also return obs["elements"], the numbered element list their own
+    #: agent is shown, and set this to the sentence that agent's prompt puts before it.
+    elements_intro: Optional[str] = None
 
     def __init__(self, *, mode: str, frame_shape: tuple, text_keys: tuple[str, ...],
                  parameters: dict[str, Any] = None) -> None:
@@ -112,10 +115,6 @@ class TextActionEnv(gym.Env, ABC):
         self._import_state_impl(state_id=state_id, path=path)
         self._saved_state_ids.add(state_id)
         return state_id
-
-    @property
-    def saved_state_ids(self) -> tuple[str, ...]:
-        return tuple(sorted(self._saved_state_ids))
 
     def _check_state_id(self, *, state_id: str) -> None:
         if state_id not in self._saved_state_ids:

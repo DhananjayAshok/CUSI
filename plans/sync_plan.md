@@ -79,7 +79,7 @@ Any sync has to step around them. Worse, the Hub's `upload_large_folder` walks t
 
 | set | contents | notes |
 |---|---|---|
-| `eval_summaries` | `eval/*/*/{config.json,results.jsonl,summary.json,timing.jsonl,scores.json,process_episodes.md}` plus each episode's `meta.json` and `events.jsonl` | small; the numbers behind `plans/results.md` |
+| `eval_summaries` | `eval/*/*/{config.json,results.jsonl,summary.json,timing.jsonl,scores.json,process_episodes.md}` plus each episode's `meta.json` and `events.jsonl` | small; the numbers behind `plans/archive/results.md` |
 | `eval_episodes` | `eval/*/*/episodes/*/{legs/*,frames/*,episode.mp4}` plus Web's `task*/` (auto_eval inputs) | large; pull per run with a run-name pattern |
 | `practice_datasets` | `practice/*/*/dataset/**` (and `curiosity/dataset/**`) | the training data: the main product |
 | `practice_runs` | the JSON / JSONL stage outputs of practice (proposals, attempts, guidance, cleaning) | audit trail behind the datasets |
