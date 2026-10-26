@@ -1,14 +1,14 @@
 """
-The final agent of each env (decisions.md E8.0): one fixed executor and the supervisor that runs it. Eval, practice
-and exploration all build agents here; nothing about them is configurable except the model client.
+The final agent of each env (decisions.md E8.0): one fixed executor and the supervisor that runs it. Eval and practice
+build agents here (search's VLM exploration drives the bare executor); nothing about them is configurable except the
+model client.
 
     agent = make_agent(env_name="android", env=env, vlm=vlm, parameters=parameters)
-    supervisor, result = agent.run(task=goal_or_None, obs=obs, info=info, max_steps=budget)
+    supervisor, result = agent.run(task=goal, obs=obs, info=info, max_steps=budget)
     # result = {"report": SupervisorReport, **supervisor state}; supervisor.executors = one executor per leg
     leg = merged_leg(report=result["report"])     # the whole run as one LegReport (practice judges and trains on it)
 
-task None = exploring: the prompts carry EXPLORE_GOAL, finishing is disabled, and the run ends on the step budget
-or an env ending. guidance (practice's critique hints; never used in eval) is shown to the executor in every leg.
+guidance (practice's critique hints; never used in eval) is shown to the executor in every leg.
 """
 from typing import Optional
 from cusi.agents.records import LegReport
@@ -50,7 +50,7 @@ class Agent:
         return self.executor_class(env=self.env, vlm=self.vlm, previous_history=previous_history,
                                    parameters=self._parameters)
 
-    def run(self, *, task: Optional[str], obs: dict, info: dict, max_steps: int,
+    def run(self, *, task: str, obs: dict, info: dict, max_steps: int,
             guidance: Optional[str] = None) -> tuple:
         """One episode from the current state -> (supervisor, {"report": SupervisorReport, **supervisor state})."""
         supervisor = self.supervisor_class(task=task, guidance=guidance, env_name=self.env_name, env=self.env,

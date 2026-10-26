@@ -26,7 +26,7 @@ class EnvSpec:
     max_workers: int             # concurrent environment instances
     make_env: Callable
     make_agent: Callable         # make_agent(env=, vlm=, parameters=) -> the env's final agent
-    dataset_tags: tuple = ("action",)
+    env_description: str         # the env's own env_description, for code without a live env (cusi.search.annotate)
 
 
 def _gameboy_env(*, scene: Scene, worker: int, parameters: dict):
@@ -60,7 +60,8 @@ ENV_SPECS = {
         name="gameboy", domain=gameboy_domain(game=GAMEBOY_GAME),
         scenes={"viridian": Scene("viridian", {"init_state": "location_viridian_city_starting_charmander"}),
                 "pewter": Scene("pewter", {"init_state": "location_pewter_city_starting_charmander"})},
-        max_steps=50, max_workers=8, make_env=_gameboy_env, make_agent=_agent_factory("gameboy")),
+        max_steps=50, max_workers=8, make_env=_gameboy_env, make_agent=_agent_factory("gameboy"),
+        env_description=f"the GameBoy game {GAMEBOY_GAME}"),
     # AndroidWorld budgets 10 steps per unit of task complexity.
     "android": EnvSpec(
         name="android", domain=ANDROID_DOMAIN,
@@ -68,23 +69,14 @@ ENV_SPECS = {
         scenes={"contacts": Scene("contacts", {"task": "ContactsAddContact", "start_app": "Contacts"}),
                 "settings": Scene("settings", {"task": "SystemWifiTurnOff", "start_app": "Settings"})},
         max_steps=20, max_workers=1, make_env=_android_env, make_agent=_agent_factory("android"),
-        dataset_tags=("action", "summary")),
+        env_description="an Android phone"),
     "web": EnvSpec(
         name="web", domain=WEB_DOMAIN,
         scenes={"arxiv": Scene("arxiv", {"url": "https://arxiv.org/"}),
                 "github": Scene("github", {"url": "https://github.com/"})},
-        max_steps=15, max_workers=2, make_env=_web_env, make_agent=_agent_factory("web")),
+        max_steps=15, max_workers=2, make_env=_web_env, make_agent=_agent_factory("web"),
+        env_description="a web browser"),
 }
-
-
-def proposal_context(*, env, obs: dict) -> tuple:
-    """(action space text, texts block) for the propose prompt."""
-    if hasattr(env, "action_strings"):
-        actions = "".join(f"- {s}\n" for s in env.action_strings(return_all=True).values())
-    else:
-        actions = obs["actions"]
-    texts = "\n\n".join(v for v in obs["texts"].values() if v)
-    return actions, texts
 
 
 class EnvPool:

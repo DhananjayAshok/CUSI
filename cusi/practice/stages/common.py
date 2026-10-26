@@ -12,8 +12,6 @@ from tqdm import tqdm
 from cusi.utils.log_handling import log_info, log_warn
 
 
-TASK_SOURCES = ("zeroshot", "curiosity")
-
 
 def atomic_json(obj: Any, path: str) -> None:
     tmp = path + ".tmp"

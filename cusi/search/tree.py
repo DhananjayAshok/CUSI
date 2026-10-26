@@ -8,7 +8,7 @@ from cusi.agents.records import EncodedImage
 
 # info keys kept per step (raw frames and region crops are large; the frame is kept separately).
 INFO_KEYS = ("valid", "error", "parsed_action", "step", "url", "stale", "action_name", "frame_changed", "challenge",
-             "challenge_reason")
+             "challenge_reason", "true")
 #: Flags that make a node unselectable.
 UNSELECTABLE_FLAGS = ("unrestorable", "replay_diverged", "challenge_page")
 
@@ -51,6 +51,9 @@ class Node:
     yields: list = field(default_factory=list)
     features: Optional[list] = None        # what exploring from it could surface (VLMFeatures); None if not run
     features_raw: Optional[str] = None
+    description: Optional[str] = None      # what its segment (parent -> it) did (TransitionDescriber); None on roots
+    discovered: Optional[list] = None      # the features its segment surfaced
+    window_descriptions: Optional[list] = None   # per-window descriptions of the segment
     flags: dict = field(default_factory=dict)   # UNSELECTABLE_FLAGS, features_parse_failed
     created_at: int = 0                    # iteration that created it (0: roots)
     replay: bool = False                   # restored by reset + its root->node path instead of a saved state
@@ -71,9 +74,6 @@ class Expansion:
     stats: dict = field(default_factory=dict)
     expander: str = "random"               # random | vlm | curiosity
     expander_info: dict = field(default_factory=dict)   # expander-specific (plans/archive/next_plan.md §E.6)
-    description: Optional[str] = None      # what happened over its steps (TransitionDescriber), if run
-    discovered: Optional[list] = None      # the features its steps surfaced (TransitionDescriber)
-    window_descriptions: Optional[list] = None   # per-window descriptions of a sliced describe
 
 
 class Tree:

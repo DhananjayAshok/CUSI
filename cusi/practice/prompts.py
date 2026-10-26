@@ -8,78 +8,26 @@ from dataclasses import dataclass
 class Domain:
     """How the shared prompts name an environment."""
     domain: str            # "a game of pokemon_red" / "an Android phone" / "a web browser"
-    actor: str             # "player" / "agent"
+    actor: str             # "player" / "user"
     screen: str            # "frame" / "screenshot"
-    step_examples: str     # imperative-step examples for the guidance prompt
-    cue_example: str       # visual-cue example for the guidance prompt
-    propose_rules: str = ""   # extra constraints for the propose prompt (one "- ..." line each)
 
 
 def gameboy_domain(*, game: str) -> Domain:
-    return Domain(
-        domain=f"a game of {game}", actor="player", screen="frame",
-        step_examples='"Press A to speak to the NPC", "Walk left towards the door"',
-        cue_example=('instead of saying "walk upwards", say "when the character is past the tree line, walk upwards'
-                     ' until the door is visible at the top of the frame."'))
+    return Domain(domain=f"a game of {game}", actor="player", screen="frame")
 
 
-_LABEL_RULE = ("- Described by what is visible (text, icons, position), never by the numeric labels in the"
-               " element list: those numbers change from screen to screen\n")
+ANDROID_DOMAIN = Domain(domain="an Android phone", actor="user", screen="screenshot")
 
-ANDROID_DOMAIN = Domain(
-    domain="an Android phone", actor="user", screen="screenshot", propose_rules=_LABEL_RULE,
-    step_examples='"Open the Contacts app", "Tap the + button at the bottom right"',
-    cue_example=('instead of saying "open the menu", say "when the contact list is showing, tap the three-dot icon'
-                 ' at the top right until a menu with Settings appears."'))
-
-WEB_DOMAIN = Domain(
-    domain="a web browser", actor="user", screen="screenshot",
-    propose_rules=_LABEL_RULE + ("- Possible without logging in, signing up, buying anything or entering personal"
-                                 " information\n"),
-    step_examples='"Type the query into the search box at the top", "Click the first result title"',
-    cue_example=('instead of saying "search for it", say "when the home page is showing, type the query into the'
-                 ' search box labelled Search at the top, until a page of results appears."'))
+WEB_DOMAIN = Domain(domain="a web browser", actor="user", screen="screenshot")
 
 
 def fill(template: str, *, domain: Domain, **values) -> str:
     """Fill [DOMAIN]/[ACTOR]/[SCREEN] and any [KEY] given as KEY=value."""
-    text = (template.replace("[DOMAIN]", domain.domain).replace("[ACTOR]", domain.actor)
-            .replace("[SCREEN]", domain.screen).replace("[STEP_EXAMPLES]", domain.step_examples)
-            .replace("[CUE_EXAMPLE]", domain.cue_example).replace("[PROPOSE_RULES]", domain.propose_rules))
+    text = template.replace("[DOMAIN]", domain.domain).replace("[ACTOR]", domain.actor).replace("[SCREEN]", domain.screen)
     for key, value in values.items():
         text = text.replace(f"[{key}]", str(value))
     return text
 
-
-# --------------------------------------------------------------------------- propose
-
-PROPOSE_PROMPT = """You are observing the initial [SCREEN] of [DOMAIN].
-
-You are an expert analyst of [DOMAIN]. Your job is to look carefully at this [SCREEN] and reason about:
-- What is visible in the immediate surroundings (objects, characters, structures, interactable elements)
-- What areas, items or features are accessible from this position
-- What mechanisms or interactions are available given the action space: [ACTION_SPACE]
-[TEXTS_BLOCK]
-Propose an exhaustive list of distinct tasks that a [ACTOR] could meaningfully attempt to achieve starting from this exact state. Focus on tasks that are:
-- Grounded in what is actually visible or reachable from this state
-- Specific and concrete (not vague like "explore the area")
-- Achievable as a single coherent goal
-- Varied in scope (include both short and longer-horizon tasks)
-[PROPOSE_RULES]
-Respond in exactly this format:
-Reasoning: <brief analysis of what is visible and what interactions are possible>
-Tasks:
-- <task 1>
-- <task 2>
-- <task 3>
-...
-[STOP]"""
-
-# Fills [TEXTS_BLOCK] for environments with a text channel; empty for GameBoy.
-PROPOSE_TEXTS_BLOCK = """
-The text elements on this [SCREEN] are:
-[TEXTS]
-"""
 
 # --------------------------------------------------------------------------- judge
 
@@ -162,49 +110,7 @@ Critique: <what went wrong overall>
 Hint: <one or two sentence hint for a better approach>
 [STOP]"""
 
-# --------------------------------------------------------------------------- guidance
-
-SLICE_GUIDANCE_PROMPT = """You are an expert user of [DOMAIN]. You are given [SCREEN]s [START_IDX]-[END_IDX] (out of [TOTAL] total [SCREEN]s) from a trajectory, along with the task being accomplished:
-
-Task: "[TASK]"
-
-Describe what the [ACTOR] does in this section of the trajectory. Base your guidance strictly on what you can observe — do not invent details not visible.
-
-Guidelines:
-- Write each step as a short, clear imperative instruction (e.g. [STEP_EXAMPLES]).
-- Order steps chronologically within this section.
-- Be specific about directions, controls and targets when clearly visible.
-- If the exact control labels are intuitive, describe the action instead.
-- You must make sure that for each step, you explicitly refer to the visual cues in the [SCREEN] that indicate WHEN to do a particular step, and when to move on to the next. For example, [CUE_EXAMPLE] Be very specific about the visual cues that indicate what to do and when.
-
-Respond in exactly this format:
-Summary: <one sentence describing what happens in [SCREEN]s [START_IDX]-[END_IDX]>
-Goal condition: <a visual description of the final [SCREEN] in this section>
-Steps:
-- <step 1>
-- <step 2>
-...
-[STOP]"""
-
-CONSOLIDATE_GUIDANCE_PROMPT = """You are consolidating partial guidance from multiple sections of a trajectory on [DOMAIN].
-
-Task: "[TASK]"
-
-Here are the descriptions of each section, in chronological order:
-[SECTION_DESCRIPTIONS]
-
-Combine these into a single, complete, coherent set of step-by-step guidance that a new [ACTOR] could follow from start to finish to accomplish the task.
-
-Respond in exactly this format:
-Summary: <one sentence describing the overall approach to complete the task>
-Goal condition: <a visual description of the state that confirms task completion>
-Steps:
-- <step 1>
-- <step 2>
-...
-[STOP]"""
-
-# --------------------------------------------------------------------------- clean
+# --------------------------------------------------------------------------- dataset
 
 AUGMENT_PARAPHRASE_PROMPT = """You are given a canonical task string:
 "[CORE_TASK]"
@@ -217,75 +123,4 @@ Respond in exactly this format (one paraphrase per line):
 - <paraphrase 1>
 - <paraphrase 2>
 ...
-[STOP]"""
-
-CLEAN_PROMPT = """You are reviewing a single decision an agent made while operating [DOMAIN].
-
-The agent was working toward this task:
-"[TASK]"
-
-It was shown the [SCREEN](s) provided as image(s) and given this prompt context:
-[AGENT_PROMPT]
-
-The agent's reasoning and action (its response) was:
-[AGENT_RESPONSE]
-
-Your job is to catch only CRITICAL errors. Consider two things:
-- Is the agent's description of the [SCREEN] clearly wrong given the visual evidence?
-- Is the chosen action clearly poor and unlikely to contribute toward completing the task?
-
-Err strongly on the side of ACCEPT. Only REJECT if there is clear visual evidence that the
-response badly misdescribes the [SCREEN], or that the action is likely counterproductive or
-unlikely to advance the task. If you are unsure, ACCEPT.
-
-Respond in exactly this format:
-Reason: <one short sentence justifying your decision>
-Decision: <ACCEPT or REJECT>
-[STOP]"""
-
-CLEAN_PROMPT_TRANSITION = """You are reviewing a single decision an agent made while operating [DOMAIN].
-
-The agent was working toward this task:
-"[TASK]"
-
-It was shown the [SCREEN](s) provided as image(s) (every image EXCEPT the last) and given this prompt context:
-[AGENT_PROMPT]
-
-The agent's reasoning and action (its response) was:
-[AGENT_RESPONSE]
-
-The FINAL image is the [SCREEN] AFTER the agent's action was executed. Use the change from
-the agent's [SCREEN](s) to this resulting [SCREEN] as your main evidence of whether the action helped.
-
-Your job is to catch only CRITICAL errors. Consider:
-- Is the agent's description of the [SCREEN] clearly wrong given the visual evidence?
-- Does the action's visible effect (the before -> after change) clearly fail to advance the task, or move away from it?
-
-Err strongly on the side of ACCEPT. Only REJECT if there is clear visual evidence that the
-response badly misdescribes the [SCREEN], or that the resulting transition shows the action was
-counterproductive or unlikely to advance the task. If you are unsure, ACCEPT.
-
-Respond in exactly this format:
-Reason: <one short sentence justifying your decision>
-Decision: <ACCEPT or REJECT>
-[STOP]"""
-
-# M3A's summary rows are not actions; the reviewer judges the summary instead.
-CLEAN_SUMMARY_PROMPT = """You are reviewing a step summary an agent wrote while operating [DOMAIN].
-
-The agent was working toward this task:
-"[TASK]"
-
-It was shown the before and after [SCREEN]s provided as images and given this prompt context:
-[AGENT_PROMPT]
-
-The summary it wrote was:
-[AGENT_RESPONSE]
-
-Your job is to catch only CRITICAL errors: REJECT only if the summary clearly misdescribes what changed
-between the two [SCREEN]s or what the action did. If you are unsure, ACCEPT.
-
-Respond in exactly this format:
-Reason: <one short sentence justifying your decision>
-Decision: <ACCEPT or REJECT>
 [STOP]"""

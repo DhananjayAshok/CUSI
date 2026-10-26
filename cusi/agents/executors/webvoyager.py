@@ -8,8 +8,8 @@ import os
 import re
 from typing import Optional
 from cusi.utils.log_handling import log_warn
-from cusi.envs.webvoyager import MSG_NO_GOOGLE, load_webvoyager, remove_line, without_google
-from cusi.agents.executors.base import EXPLORE_GOAL, GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
+from cusi.envs.webvoyager import MSG_NO_GOOGLE, load_webvoyager, without_google
+from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
 
 MAX_ATTACHED_IMGS = 5     # F08=5 (WebVoyager/run.sh: 3)
 _PLACEHOLDER = "__CUSI_IMAGE__"   # passed to format_msg, whose image part is then swapped for an index
@@ -19,7 +19,7 @@ MSG_FORMAT = "Format ERROR: Both 'Thought' and 'Action' should be included in yo
 MSG_EXEC_FAILED = ("The action you have chosen cannot be exected. Please double-check if you have selected the wrong"
                    " Numerical Label or Action or Action format. Then provide the revised Thought and Action.")
 OBS_PROMPT = "Observation: please analyze the attached screenshot and give the Thought and Action. "
-MSG_NO_ANSWER = "The ANSWER action is not available while exploring; keep exploring the website."
+NEW_TASK = "That task is finished. Now given a new task: {task} "
 LOW_BUDGET_LEFT = 3
 
 
@@ -41,18 +41,8 @@ def budget_note(*, iteration: int, max_steps: int) -> str:
     return note
 
 
-def system_prompt(*, base: str, explore: bool) -> str:
-    """WebVoyager's system prompt without the Google action (F14=google: it often lands on a CAPTCHA); exploring,
-    also without ANSWER."""
-    text = without_google(prompt=base)
-    if explore:
-        text = remove_line(text=text, pattern=r"7\. Answer\. [^\n]*\n")
-        text = remove_line(text=text, pattern=r"- ANSWER; \[content\]\n")
-    return text
-
-
 class WebVoyagerExecutor(Executor):
-    """WebVoyager with the final Web design on a WebVoyagerPlayEnv; task None = exploring (no ANSWER action)."""
+    """WebVoyager with the final Web design on a WebVoyagerPlayEnv."""
 
     name = "webvoyager"
     env_name = "web"
@@ -71,10 +61,12 @@ class WebVoyagerExecutor(Executor):
         self._fail_obs = ""
         self._pdf_obs = ""
         self._warn_obs = ""
+        self._new_task: Optional[str] = None
 
     def reset_memory(self) -> None:
-        self._messages = [{"role": "system",
-                           "content": system_prompt(base=self._wv.SYSTEM_PROMPT, explore=self.task is None)}]
+        # F14=google: no Google action (it often lands on a CAPTCHA)
+        self._messages = [{"role": "system", "content": without_google(prompt=self._wv.SYSTEM_PROMPT)}]
+        self._new_task = None
         self._images = []
         self._n_previous = 0
         self.screenshots = []
@@ -102,6 +94,9 @@ class WebVoyagerExecutor(Executor):
             else:
                 parts.append(dict(part))
         first_text = next(p for p in parts if p["type"] == "text")
+        if self._new_task:      # retask: the chat's task is in its first message, so the new one is announced
+            first_text["text"] = NEW_TASK.format(task=self._new_task) + first_text["text"]
+            self._new_task = None
         first_text["text"] += budget_note(iteration=self._it, max_steps=self.report.max_steps)
         return {"role": "user", "content": parts}
 
@@ -127,7 +122,7 @@ class WebVoyagerExecutor(Executor):
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
         self._it += 1
         if not self._fail_obs:
-            init_msg = init_message(task=self.task or EXPLORE_GOAL, url=self.env.start_url, guidance=hint)
+            init_msg = init_message(task=self.task, url=self.env.start_url, guidance=hint)
             self._messages.append(self._observation_message(obs=obs, init_msg=init_msg))
         else:
             self._messages.append({"role": "user", "content": self._fail_obs})
@@ -144,9 +139,6 @@ class WebVoyagerExecutor(Executor):
             self._fail_obs = MSG_NO_GOOGLE
             return Decision(invalid="pruned action", error=MSG_NO_GOOGLE)
         action_key, parsed = self._wv.extract_information(chosen_action)
-        if action_key == "answer" and self.task is None:
-            self._fail_obs = MSG_NO_ANSWER
-            return Decision(invalid="answer while exploring", error=MSG_NO_ANSWER)
         if action_key == "answer":
             return Decision(finish=True, answer=parsed["content"], action_text=f"Action: {chosen_action}")
         if action_key is None:
@@ -157,7 +149,8 @@ class WebVoyagerExecutor(Executor):
 
     def after_step(self, *, decision, obs_before, info_before, obs_after, info_after, step) -> None:
         self._fail_obs = "" if step.valid else (step.error or MSG_EXEC_FAILED)
-        self._warn_obs = info_after.get("warning", "") or ""
+        # the no-change note goes with the env's warnings into the next observation (WebVoyager's feedback channel)
+        self._warn_obs = " ".join(w for w in (info_after.get("warning"), self.change_note) if w)
         self._pdf_obs = self._pdf_answer(info_after) if info_after.get("pdf") else ""
 
     def _pdf_answer(self, info: dict) -> str:
@@ -166,13 +159,17 @@ class WebVoyagerExecutor(Executor):
         name = info["pdf"].split("You downloaded a PDF file: ", 1)[-1].rstrip(".")
         path = os.path.join(self.env._work_dir, name)
         try:
-            answer = answer_from_pdf(model=self.vlm._model, pdf_path=path, question=self.task or EXPLORE_GOAL,
+            answer = answer_from_pdf(model=self.vlm._model, pdf_path=path, question=self.task,
                                      parameters=self._parameters)
         except Exception as e:
             log_warn(f"PDF answer failed for {path}: {e}", parameters=self._parameters)
             return info["pdf"]
         return ("You downloaded a PDF file, I ask the Assistant API to answer the task based on the PDF file and get"
                 " the following response: " + answer)
+
+    def retask(self, *, task: str) -> None:
+        super().retask(task=task)
+        self._new_task = task
 
     def messages_for_log(self, *, own_leg_only: bool = True) -> list:
         """The chat in run.py's interact_messages.json format; own_leg_only drops chat carried over from earlier legs."""

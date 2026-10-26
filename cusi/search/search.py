@@ -14,17 +14,32 @@ from cusi.search.tree import Step, Tree, boxes_as_dicts, compact_info
 RESTORE_MODES = ("state", "replay")
 
 
+def report_segments(*, tree, describer, env_description: str, exp) -> None:
+    """Report every node the expansion made: its parent's screen, then each step from there up to the node,
+    described window by window (TransitionDescriber). Steps after the last node are not reported."""
+    for cid in exp.children:
+        child = tree.nodes[cid]
+        if child.flags.get("challenge_page"):
+            continue
+        _, first, last = child.segment
+        report = describer(env_description=env_description, start_frame=tree.nodes[child.parent].frame,
+                           steps=exp.steps[first:last + 1])
+        for key, value in report.items():       # description, discovered, window_descriptions
+            setattr(child, key, value)
+
+
 class TreeSearch:
     def __init__(self, *, envs, encoder, scorer, archive, expander, stats, selector: EnergySelector,
                  k_steps: int, node_threshold: float, closing_node: bool, archive_nodes_only: bool,
-                 features=None, decision_scorer=None, score_top_m: int = 8, describer=None,
-                 noop_similarity: float = 0.999,
+                 features=None, describer=None, decision_scorer=None, score_top_m: int = 8,
                  restore: str = "state", replay_similarity: float = 0.95, store=None, logger=None,
                  parameters: dict[str, Any] = None) -> None:
-        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features: a VLMFeatures run on every
-        new node. decision_scorer: a VLMScorer that, at each decision, re-scores the score_top_m candidates with the
-        highest energy (0: all) against their scene's discovered features; the scores are P(n). describer: a
-        TransitionDescriber run on every finished expansion. restore: "state" saves and loads a state per node; "replay" saves none and
+        """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features, describer and
+        decision_scorer come together (the VLM explorer's search) or not at all: features, a VLMFeatures run on every
+        new node; describer, a TransitionDescriber that reports each new node's segment (its parent's screen, then
+        every step to it), whose discovered features make up the scene's discovered set; decision_scorer, a VLMScorer
+        that, at each decision, re-scores the score_top_m candidates with the highest energy (0: all) against their
+        scene's discovered set, the scores being P(n). restore: "state" saves and loads a state per node; "replay" saves none and
         rebuilds a node by reset + its root->node actions, accepted when the result's similarity to the node is
         >= replay_similarity. closing_node: an expansion's last step always becomes a node; without it, only steps
         reaching node_threshold do, so a fruitless expansion adds none. archive_nodes_only: only states that become
@@ -34,13 +49,13 @@ class TreeSearch:
             raise ValueError(f"restore must be one of {RESTORE_MODES}, got {restore!r}")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
         self.expander, self.stats, self.selector = expander, stats, selector
-        self.features, self.decision_scorer, self.score_top_m = features, decision_scorer, score_top_m
-        if decision_scorer is not None and (features is None or describer is None):
-            raise ValueError("decision scores need node features and transition descriptions")
-        self.describer = describer
+        if len({features is None, describer is None, decision_scorer is None}) > 1:
+            raise ValueError("features, describer and decision_scorer come together or not at all")
+        self.features, self.describer, self.decision_scorer = features, describer, decision_scorer
+        self.annotated, self.score_top_m = features is not None, score_top_m
         self.node_scores: dict = {}       # node id -> latest decision score (never scored: 1.0)
         self._n_discovered = None
-        self.k_steps, self.node_threshold, self.noop_similarity = k_steps, node_threshold, noop_similarity
+        self.k_steps, self.node_threshold = k_steps, node_threshold
         self.closing_node, self.archive_nodes_only = closing_node, archive_nodes_only
         self.restore, self.replay_similarity = restore, replay_similarity
         self.store, self.logger, self._parameters = store, logger, parameters
@@ -72,11 +87,12 @@ class TreeSearch:
                                   created_at=self.iteration, replay=self.restore == "replay" and not challenge,
                                   text_boxes=obs.get("text_boxes"))
         node.flags.update(flags)
-        if self.features is not None and not challenge:
+        if self.annotated and not challenge:
             f = self.features(env_description=env.env_description, frame=frame, text_boxes=obs.get("text_boxes", []))
-            node.features, node.features_raw = f["features"], f["raw"]
-            if not f["parsed"]:
+            if not f.pop("parsed"):
                 node.flags["features_parse_failed"] = True
+            for key, value in f.items():
+                setattr(node, key, value)
         return node
 
     def add_roots(self) -> None:
@@ -179,13 +195,12 @@ class TreeSearch:
 
     def p_of(self, node) -> float:
         """P(n): the cached decision score (1.0 before the first), or the selector's default without scoring."""
-        if self.decision_scorer is None:
+        if not self.annotated:
             return self.selector.default_prior
         return self.node_scores.get(node.id, 1.0)
 
     def discovered(self, *, env_key: str) -> list:
-        return discovered_set(expansions=[e for e in self.tree.expansions
-                                          if self.tree.nodes[e.node_id].env_key == env_key])
+        return discovered_set(nodes=[n for n in self.tree.nodes if n.env_key == env_key])
 
     def rescore(self, ranked: list) -> list:
         """Score the top candidates (by energy) against their scene's discovered set; updates the cache."""
@@ -212,8 +227,7 @@ class TreeSearch:
     def iterate(self) -> Optional[dict]:
         self.selector.reseed(iteration=self.iteration)    # a resumed run draws as an uninterrupted one would
         self._n_discovered = None
-        sel = self.selector.select(tree=self.tree, p_of=self.p_of,
-                                   rescore=self.rescore if self.decision_scorer is not None else None)
+        sel = self.selector.select(tree=self.tree, p_of=self.p_of, rescore=self.rescore if self.annotated else None)
         if sel is None:
             return None
         self.iteration += 1
@@ -266,7 +280,8 @@ class TreeSearch:
         episode_over = False
         for t in range(self.k_steps):
             action, meta = self.expander.next_action(env=env, obs=obs, info=info)
-            obs2, _r, terminated, truncated, info2 = env.step(action)
+            result = env.step(action)
+            obs2, _r, terminated, truncated, info2 = result
             emb = self.encoder.encode_one(obs=obs2, info=info2)
             nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=prev.embedding.image)
             challenge = bool(info2.get("challenge"))
@@ -276,10 +291,9 @@ class TreeSearch:
             else:
                 value, components = self.scorer.score(prev=prev, action=action, next=nxt, archive=self.archive,
                                                       add=not self.archive_nodes_only)
-            changed = self.encoder.similarity(a=prev.embedding, b=emb) < self.noop_similarity
-            valid = bool(info2.get("valid", True))
-            n_valid += valid
-            self.expander.observe(action=action, changed=changed, valid=valid, error=info2.get("error"))
+            changed = bool(info2.get("changed", True))
+            n_valid += bool(info2.get("valid", True))
+            self.expander.observe(action=action, result=result)
             step = Step(action=action, frame=EncodedImage.of(frame_for_embedding(obs=obs2, info=info2)),
                         texts=obs2.get("texts", {}), text_boxes=boxes_as_dicts(obs2.get("text_boxes")),
                         info=compact_info(info2), value=float(value),
@@ -307,15 +321,10 @@ class TreeSearch:
             self._at.pop(node.env_key, None)
         else:
             self._at[node.env_key] = (parent_id, env)
-        t_describe = 0.0
-        if self.describer is not None:
-            t1 = time.time()
-            described = self.describer(env_description=env.env_description, start_frame=node.frame,
-                                       steps=exp.steps)
-            if described is not None:
-                exp.description, exp.discovered = described["description"], described["discovered"]
-                exp.window_descriptions = described["window_descriptions"]
-            t_describe = time.time() - t1
+        t1 = time.time()
+        if self.annotated:
+            report_segments(tree=self.tree, describer=self.describer, env_description=env.env_description, exp=exp)
+        t_describe = time.time() - t1
         exp.yield_value = float(self.stats.expansion_yield(expansion=exp))
         self.stats.record_yield(tree=self.tree, node_id=node.id, value=exp.yield_value)
         node.n_expanded += 1
@@ -328,7 +337,7 @@ class TreeSearch:
                   "p": sel.p, "n_total": sel.n_total, "expansion": exp.id, "steps": len(exp.steps),
                   "children": list(exp.children), "yield": exp.yield_value, **exp.stats,
                   "n_nodes": len(self.tree.nodes), "archive": len(self.archive)}
-        if self.decision_scorer is not None:
+        if self.annotated:
             record["scores"], record["n_discovered"] = sel.scores, self._n_discovered
         self.records.append(record)
         if self.store is not None:

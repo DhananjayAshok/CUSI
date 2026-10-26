@@ -6,7 +6,7 @@
     agents/     the agent core shared by every pipeline: records, the model handle (AgentVLM), the
                 native executors (GameBoyRL, M3A, WebVoyager), env specs, and the supervisors
     state/      encoders, novelty archive and curiosity scorers (inference), incl. the world model
-    practice/   the practice pipeline (propose -> attempt -> guidance -> practice -> clean -> dataset)
+    practice/   the practice pipeline (attempt -> dataset) on an annotated search tree's tasks
     explore/    curiosity PPO and world-model / embedder training
     search/     pre-exploration tree search (library)
     eval/       test-set evaluation through the envs, and episode artifacts

@@ -1171,3 +1171,100 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
 - **Android 1 s action wait (job 285649, 2026-10-22): not made the default.** On 57 tasks scored in both runs,
   success fell from 63.2% (2 s) to 57.9% (1 s), −5.3 pt, with 5 tasks lost and 2 gained. That is within the
   ~6 pt noise band, but negative. Each step was only 6% faster (33.7 s → 31.6 s).
+
+## 2026-10-23 VLM exploration variants (results/vlm_exploration_report.md)
+- Did not help alone: coverage, think, feedback on GameBoy (still trapped 1-2/3 seeds). Objective alone doubles no-change rate (persists on unreachable goals); all four together fixes it (GameBoy 34-38 nodes, 0/3 trapped).
+- Web cutoff 0.5 with objective+onsite looked worse at walk 38 (61% on-site) but at saturation (126 walks) found 138 on-site pages against 50-63 at 0.7, at 80% on-site. Judge cutoffs at saturation, not early.
+- Web all four + onsite seed 42 fell into arXiv's donation site (benevity.com); "think" raised invalid actions to 11%.
+- Frame-novelty gate (frame < 0.3 => no node) checked offline: removes Android license-scroll nodes but also 3/4 GameBoy dialogue nodes. Not adopted.
+
+## 2026-10-23 VLM exploration runs the eval executors (replaces VLMExplorer)
+- Search's VLM expander is `ExecutorExpander` (cusi/search/expanders.py): the env's eval executor, driven per decision
+  (begin / act / record). Task = objective `Find and open "<feature>"` (a screen feature the scene has not
+  discovered and the walk has not pursued); hint = `explore_hint` (path to the node, earlier walks and what they
+  reached, discovered set, Web: stay on site). On finish (M3A status, WebVoyager ANSWER) or GameBoy's done-check
+  (every step), the current screen's features give the next objective and the executor is retasked with its memory.
+  An invalid decision (or a second finish in a row) sends the env an empty action: it uses a step.
+- `EXPLORE_GOAL` and every task-None branch are gone: executors always have a task. `--vlm_variants` removed.
+- No-change: every env sets `info["changed"]` (cusi/envs/base.py `screen_changed`: >0.05% of pixels move by >16;
+  Android ignores the top 6%, its status bar). GameBoy uses GameBoyRL's screen parsing: an agent-state change
+  (free roam / dialogue / menu / battle) counts; in free roam, MoveSteps' four-quadrant `judge_movement` (moved or
+  turned); in menus, dialogues and battles, GameBoyRL's `frame_changed`. Tile animations (water, flowers) still make
+  some no-ops count as changed (against an exact no-input replay, ~43% of free-roam no-ops and ~65% in menus):
+  accepted. Rejected: the exact replay (save/restore the emulator every step) and a tile-map/sprite comparison
+  (no misses, but too complex for what it buys).
+  The executor base turns consecutive unchanged valid steps into a note for the next decision (GameBoy: error line;
+  M3A: step summary; WebVoyager: observation warning). This applies in eval too. Search uses the same flag (the
+  embedding `noop_similarity` is gone).
+- Gemma-4-31B does not run on Quadro RTX 8000 (Turing): its 512-wide attention heads exceed Triton's shared memory.
+
+## 2026-10-23 Curiosity explorer: no typing
+- The curiosity policy's action space has no typing (`type` candidates, `type_strings.json`, `--max_type_strings` and
+  the per-scene/generic string lists removed). Random walks never typed, so curiosity and random now share an action
+  space; the VLM explorer keeps free-text typing. Web text fields get a click candidate like any element. Android
+  `open_app` stays, over a fixed app list (`ANDROID_APPS` in cusi/search/curiosity/candidates.py).
+- In the v1 curiosity trees typing was 5-6% of steps but preceded ~10% of nodes (search-results pages), so expect
+  somewhat less Web/Android coverage.
+
+## 2026-10-23 True coverage (evaluation only)
+- Every env records `info["true"]` (TextActionEnv.true_state) after each reset and step; agents never see it. Saved
+  per step, not per node (a node is only a step that crossed the novelty cutoff; coverage counts every state passed
+  through): tree steps in expansions.jsonl (INFO_KEYS), curiosity-session steps in curiosity/<exp>_true.jsonl.
+  `python -m cusi.search.coverage` computes the measures afterwards (cumulative, per 100 env steps; coverage.json).
+- GameBoy: Pokemon RAM (addresses from pret's pokered/pokecrystal symbol files; Crystal's are in WRAM bank 1 and must
+  be read from that bank, plain reads glitch to 0 when another bank is mapped): map, x, y, map size, battle, party,
+  badges, Pokedex, items, money (Red's is BCD), event flags newly set vs the scene start. ~7 ms/step.
+- Web: URL, title, page-skeleton hash (tag paths to depth 8), JavaScript functions newly run (DevTools precise
+  coverage, enabled per browser). ~6 ms/step. Measures include on-site route templates.
+- Android: foreground activity (gRPC) and the top activity's fragments (dumpsys activity top). ~140 ms/step.
+  Google apps' fragment names are obfuscated but still identify screens.
+- Not yet: Android settings/app-database diffs, Web network endpoints (need performance logging at driver creation).
+
+## 2026-10-24 Curiosity pixel policies: CNN from scratch vs frozen embedders
+- 5 h single-session comparison (gameboy viridian, web arxiv, android settings; one seed): fusion (MobileNetV3 +
+  MiniLM + fusion transformer) vs GameBoyRL's CNN from scratch. True coverage: CNN ahead on GameBoy (305 vs 129 tiles,
+  3 vs 2 maps; it ran 43% more steps; level at matched steps), tied on Web and Android. Fusion's GameBoy policy
+  collapsed (return 11.8 vs 6.0, clipfrac 0) while covering less. Android managed only ~1.8k steps / 15 updates in 5 h
+  (~8 s median step: 2 s post-action sleep, ~30 s snapshot restores per episode, Chrome/OsmAnd `am start -W`
+  timeouts), too little to judge.
+- `--curiosity_policy pixel` renamed `cnn`; new `frozen`: a frozen image embedder (`--policy_vision_encoder`
+  mobilenet_v3_small, average-pooled 576-d, or a SigLIP 2 id, pooled 768-d) per frame, the last 4 embeddings through
+  a trained 2-layer ReLU tower, then the same pointer head as `cnn`. Running cnn / mobilenet / siglip2-base on
+  gameboy (viridian, pewter) and web (arxiv, github), 3 seeds each, 5 h, all on RTX 2080 Ti.
+- Result (true coverage, 3 seeds, mean ± sd): no policy is better. Web, at matched steps: on-site routes arxiv cnn
+  177±5 / mobilenet 178±7 / siglip 181±13, github 112±7 / 119±9 / 115±3; skeletons, titles, URLs agree. GameBoy tiles:
+  viridian 81±18 / 79±10 / 88±16, pewter 117±61 / 112±59 / 88±7; 1-3 maps, no battles or event flags in any run.
+  SigLIP runs ~35% fewer GameBoy steps (620k vs 840-960k) at no cost in coverage, because GameBoy coverage plateaus
+  within the first ~10-50k steps (90% of final tiles by step 1.4k-220k, median ~15k): the other ~95% of a 5 h
+  session adds nothing. The encoder is not the bottleneck; the reward/episode setup is.
+
+## 2026-10-26 Tree -> tasks -> practice -> datasets
+- `cusi.search.annotate` is one pass that writes every note on a finished tree (no cap per node): the existing
+  features and transition reports, plus `cusi/search/notes.py`: per node a screen description and the tasks that
+  could be done from it; per edge the task the transition completed (hindsight, `NO TASK` allowed) and actionable
+  knowledge. A node's `tasks` list the tasks starting from it with their source ("node", or "edge" with the child).
+- Practice (`run_practice.py --source <annotated run>`): each task once from its node, restored
+  (`cusi/search/restore.py`: GameBoy/Web import the exported state, Android replays the path and checks it); the same
+  model judges (judge_leg); on a failure a critique hint, shown to the executor only, then retry from the node, up to
+  3 tries. One pickle per task with every try's full SupervisorReport (supervisor + executor calls), verdict, judge
+  and critique calls. `dataset` converts them: success/ (successful try, cut at the safe success point) and
+  failure/ (every failed try), split by task, success train rows repeated with model-written paraphrases.
+- Guidance is marked for GameBoy (`Supervisor.MARK_GUIDANCE`) so the dataset cuts only practice's guidance and keeps
+  the supervisor's own hints, as the agent sees them at test time (`strip_guidance`).
+- Removed: the guidance and perturbed-practice stages, the clean pass (user: not even opt-in), the curiosity task
+  source (`run_explore.py tasks`, cusi/explore/trajectories.py) and their Slurm pairs.
+- Task prompts (tuned on samples of the random trees, all 3 envs): the first version listed one "Click X" task per
+  link (50+ on arXiv's front page) and trivial GameBoy moves ("Move to the left side of the screen"), and knowledge
+  cited set-of-mark indices. Now: tasks are goals, not button instructions; take several actions; name concrete
+  targets and values; end in a visible state or a readable answer; cover what the screen offers rather than one per
+  item. Examples come from other, invented environments (library website, weather app, farming game), since the
+  only task lists we have are the benchmarks'. Edge tasks: the goal reached, or NO TASK if nothing or a one-action
+  outcome; knowledge never uses numeric labels.
+- Few-shot examples are per env (`notes.TASK_EXAMPLES`, node and edge prompts), in the style of each benchmark's
+  tasks but still from invented environments. A scan of the test tasks showed the shared examples were off in tone:
+  GameBoyWorlds tasks are 2-5 word single goals ("Catch Pidgey", "Read the sign below you"), the farming example a
+  two-goal sentence (and compound GameBoy tasks fail most in practice); WebVoyager tasks stack concrete conditions
+  and ask for the answer; AndroidWorld tasks name the app, give exact values and an answer format. The style, not
+  the content, is borrowed from the test distribution. The random-tree practice runs started before this change.
+- Known cost: a GameBoy practice try always runs its full 50 steps (no env success signal in free play; the
+  dataset's safe-success cut keeps the data right).

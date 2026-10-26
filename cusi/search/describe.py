@@ -72,7 +72,7 @@ def normalise_phrase(*, text: str) -> str:
     return " ".join(str(text).casefold().split())
 
 
-def parse_bullets(*, block: str, limit: Optional[int] = None) -> list:
+def parse_bullets(*, block: str, limit: Optional[int] = None, max_chars: int = 200) -> list:
     """'- item' lines (also '* item', '1. item'), stripped, without empties or (normalised) duplicates."""
     out, seen = [], set()
     for line in (block or "").splitlines():
@@ -83,7 +83,7 @@ def parse_bullets(*, block: str, limit: Optional[int] = None) -> list:
         if key in seen:
             continue
         seen.add(key)
-        out.append(item[:200])
+        out.append(item[:max_chars])
         if limit is not None and len(out) >= limit:
             break
     return out

@@ -7,11 +7,6 @@ from typing import Any, Optional, Union
 import numpy as np
 from PIL import Image
 
-ACTION_TAGS = {"action"}
-#: M3A writes its step summaries at test time, so they are training rows too.
-SUMMARY_TAG = "summary"
-DATASET_TAGS = ACTION_TAGS | {SUMMARY_TAG}
-
 
 class EncodedImage:
     """An RGB image held as PNG bytes (raw screenshots are too big to keep per step)."""

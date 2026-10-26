@@ -91,8 +91,8 @@ For bash scripts, see [BASH_TEMPLATE.md](BASH_TEMPLATE.md).
 | Part | Code | Entry point | Slurm |
 |---|---|---|---|
 | 0. Shared vLLM | `setup/vllm_scripts/` (installed into `shared_vllm_dir` by `setup/move_vllm_scripts.sh`) | `bash scripts/serve_vllm.sh` / `scripts/stop_vllm.sh` | `slurm/vllm_smoke.sh` |
-| 1. Practice pipeline | `cusi/practice/` (native executors: GameBoyRL, M3A, WebVoyager) | `python run_practice.py --env {gameboy,android,web} [--source curiosity] {propose,attempt,guidance,practice,clean,dataset,all}` | `slurm/practice_small.sh`, `slurm/curiosity_practice.sh` |
-| 2. Curiosity + world model | `cusi/explore/` (curiosity modules on `cusi.state`; replay, world model, decoder, embedder training; the PPO policy was removed) | `python run_explore.py --env X {tasks,world_model,decoder,wm_eval,elements,train_embedder}` | — |
+| 1. Practice pipeline | `cusi/practice/` (the final agents; tasks from an annotated search tree via `cusi.search.annotate`) | `python run_practice.py --env {gameboy,android,web} --source <annotated search run> {attempt,dataset,all}` | `slurm/annotate.sh`, `slurm/practice.sh` |
+| 2. Curiosity + world model | `cusi/explore/` (curiosity modules on `cusi.state`; replay, world model, decoder, embedder training; the PPO policy was removed) | `python run_explore.py --env X {world_model,decoder,wm_eval,elements,train_embedder}` | — |
 | Shared state module | `cusi/state/` (image / text embedders, novelty archive with cells, novelty scorers; inference only) | used by `run_explore.py` and `cusi.search` | — |
 | Pre-exploration search | `cusi/search/` (tree, energy-sampling selection, random / VLM expanders, VLM prior; library only — the toy entry point was removed) | — | — |
 | Evaluation | `cusi/eval/` (test sets through `cusi.envs` in test mode, shown equivalent to the native harnesses: `plans/archive/eval_plan.md`; episode artifacts + step videos per task: `cusi/eval/episode.py`) | `python run_eval.py {gameboy,android,web} --model_name ... --run_name ... [--workers N]` | `slurm/eval.sh` |

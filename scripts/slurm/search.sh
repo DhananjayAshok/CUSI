@@ -4,15 +4,13 @@
 # extends it.
 #
 # GPUs: the search process needs one only for a cnn / siglip image embedder, the world_model novelty scorer or the
-# curiosity expander's policy; it then takes the first visible GPU. With --model <model> (VLM explorer, node features,
-# descriptions or decision scores), vLLM serves it on the other visible GPUs (on the only one if just one is visible),
-# or on all of them when the search needs none. GameBoy runs on the node; Web and
+# curiosity expander's policy; it then takes the first visible GPU. With --expander vlm, vLLM serves --model on the
+# other visible GPUs (on the only one if just one is visible), or on all of them when the search needs none. GameBoy runs on the node; Web and
 # Android in the CUSI container (Android starts one emulator, which needs /dev/kvm).
 #
 #   bash scripts/slurm/search.sh --env <env> --run <run> --max_expansions <max_expansions> \
 #       --image_embedder <image_embedder> --text_embedder <text_embedder> --novelty_scorer <novelty_scorer> \
-#       [--model <value>] [--expander <value>] [--features <value>] [--describe <value>] [--vlm_score <value>] \
-#       [--vllm_port <value>] \
+#       [--expander <value>] [--model <value>] [--vllm_port <value>] \
 #       [--extra <value>] [--overwrite <value>] [--ignore_config_violation <value>]
 #
 # --extra passes further run_search.py flags verbatim, e.g. --extra "--random_steps 20 --scenes viridian".
@@ -26,9 +24,10 @@ parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV_NAME="${ARGS["env"]}"
 MODEL="${ARGS["model"]}"
-if [[ ( "${ARGS["expander"]}" == "vlm" || "${ARGS["features"]}" == "true" || "${ARGS["describe"]}" == "true" \
-      || "${ARGS["vlm_score"]}" == "true" ) && "$MODEL" == "none" ]]; then
-    echo "Error: --expander vlm, --features true, --describe true and --vlm_score true need --model."; exit 1
+IS_VLM=false; [[ "${ARGS["expander"]}" == "vlm" ]] && IS_VLM=true
+HAS_MODEL=false; [[ "$MODEL" != "none" ]] && HAS_MODEL=true
+if [[ "$IS_VLM" != "$HAS_MODEL" ]]; then
+    echo "Error: --model goes with --expander vlm, and only with it."; exit 1
 fi
 JOB="${SLURM_JOB_ID:-local$$}"
 PORT="${ARGS["vllm_port"]}"
@@ -40,14 +39,9 @@ echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=$ENV_NAME run=
 FLAGS=(--env "$ENV_NAME" --run_name "${ARGS["run"]}" --max_expansions "${ARGS["max_expansions"]}"
        --image_embedder "${ARGS["image_embedder"]}" --text_embedder "${ARGS["text_embedder"]}"
        --novelty_scorer "${ARGS["novelty_scorer"]}" --expander "${ARGS["expander"]}")
-[[ "${ARGS["features"]}" == "true" ]] && FLAGS+=(--features)
-[[ "${ARGS["vlm_score"]}" == "true" ]] && FLAGS+=(--vlm_score)
-[[ "${ARGS["describe"]}" == "true" ]] && FLAGS+=(--describe)
+[[ "$MODEL" != "none" ]] && FLAGS+=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "http://127.0.0.1:$PORT/v1/")
 [[ "${ARGS["overwrite"]}" == "true" ]] && FLAGS+=(--overwrite)
 [[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)
-if [[ "$MODEL" != "none" ]]; then
-    FLAGS+=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "http://127.0.0.1:$PORT/v1/")
-fi
 EXTRA=()
 [[ "${ARGS["extra"]}" != "none" ]] && read -r -a EXTRA <<< "${ARGS["extra"]}"
 

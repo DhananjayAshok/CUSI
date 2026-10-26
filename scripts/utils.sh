@@ -227,23 +227,11 @@ declare -A STOP_VLLM_DEFAULTS=(
     ["port"]="$vllm_port"
 )
 
-# scripts/slurm/curiosity_practice.sh
-CURIOSITY_PRACTICE_ESSENTIALS=("env" "run" "model")
-declare -A CURIOSITY_PRACTICE_DEFAULTS=(
-    ["max_groups"]="6"
-    ["z_min"]="3.0"
-    ["outlier"]="2.5"
-    ["rescore"]="none"
-)
-
 # scripts/slurm/search.sh
 SEARCH_ESSENTIALS=("env" "run" "max_expansions" "image_embedder" "text_embedder" "novelty_scorer")
 declare -A SEARCH_DEFAULTS=(
     ["model"]="none"
     ["expander"]="random"
-    ["features"]="false"
-    ["describe"]="false"
-    ["vlm_score"]="false"
     ["vllm_port"]="none"
     ["extra"]="none"
     ["overwrite"]="false"
@@ -254,6 +242,20 @@ declare -A SEARCH_DEFAULTS=(
 EXPLORE_TRAIN_ESSENTIALS=("env" "command")
 declare -A EXPLORE_TRAIN_DEFAULTS=(
     ["extra"]="none"
+)
+
+# scripts/slurm/practice.sh
+PRACTICE_ESSENTIALS=("env" "model" "source")
+declare -A PRACTICE_DEFAULTS=(
+    ["max_tasks"]="none"
+    ["vllm_port"]="none"
+)
+
+# scripts/slurm/annotate.sh
+ANNOTATE_ESSENTIALS=("env" "run" "model")
+declare -A ANNOTATE_DEFAULTS=(
+    ["max_features"]="8"
+    ["vllm_port"]="none"
 )
 
 # scripts/slurm/env_run.sh
@@ -296,12 +298,6 @@ declare -A EVAL_DEFAULTS=(
     ["ignore_config_violation"]="false"
     ["seed"]="0"
     ["vllm_extra"]="none"
-)
-
-# scripts/slurm/practice_small.sh
-PRACTICE_SMALL_ESSENTIALS=("model")
-declare -A PRACTICE_SMALL_DEFAULTS=(
-    ["envs"]="gameboy web android"
 )
 
 # scripts/slurm/vllm_python.sh

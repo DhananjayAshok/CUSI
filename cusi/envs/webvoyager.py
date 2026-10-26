@@ -13,10 +13,11 @@ import sys
 import tempfile
 import threading
 import time
+import zlib
 from typing import Any, Optional
 import numpy as np
 from PIL import Image
-from selenium.common.exceptions import JavascriptException
+from selenium.common.exceptions import JavascriptException, TimeoutException as ScriptTimeout
 from urllib3.exceptions import HTTPError as WebDriverHang
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
@@ -80,6 +81,27 @@ let marker = false;
 try { marker = !!document.querySelector(sel); } catch (e) {}
 const body = document.body ? (document.body.innerText || '') : '';
 return [document.title || '', body.slice(0, 3000), marker];
+"""
+
+# true_state: [title, a hash of the page's skeleton (the set of tag paths below <body>, to SKELETON_DEPTH, without
+# text, scripts or repeats), the number of paths]. Pages of one kind (two arXiv abstracts) share a skeleton.
+SKELETON_DEPTH = 8
+_SKELETON_JS = """
+const paths = new Set(), skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE', 'svg', 'SVG']);
+const limit = arguments[0];
+(function rec(el, path, depth) {
+  if (depth >= limit) return;
+  for (const c of el.children) {
+    if (skip.has(c.tagName)) continue;
+    const p = path + '>' + c.tagName.toLowerCase();
+    paths.add(p);
+    rec(c, p, depth + 1);
+  }
+})(document.body || document.documentElement, 'body', 0);
+const s = Array.from(paths).sort().join('|');
+let h = 2166136261;
+for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+return [document.title || '', h.toString(16), paths.size];
 """
 
 
@@ -270,6 +292,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._text_boxes = []
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
+        self._js_coverage = False
+        self._js_seen: set = set()      # hashes of every (script, function) this env's browsers have run
         self._states: dict[str, dict] = {}   # saved state_id -> browser state
         self.browser_restarts = 0
 
@@ -312,6 +336,14 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 finally:
                     RemoteConnection.reset_timeout()
         self._download_files = []
+        # true_state's JavaScript coverage: which functions the site's scripts have run (DevTools precise coverage).
+        try:
+            self._driver.execute_cdp_cmd("Profiler.enable", {})
+            self._driver.execute_cdp_cmd("Profiler.startPreciseCoverage", {"callCount": False, "detailed": False})
+            self._js_coverage = True
+        except Exception as e:
+            log_warn(f"JavaScript coverage unavailable ({str(e).splitlines()[0][:120]})", parameters=self._parameters)
+            self._js_coverage = False
 
     def _quit(self) -> None:
         if self._driver is not None:
@@ -334,13 +366,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 rects, web_eles, web_eles_text = self._wv.get_web_element_rect(self._driver,
                                                                                 fix_color=self._args.fix_box_color)
                 break
-            except (self._wv.StaleElementReferenceException, JavascriptException) as e:
-                # The page changed while it was being labelled, or the labelling script fails on it (e.g. a non-HTML
-                # document): drop the overlays already drawn and relabel. A page that still can't be labelled is
+            except (self._wv.StaleElementReferenceException, JavascriptException, ScriptTimeout) as e:
+                # The page changed while it was being labelled, or the labelling script fails or times out on it (e.g. a
+                # non-HTML document, a page whose scripts keep it busy): drop the overlays already drawn and relabel. A page that still can't be labelled is
                 # observed without element labels rather than ending the episode.
                 try:
                     self._driver.execute_script(_CLEAR_LABELS_JS)
-                except JavascriptException:
+                except (JavascriptException, ScriptTimeout):
                     pass
                 reason = str(e).splitlines()[0][:150]
                 if attempt == 2:
@@ -570,6 +602,31 @@ class WebVoyagerPlayEnv(TextActionEnv):
     def _import_state_impl(self, *, state_id: str, path: str) -> None:
         with open(path) as f:
             self._states[state_id] = json.load(f)
+
+    def true_state(self) -> Optional[dict]:
+        """The URL, title and page skeleton hash, and js_new: how many JavaScript functions (script URL without its
+        query, function name, offset) ran for the first time in this env during the last step."""
+        out = {"url": self._url}
+        if self._driver is None:
+            return out
+        try:
+            out["title"], out["skeleton"], out["skeleton_paths"] = self._driver.execute_script(_SKELETON_JS,
+                                                                                              SKELETON_DEPTH)
+            if self._js_coverage:
+                new = 0
+                for script in self._driver.execute_cdp_cmd("Profiler.takePreciseCoverage", {})["result"]:
+                    url = script.get("url", "").split("?")[0]
+                    if not url:
+                        continue
+                    for fn in script["functions"]:
+                        key = zlib.crc32(f"{url}|{fn['functionName']}|{fn['ranges'][0]['startOffset']}".encode())
+                        if key not in self._js_seen:
+                            self._js_seen.add(key)
+                            new += 1
+                out["js_new"] = new
+        except Exception as e:      # a page in flux or a dead browser: the step keeps what was read
+            out["true_error"] = str(e).splitlines()[0][:120]
+        return out
 
     def close(self) -> None:
         self._states.clear()

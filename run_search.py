@@ -24,7 +24,7 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 #: Per expander: (actions per expansion, node threshold, what one expansion's actions are). Each becomes the flags
 #: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.
 EXPANDER_DEFAULTS = {"random": (100, 0.2, "actions per expansion (one walk)"),
-                     "vlm": (10, 0.1, "actions per expansion"),
+                     "vlm": (20, 0.1, "actions per expansion"),
                      "curiosity": (10, 0.1, "PPO episode length, so the most actions a committed episode adds")}
 
 
@@ -77,30 +77,28 @@ def stop_reason(*, search, max_expansions, saturation_patience):
 @click.option("--rl_commit_episodes", default=1, show_default=True,
               help="Curiosity: commit the session's top this-many distinct episodes, each as an expansion of the node.")
 @click.option("--keep_policies", default="all", show_default=True, type=click.Choice(["all", "none"]))
-@click.option("--max_type_strings", default=8, show_default=True, help="Curiosity: typed strings per input field.")
+@click.option("--curiosity_policy", default="fusion", show_default=True, type=click.Choice(["fusion", "cnn"]),
+              help="Curiosity: fusion (frozen vision and text encoders, a trained fusion transformer) or cnn "
+                   "(GameBoyRL's small CNN on stacked grayscale frames, trained from scratch, no text).")
 @click.option("--policy_vision_encoder", default=None,
-              help="Curiosity: the frozen vision trunk (mobilenet_v3_small); required with --expander curiosity.")
+              help="Curiosity (fusion): the frozen vision trunk (mobilenet_v3_small); required with that policy.")
 @click.option("--policy_text_encoder", default=None,
-              help="Curiosity: the frozen sentence encoder (e.g. a MiniLM-L6 id); required with --expander curiosity.")
-@click.option("--features/--no_features", default=False, show_default=True,
-              help="Have the VLM list what exploring from each new node could surface.")
-@click.option("--max_features", default=8, show_default=True)
-@click.option("--describe/--no_describe", default=False, show_default=True,
-              help="After each expansion, have the VLM describe its sub-trajectory and list what it discovered.")
-@click.option("--vlm_score/--no_vlm_score", default=False, show_default=True,
-              help="At each decision, score the top candidates' features against their scene's discovered set; the "
-                   "score is P(n). Needs --features and --describe.")
-@click.option("--score_top_m", default=8, show_default=True, help="Candidates re-scored per decision (0: all).")
-@click.option("--default_score", default=0.5, show_default=True, help="Decision score of a node without features.")
+              help="Curiosity (fusion): the frozen sentence encoder (e.g. a MiniLM-L6 id); required with that policy.")
+@click.option("--max_features", default=8, show_default=True,
+              help="VLM: features listed per new node (what exploring from it could surface).")
+@click.option("--score_top_m", default=8, show_default=True, help="VLM: candidates re-scored per decision (0: all).")
+@click.option("--default_score", default=0.5, show_default=True, help="VLM: decision score of a node without features.")
 @click.option("--model_name", default=None,
-              help="The VLM (required with --expander vlm, --features, --describe or --vlm_score).")
+              help="VLM: the model of the env's eval executor, which explores by pursuing objectives (screen features "
+                   "not yet discovered), and which also lists each new node's features, reports the segment that "
+                   "reached it and scores candidates at selection. Only with --expander vlm (other trees are annotated "
+                   "afterwards by cusi.search.annotate).")
 @click.option("--model_backend", default="vllm", show_default=True)
 @click.option("--vllm_base_url", default=None)
 @click.option("--restore", default=None, type=click.Choice(["state", "replay"]),
               help="How a node is restored (default: replay on Android, saved states elsewhere).")
 @click.option("--replay_similarity", default=0.95, show_default=True,
               help="Replay restores below this similarity to the node mark it diverged.")
-@click.option("--noop_similarity", default=0.999, show_default=True)
 @click.option("--seed", default=loaded_parameters["random_seed"], show_default=True)
 @click.option("--verify_restores", default=0, show_default=True,
               help="On resume, first restore up to this many nodes and compare them with what they stored.")
@@ -108,9 +106,9 @@ def stop_reason(*, search, max_expansions, saturation_patience):
 @run_options
 def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, saturation_patience, c_puct,
          tau, normalise_p, q_ema, roots_only, expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs,
-         rl_commit_episodes, keep_policies, max_type_strings, policy_vision_encoder, policy_text_encoder, features,
-         max_features, describe, vlm_score, score_top_m, default_score, model_name, model_backend, vllm_base_url,
-         restore, replay_similarity, noop_similarity, seed, verify_restores, overwrite, ignore_config_violation,
+         rl_commit_episodes, keep_policies, curiosity_policy, policy_vision_encoder, policy_text_encoder,
+         max_features, score_top_m, default_score, model_name, model_backend, vllm_base_url,
+         restore, replay_similarity, seed, verify_restores, overwrite, ignore_config_violation,
          **kwargs):
     from cusi.search.envs import SceneEnvs
     from cusi.search.search import TreeSearch
@@ -127,13 +125,10 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     if env_name == "android" and restore != "replay":
         raise click.UsageError("Android needs --restore replay: its scenes share one emulator, so a scene's env is "
                                "rebuilt (losing its saved states) whenever another scene is used.")
-    uses_vlm = expander == "vlm" or features or describe or vlm_score
-    if uses_vlm and not model_name:
-        raise click.UsageError("--expander vlm, --features, --describe and --vlm_score need --model_name.")
-    if vlm_score and not (features and describe):
-        raise click.UsageError("--vlm_score needs --features and --describe.")
-    if expander == "curiosity" and not (policy_vision_encoder and policy_text_encoder):
-        raise click.UsageError("--expander curiosity needs --policy_vision_encoder and --policy_text_encoder.")
+    if (expander == "vlm") != bool(model_name):
+        raise click.UsageError("--model_name goes with --expander vlm, and only with it.")
+    if expander == "curiosity" and curiosity_policy == "fusion" and not (policy_vision_encoder and policy_text_encoder):
+        raise click.UsageError("--curiosity_policy fusion needs --policy_vision_encoder and --policy_text_encoder.")
     if expander == "curiosity" and rl_num_envs > 1 and restore == "replay":
         raise click.UsageError("parallel curiosity copies (--rl_num_envs > 1) need saved node states.")
     per_expander = {name: (kwargs.pop(f"{name}_steps"), kwargs.pop(f"{name}_node_threshold"))
@@ -142,18 +137,18 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     sconfig = state_config(kwargs)
     curiosity = {"reward_buffer": reward_buffer, "rl_total_steps": rl_total_steps, "rl_max_minutes": rl_max_minutes,
                  "rl_num_envs": rl_num_envs, "rl_commit_episodes": rl_commit_episodes,
-                 "keep_policies": keep_policies, "max_type_strings": max_type_strings,
-                 "policy_vision_encoder": policy_vision_encoder,
-                 "policy_text_encoder": policy_text_encoder} if expander == "curiosity" else {}
+                 "keep_policies": keep_policies, "curiosity_policy": curiosity_policy,
+                 **({"policy_vision_encoder": policy_vision_encoder, "policy_text_encoder": policy_text_encoder}
+                    if curiosity_policy == "fusion" else {})} if expander == "curiosity" else {}
+    vlm_config = {"model_name": model_name, "model_backend": model_backend, "vllm_base_url": vllm_base_url,
+                  "max_features": max_features, "score_top_m": score_top_m,
+                  "default_score": default_score} if expander == "vlm" else {}
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
               "saturation_patience": saturation_patience, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
               "q_ema": q_ema, "roots_only": roots_only,
-              "expander": expander, "features": features, "max_features": max_features, "describe": describe,
-              "vlm_score": vlm_score, "score_top_m": score_top_m, "default_score": default_score,
-              "model_name": model_name if uses_vlm else None,
-              "model_backend": model_backend, "vllm_base_url": vllm_base_url, "restore": restore,
-              "replay_similarity": replay_similarity, "noop_similarity": noop_similarity, "seed": seed, **curiosity,
+              "expander": expander, "restore": restore, "replay_similarity": replay_similarity,
+              "seed": seed, **curiosity, **vlm_config,
               **{k: (storage_relative(parameters=parameters, path=v) if k in PATH_KEYS and v else v)
                  for k, v in sconfig.items()}}
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
@@ -166,55 +161,50 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     archive = build_archive(encoder=encoder, text_seen_threshold=sconfig["text_seen_threshold"])
     scorer = build_scorer_from_config(config=sconfig, env_name=env_name, encoder=encoder)
     stats = TreeStats(q_ema=q_ema)
-    vlm = None
-    if uses_vlm:
-        from cusi.agents.vlm import AgentVLM
-        vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
-                       parameters=parameters)
     def make(*, scene):
         return spec.make_env(scene=spec.scenes[scene], worker=0, parameters=parameters)
+    annotators = {}
     if expander == "vlm":
-        from cusi.search.expanders import VLMExplorer
-        explorer = VLMExplorer(vlm=vlm)
+        from cusi.agents.vlm import AgentVLM
+        from cusi.search.describe import TransitionDescriber
+        from cusi.search.expanders import ExecutorExpander
+        from cusi.search.features import VLMFeatures
+        from cusi.search.scoring import VLMScorer
+        vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
+                       parameters=parameters)
+        explorer = ExecutorExpander(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
+        annotators = {"features": VLMFeatures(vlm=vlm, max_features=max_features),
+                      "describer": TransitionDescriber(vlm=vlm, parameters=parameters),
+                      "decision_scorer": VLMScorer(vlm=vlm, default_score=default_score)}
     elif expander == "curiosity":
         import torch
         from cusi.search.curiosity.expander import CuriosityExpander
-        from cusi.search.curiosity.policy import FrozenEncoders
+        from cusi.search.curiosity.policy import FrozenEncoders, PixelObserver
         from cusi.search.curiosity.session import PPOConfig
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        frozen = FrozenEncoders(vision_encoder=policy_vision_encoder, text_encoder=policy_text_encoder,
-                                device=device, long_side=224 if env_name == "gameboy" else 448)
+        if curiosity_policy == "fusion":
+            observer = FrozenEncoders(vision_encoder=policy_vision_encoder, text_encoder=policy_text_encoder,
+                                      device=device, long_side=224 if env_name == "gameboy" else 448)
+        else:
+            observer = PixelObserver(env_name=env_name)
         explorer = CuriosityExpander(
-            env_name=env_name, frozen=frozen, reward_buffer=reward_buffer, keep_policies=keep_policies, seed=seed,
+            env_name=env_name, observer=observer, reward_buffer=reward_buffer, keep_policies=keep_policies, seed=seed,
             device=device, replay_similarity=replay_similarity, parameters=parameters,
             config=PPOConfig(total_steps=rl_total_steps, max_minutes=rl_max_minutes, k_steps=k_steps,
-                             num_envs=rl_num_envs, max_type_strings=max_type_strings,
+                             num_envs=rl_num_envs,
                              keep_episodes=rl_commit_episodes),
             make_copy=(lambda key: make(scene=key)) if rl_num_envs > 1 else None)
     else:
         from cusi.search.expanders import RandomExpander
         explorer = RandomExpander(seed=seed)
-    node_features = None
-    if features:
-        from cusi.search.features import VLMFeatures
-        node_features = VLMFeatures(vlm=vlm, max_features=max_features)
-    describer = None
-    if describe:
-        from cusi.search.describe import TransitionDescriber
-        describer = TransitionDescriber(vlm=vlm, parameters=parameters)
-    decision_scorer = None
-    if vlm_score:
-        from cusi.search.scoring import VLMScorer
-        decision_scorer = VLMScorer(vlm=vlm, default_score=default_score)
 
     envs = SceneEnvs(make=make, scenes=scene_names, exclusive=env_name == "android")
     search = TreeSearch(envs=envs, encoder=encoder, scorer=scorer, archive=archive, expander=explorer, stats=stats,
                         selector=EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only,
                                                 normalise_p=normalise_p, seed=seed),
                         k_steps=k_steps, node_threshold=node_threshold, closing_node=closing_node,
-                        archive_nodes_only=archive_nodes_only, features=node_features,
-                        decision_scorer=decision_scorer, score_top_m=score_top_m, describer=describer,
-                        noop_similarity=noop_similarity, restore=restore, replay_similarity=replay_similarity,
+                        archive_nodes_only=archive_nodes_only, **annotators, score_top_m=score_top_m,
+                        restore=restore, replay_similarity=replay_similarity,
                         store=store, parameters=parameters)
     search.max_expansions = max_expansions
     t0 = time.time()

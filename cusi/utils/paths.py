@@ -67,36 +67,29 @@ def web_source_task_file(*, parameters: dict) -> str:
 # --------------------------------------------------------------------------- practice
 
 class PracticePaths:
-    """The practice pipeline's directory for one env, model and task source ("zeroshot" or "curiosity")."""
+    """The practice pipeline's directory for one env, model and task source (an annotated search run's name: tasks
+    from its nodes and edges)."""
 
-    def __init__(self, *, parameters: dict, env_name: str, model_name: str, source: str = "zeroshot") -> None:
+    def __init__(self, *, parameters: dict, env_name: str, model_name: str, source: str) -> None:
         self.root = practice_root(parameters=parameters, env=env_name, model_name=model_name, source=source)
         os.makedirs(self.root, exist_ok=True)
 
     @property
-    def proposals(self) -> str:
-        return os.path.join(self.root, "proposals.jsonl")
+    def episodes_dir(self) -> str:
+        """One pickle per attempted task: every try with its full report."""
+        return os.path.join(self.root, "episodes")
 
     @property
-    def attempts_dir(self) -> str:
-        return os.path.join(self.root, "attempts")
-
-    @property
-    def guidance(self) -> str:
-        return os.path.join(self.root, "guidance.json")
-
-    @property
-    def practice_dir(self) -> str:
-        return os.path.join(self.root, "practice")
+    def results(self) -> str:
+        return os.path.join(self.root, "results.csv")
 
     @property
     def dataset_dir(self) -> str:
         return os.path.join(self.root, "dataset")
 
 
-def practice_root(*, parameters: dict, env: str, model_name: str, source: str = "zeroshot") -> str:
-    root = os.path.join(_storage(parameters), "practice", env, _model_short(model_name))
-    return os.path.join(root, "curiosity") if source == "curiosity" else root
+def practice_root(*, parameters: dict, env: str, model_name: str, source: str) -> str:
+    return os.path.join(_storage(parameters), "practice", env, _model_short(model_name), "tree", source)
 
 
 # --------------------------------------------------------------------------- explore

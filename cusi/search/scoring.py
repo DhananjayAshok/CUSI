@@ -25,11 +25,12 @@ Reply with exactly one line per feature, in order, in this format:
 _LINE_RE = re.compile(r"^\s*(\d+)\s*[.):]\s*\**\s*(yes|partly|no)\b\**\s*[-—–:,]?\s*(.*)$", re.IGNORECASE)
 
 
-def discovered_set(*, expansions) -> list:
-    """The union of the expansions' `discovered` lists, normalised duplicates removed, in first-seen order."""
+def discovered_set(*, nodes) -> list:
+    """The union of the nodes' `discovered` lists (their segment reports), normalised duplicates removed, in
+    first-seen order."""
     out, seen = [], set()
-    for e in expansions:
-        for item in e.discovered or []:
+    for n in nodes:
+        for item in n.discovered or []:
             key = normalise_phrase(text=item)
             if key and key not in seen:
                 seen.add(key)

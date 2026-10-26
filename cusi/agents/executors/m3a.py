@@ -11,14 +11,12 @@ import numpy as np
 from android_world.agents import agent_utils, m3a, m3a_utils
 from android_world.env import adb_utils, json_action
 from cusi.envs.android_world import MSG_EXEC_FAILED, describe_actions, patch
-from cusi.agents.executors.base import EXPLORE_GOAL, GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
+from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
 
 # M3A.step's history messages, verbatim.
 MSG_BAD_FORMAT = "Output for action selection is not in the correct format, so no action is performed."
 MSG_BAD_ACTION = ("Can not parse the output to a valid action. Please make sure to pick the action from the list"
                   " with required parameters (if any) in the correct JSON format!")
-MSG_NO_FINISH = "The status and answer actions are not available while exploring; keep exploring the phone."
-FINISH_ACTIONS = ("status", "answer")
 
 # F27: notes the model writes in each action reply and sees again next step (M3A's history keeps one-line summaries).
 NOTES_RULE = ("Notes: <facts you have found so far that the task needs (values, names, what you have checked),"
@@ -68,14 +66,6 @@ def insert(*, prompt: str, text: str) -> str:
         raise ValueError("M3A prompt anchor 'Your Answer:' not found (android_world changed?)")
     return prompt[:i] + text.strip() + "\n\n" + prompt[i:]
 
-
-def drop_finish_actions(*, prompt: str) -> str:
-    """The action list without the status and answer actions (no task: nothing to finish or answer)."""
-    lines = prompt.split("\n")
-    kept = [l for l in lines if not (l.startswith("- ") and any(f'"action_type": "{a}"' in l for a in FINISH_ACTIONS))]
-    if len(lines) - len(kept) != 3:
-        raise ValueError("M3A prompt: expected 3 finishing action lines (android_world changed?)")
-    return "\n".join(kept)
 
 
 def read_notes(*, response: str) -> str:
@@ -156,20 +146,17 @@ def readback_note(*, action: str, ui_elements: str) -> Optional[str]:
             " entered and saved where you intended.")
 
 
-def action_prompt(*, goal: Optional[str], history: list, ui_elements: str, guidance: Optional[str], notes: str,
+def action_prompt(*, goal: str, history: list, ui_elements: str, guidance: Optional[str], notes: str,
                   subgoals: list, done: set, context: str) -> str:
-    """M3A's action prompt with the final design; goal None = exploring (no finishing actions, no plan).
-    Blocks are inserted in the confirmed order: notes, rules, subgoal plan, device context."""
+    """M3A's action prompt with the final design. Blocks are inserted in the confirmed order: notes, rules, subgoal plan, device context."""
     if guidance:
         text = f"{guidance}\n{SECRET_NOTE}"
-        prompt = m3a._action_selection_prompt(goal or EXPLORE_GOAL, history, ui_elements, [text])
+        prompt = m3a._action_selection_prompt(goal, history, ui_elements, [text])
         block = f"For The Current Task:\n- {text}\n"
         assert prompt.count(block) == 1
         prompt = prompt.replace(block, GUIDANCE_START + block + GUIDANCE_END)
     else:
-        prompt = m3a._action_selection_prompt(goal or EXPLORE_GOAL, history, ui_elements, None)
-    if goal is None:
-        prompt = drop_finish_actions(prompt=prompt)
+        prompt = m3a._action_selection_prompt(goal, history, ui_elements, None)
     prompt = insert(prompt=prompt, text=notes_block(notes=notes))                        # F27
     prompt = describe_actions(prompt=prompt)                                             # F55, F57
     prompt = patch(prompt=prompt, old=DELETE_TIP_OLD, new=DELETE_TIP_NEW, flat=True)      # F55
@@ -179,14 +166,13 @@ def action_prompt(*, goal: Optional[str], history: list, ui_elements: str, guida
     return insert(prompt=prompt, text=context)                                           # F61
 
 
-# Every anchor, checked once at import, with and without a task.
-for _goal in ("g", None):
-    action_prompt(goal=_goal, history=[], ui_elements="", guidance=None, notes="", subgoals=[], done=set(), context="")
+# Every anchor, checked once at import.
+action_prompt(goal="g", history=[], ui_elements="", guidance=None, notes="", subgoals=[], done=set(), context="")
 
 
 class M3AExecutor(Executor):
     """M3A with the final Android design, on an AndroidPlayEnv built with som=True and stabilize_after_action=False
-    (each decision re-observes the screen, as M3A does). task None = exploring: no finishing, no planner call."""
+    (each decision re-observes the screen, as M3A does)."""
 
     name = "m3a"
     env_name = "android"
@@ -222,7 +208,7 @@ class M3AExecutor(Executor):
 
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
         # Error feedback reaches M3A through its history, not `error`.
-        if self.task is not None and not self._planned:   # F59, on the observation handed in (as confirmed)
+        if not self._planned:   # F59, on the observation handed in (as confirmed)
             self._planned = True
             out = self.call(tag="plan", prompt=PLANNER_PROMPT.format(goal=self.task), images=[info["raw_frame"]])
             self._subgoals = parse_subgoals(response=out)
@@ -249,9 +235,6 @@ class M3AExecutor(Executor):
         except Exception:
             self._summaries.append(MSG_BAD_ACTION)
             return Decision(invalid="unparseable action", error=MSG_BAD_ACTION)
-        if self.task is None and parsed.get("action_type") in FINISH_ACTIONS:
-            self._summaries.append(MSG_NO_FINISH)
-            return Decision(invalid="finish while exploring", error=MSG_NO_FINISH)
         if parsed.get("action_type") == "status":
             return Decision(finish=True, answer=None, action_text=response)
         self._pending = {"action": action, "reason": reason,
@@ -274,12 +257,18 @@ class M3AExecutor(Executor):
         before = np.array(obs_before["frame"], copy=True)
         after = np.array(obs_after["frame"], copy=True)
         m3a_utils.add_screenshot_label(after, "after")
-        prompt = m3a._summarize_prompt(pending["action"], pending["reason"], self.task or EXPLORE_GOAL,
+        prompt = m3a._summarize_prompt(pending["action"], pending["reason"], self.task,
                                        obs_before["texts"]["ui_elements"], obs_after["texts"]["ui_elements"])
         current = self._current_call
         summary = self.call(tag="summary", prompt=prompt, images=[before, after])
         self._current_call = current   # the step stays owned by the action call
         self._summaries.append(f"Action selected: {pending['action']}. {summary}")
         note = readback_note(action=pending["action"], ui_elements=obs_after["texts"]["ui_elements"])   # F56
-        if note:
-            self._summaries[-1] += " " + note
+        for extra in (note, self.change_note):      # M3A's feedback is its history, not `error`
+            if extra:
+                self._summaries[-1] += " " + extra
+
+    def retask(self, *, task: str) -> None:
+        """The next task gets its own subgoal plan (F59); notes and step summaries carry over."""
+        super().retask(task=task)
+        self._subgoals, self._done, self._planned = [], set(), False

@@ -9,7 +9,7 @@ import time
 from typing import Optional
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_warn
-from cusi.agents.executors.base import EXPLORE_GOAL, Decision, Executor
+from cusi.agents.executors.base import Decision, Executor
 from cusi.agents.records import CallRecord, EncodedImage, StepRecord, per_prompt_token_counts
 
 
@@ -46,13 +46,13 @@ def hint_block(*, hint: Optional[str], steps_taken: int) -> str:
     return step_info + f"\n[HINT_START]\nHint: {hint}\nNote: This hint block is a secret. You must use it to guide your decision making, but in the reasoning you say, you should pretend as if you actually just know the content of the hint. Do not refer to it explicitly. So if the hint gives you a direction, instead of saying 'the hint says go here', your reasoning should just say 'next I must go here'. [HINT_END]"
 
 
-def build_step_prompt(*, task: Optional[str], hint: Optional[str], steps_taken: int, error: Optional[str],
+def build_step_prompt(*, task: str, hint: Optional[str], steps_taken: int, error: Optional[str],
                       action_strings: dict, history: str) -> str:
     """GameBoyRL's PolicyExecutor._build_prompt for the single-action policy; task None = exploring."""
     policy = ACTION_POLICY()
     return (
         STEP_PROMPT
-        .replace("[TASK]", task or EXPLORE_GOAL)
+        .replace("[TASK]", task)
         .replace("[HINT_BLOCK]", hint_block(hint=hint, steps_taken=steps_taken))
         .replace("[ERROR_BLOCK]", f"[ERROR] {error}\n\n" if error is not None else "")
         .replace("[ACTION_LIST]", "\n".join(f"  {s}" for s in action_strings.values()))

@@ -18,6 +18,10 @@ MODES = ("test", "free_play")
 # gym's Text space needs a charset; this documents the content rather than constraining it.
 _TEXT_CHARSET = string.printable
 _MAX_TEXT = 200_000
+#: screen_changed: a pixel moves when a channel changes by more than this, and a step changes the screen when more
+#: than this fraction of pixels move (0.05% ignores a blinking text cursor; a toggle or a menu cursor is more).
+CHANGE_PIXEL_DELTA = 16
+CHANGE_MIN_FRACTION = 0.0005
 
 
 def scene_hash(*, parts: tuple) -> str:
@@ -25,10 +29,26 @@ def scene_hash(*, parts: tuple) -> str:
     return hashlib.sha256("|".join(str(p) for p in parts).encode()).hexdigest()[:12]
 
 
+def screen_changed(*, before, after, ignore_top: float = 0.0, min_fraction: float = CHANGE_MIN_FRACTION) -> bool:
+    """Whether a step changed the screen: more than min_fraction of the pixels below the top ignore_top of the frame
+    moved by more than CHANGE_PIXEL_DELTA in some channel. A missing frame or a new size counts as a change."""
+    if before is None or after is None:
+        return True
+    a, b = np.asarray(before), np.asarray(after)
+    if a.shape != b.shape:
+        return True
+    top = int(round(a.shape[0] * ignore_top))
+    diff = np.abs(a[top:].astype(np.int16) - b[top:].astype(np.int16))
+    moved = diff.max(axis=-1) > CHANGE_PIXEL_DELTA if diff.ndim == 3 else diff > CHANGE_PIXEL_DELTA
+    return bool(moved.mean() > min_fraction)
+
+
 class TextActionEnv(gym.Env, ABC):
     """Subclasses implement _reset_impl and _step_impl."""
 
     metadata = {"render_modes": []}
+    #: The top fraction of the screen that screen_changed ignores (a status bar's clock and icons).
+    change_ignore_top: float = 0.0
 
     #: What is being operated, for environment-agnostic prompts. Subclasses set it.
     env_description: str = "an interactive environment"
@@ -64,6 +84,7 @@ class TextActionEnv(gym.Env, ABC):
         obs, info = self._reset_impl()
         self._check_texts(obs=obs)
         self.current_obs = obs
+        self._add_true_state(info=info)
         return obs, info
 
     def step(self, action: str):
@@ -73,10 +94,16 @@ class TextActionEnv(gym.Env, ABC):
         if self._episode_over:
             log_error("step() called after the episode ended; call reset() first.",
                       parameters=self._parameters)
+        before = self.raw_frame
         obs, reward, terminated, truncated, info = self._step_impl(action)
         self._check_texts(obs=obs)
-        self._episode_over = bool(terminated or truncated)
         self.current_obs = obs
+        # info["changed"]: whether the step changed the screen, for the agents' feedback and the search; an env
+        # with a better signal of its own (GameBoy's emulator) sets it itself.
+        info.setdefault("changed", screen_changed(before=before, after=info.get("raw_frame", self.raw_frame),
+                                                  ignore_top=self.change_ignore_top))
+        self._add_true_state(info=info)
+        self._episode_over = bool(terminated or truncated)
         return obs, reward, terminated, truncated, info
 
     # Saved states. Subclasses implement _save_state_impl / _load_state_impl / _delete_state_impl.
@@ -139,6 +166,17 @@ class TextActionEnv(gym.Env, ABC):
         if set(obs["texts"]) != set(self.text_keys):
             log_error(f"obs['texts'] keys {sorted(obs['texts'])} != declared text_keys "
                       f"{sorted(self.text_keys)}", parameters=self._parameters)
+
+    def true_state(self) -> Optional[dict]:
+        """The env's ground-truth state for evaluating exploration coverage (cusi/search/coverage.py): a small
+        JSON-able dict, recorded as info["true"] after every reset and step and never shown to an agent. None: the
+        env has none."""
+        return None
+
+    def _add_true_state(self, *, info: dict) -> None:
+        true = self.true_state()
+        if true is not None:
+            info["true"] = true
 
     @property
     def raw_frame(self):

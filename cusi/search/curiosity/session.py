@@ -1,7 +1,7 @@
 """
-One curiosity RL session (plans/archive/next_plan.md §E.4–E.5.1): a fresh policy trained with PPO from one node, every episode
-restoring the node, rewards from the stationary archive B0 ∪ the episode's own states. The session returns its best
-episode (by its own return) and the final policy.
+One curiosity RL session (plans/archive/next_plan.md §E.4–E.5.1): a policy (fresh, or starting from given weights)
+trained with PPO from one node, every episode restoring the node, rewards from the stationary archive B0 ∪ the episode's
+own states. The session returns its best episode (by its own return) and the final policy.
 """
 import time
 from dataclasses import dataclass, field
@@ -10,9 +10,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.search.curiosity.candidates import TYPES, candidates_for
+from cusi.search.curiosity.candidates import candidates_for
 from cusi.search.curiosity.overlay import OverlayArchive
-from cusi.search.curiosity.policy import TEXT_DIM, FusionPolicy
 from cusi.state import StateRecord, frame_for_embedding
 
 
@@ -36,7 +35,6 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     norm_adv: bool = True
     invalid_action_penalty: float = 0.1
-    max_type_strings: int = 8
     keep_episodes: int = 1          # the session's top episodes (by return, distinct actions) it returns
 
 
@@ -78,6 +76,7 @@ class SessionResult:
     policy_state: dict
     stopped: Optional[str] = None          # why the session ended early, if it did
     top: list = field(default_factory=list)    # the best config.keep_episodes distinct episodes, best first
+    true_log: list = field(default_factory=list)   # per env step: {"step", "seconds", "true"} (envs with a true state)
 
 
 class RestoreFailed(RuntimeError):
@@ -85,37 +84,36 @@ class RestoreFailed(RuntimeError):
 
 
 class CuriositySession:
-    def __init__(self, *, env_name: str, scene: Optional[str], envs: list, restore: Callable, encoder, scorer,
-                 base_archive, frozen, config: PPOConfig, seed: int, device: str, strings: Optional[dict] = None,
+    def __init__(self, *, env_name: str, envs: list, restore: Callable, encoder, scorer,
+                 base_archive, observer, config: PPOConfig, seed: int, device: str, init_state: Optional[dict] = None,
                  log_every: int = 10, parameters: dict[str, Any] = None) -> None:
         """envs: the env copies; restore(i) -> obs puts copy i in the start node's state. base_archive: B0 (read
-        only). frozen: FrozenEncoders."""
-        self.env_name, self.scene, self.envs, self.restore = env_name, scene, envs, restore
-        self.encoder, self.scorer, self.base, self.frozen = encoder, scorer, base_archive, frozen
-        self.cfg, self.seed, self.device, self.strings = config, seed, device, strings
+        only). observer: the policy's observer (FrozenEncoders or PixelObserver), which also builds the policy.
+        init_state: weights the policy starts from (None: a fresh one)."""
+        self.env_name, self.envs, self.restore = env_name, envs, restore
+        self.encoder, self.scorer, self.base, self.observer = encoder, scorer, base_archive, observer
+        self.cfg, self.seed, self.device, self.init_state = config, seed, device, init_state
         self.log_every, self._parameters = log_every, parameters
 
     # ------------------------------------------------------------ helpers
 
-    def _observe(self, obs_list: list, info_list: list, prevs: list) -> tuple:
-        """(features, candidates, elements) per env, with the previous action's frozen inputs attached."""
+    def _observe(self, obs_list: list, info_list: list, prevs: list, hists: list) -> tuple:
+        """(features, candidates, elements) per env; prevs: the previous (candidate, its target's text) or None;
+        hists: the episode's previous grayscale frames (PixelObserver's)."""
         elements_list, cands_list, frames = [], [], []
         for obs, info in zip(obs_list, info_list):
-            elements, cands = candidates_for(env_name=self.env_name, obs=obs, scene=self.scene, strings=self.strings,
-                                             max_type_strings=self.cfg.max_type_strings)
+            elements, cands = candidates_for(env_name=self.env_name, obs=obs)
             elements_list.append(elements)
             cands_list.append(cands)
             frames.append(np.asarray(frame_for_embedding(obs=obs, info=info), dtype=np.uint8))
-        feats = self.frozen.observe(frames=frames, elements_list=elements_list, candidates_list=cands_list)
-        for f, prev in zip(feats, prevs):
-            if prev is None:
-                f["p_type"], f["p_target_text"], f["p_arg"] = -1, torch.zeros(TEXT_DIM).half(), \
-                    torch.zeros(TEXT_DIM).half()
-            else:
-                cand, target_text = prev
-                f["p_type"] = TYPES.index(cand.type)
-                f["p_target_text"], f["p_arg"] = self.frozen.embed_texts(texts=[target_text, cand.argument or ""]).half()
+        feats = self.observer.observe(frames=frames, elements_list=elements_list, candidates_list=cands_list,
+                                      prevs=prevs, hists=hists)
         return feats, cands_list, elements_list
+
+    @staticmethod
+    def _hist(feat: dict) -> list:
+        """The frames the next observation's stack continues from (none for a policy without a stack)."""
+        return list(feat["stack"][1:]) if "stack" in feat else []
 
     @staticmethod
     def _info(env, info: Optional[dict]) -> dict:
@@ -127,14 +125,17 @@ class CuriositySession:
         cfg = self.cfg
         torch.manual_seed(self.seed)
         rng = np.random.default_rng(self.seed)
-        policy = FusionPolicy().to(self.device)
+        policy = self.observer.make_policy().to(self.device)
+        if self.init_state is not None:
+            policy.load_state_dict(self.init_state)
+        collate = type(policy).collate
         optim = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5)
         n = len(self.envs)
         overlays = [OverlayArchive(base=self.base) for _ in range(n)]
         t0 = time.time()
         deadline = t0 + 60.0 * cfg.max_minutes
         steps = updates = n_episodes = 0
-        returns, top = [], []
+        returns, top, true_log = [], [], []
 
         def start_episode(i):
             nonlocal n_episodes
@@ -144,7 +145,7 @@ class CuriositySession:
             ep = Episode(index=n_episodes)
             n_episodes += 1
             rec = StateRecord(obs=obs, info=info, embedding=self.encoder.encode_one(obs=obs, info=info))
-            return {"obs": obs, "info": info, "rec": rec, "prev": None, "t": 0, "ep": ep}
+            return {"obs": obs, "info": info, "rec": rec, "prev": None, "hist": [], "t": 0, "ep": ep}
 
         stopped = None
         try:
@@ -155,9 +156,9 @@ class CuriositySession:
                     if steps >= cfg.total_steps or time.time() >= deadline:
                         break
                     feats, cands, elements = self._observe([s["obs"] for s in live], [s["info"] for s in live],
-                                                           [s["prev"] for s in live])
+                                                           [s["prev"] for s in live], [s["hist"] for s in live])
                     with torch.no_grad():
-                        logits, values, _ = policy(FusionPolicy.collate(feats=feats, device=self.device))
+                        logits, values, _ = policy(collate(feats=feats, device=self.device))
                         dist = torch.distributions.Categorical(logits=logits)
                         choice = dist.sample()
                         logp, ent = dist.log_prob(choice), dist.entropy()
@@ -168,6 +169,8 @@ class CuriositySession:
                         env = self.envs[i]
                         obs2, _r, terminated, truncated, info2 = env.step(cand.action)
                         info2 = self._info(env, info2)
+                        if "true" in info2:
+                            true_log.append({"step": steps, "seconds": round(time.time() - t0, 2), "true": info2["true"]})
                         emb = self.encoder.encode_one(obs=obs2, info=info2)
                         nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=s["rec"].embedding.image)
                         reward, _ = self.scorer.score(prev=s["rec"], action=cand.action, next=nxt, archive=overlays[i],
@@ -193,14 +196,15 @@ class CuriositySession:
                         if ended:
                             ep.terminated = bool(terminated)
                             if not terminated:   # truncation: bootstrap from the value of where it stopped
-                                f2, _c, _e = self._observe([obs2], [info2], [(cand, target_text)])
+                                f2, _c, _e = self._observe([obs2], [info2], [(cand, target_text)],
+                                                           [self._hist(feats[i])])
                                 with torch.no_grad():
-                                    item["trunc_value"] = float(policy(FusionPolicy.collate(feats=f2, device=self.device))[1][0])
+                                    item["trunc_value"] = float(policy(collate(feats=f2, device=self.device))[1][0])
                             returns.append(ep.ret)
                             keep_top(top=top, ep=ep, k=max(1, cfg.keep_episodes))
                             live[i] = start_episode(i)
                         else:
-                            s.update(obs=obs2, info=info2, rec=nxt, prev=(cand, target_text))
+                            s.update(obs=obs2, info=info2, rec=nxt, prev=(cand, target_text), hist=self._hist(feats[i]))
                         row.append(item)
                         steps += 1
                     buf.append(row)
@@ -208,9 +212,9 @@ class CuriositySession:
                     break
                 # bootstrap values for unfinished episodes
                 feats, _c, _e = self._observe([s["obs"] for s in live], [s["info"] for s in live],
-                                              [s["prev"] for s in live])
+                                              [s["prev"] for s in live], [s["hist"] for s in live])
                 with torch.no_grad():
-                    last_values = policy(FusionPolicy.collate(feats=feats, device=self.device))[1].cpu().numpy()
+                    last_values = policy(collate(feats=feats, device=self.device))[1].cpu().numpy()
                 frac = 1.0 - max(steps / cfg.total_steps, (time.time() - t0) / (deadline - t0))
                 if cfg.anneal_lr:
                     optim.param_groups[0]["lr"] = cfg.lr * max(frac, 0.0)
@@ -228,7 +232,8 @@ class CuriositySession:
         policy_state = {k: v.detach().cpu() for k, v in policy.state_dict().items()}
         return SessionResult(best=top[0] if top else None, top=list(top), returns=returns, total_steps=steps,
                              updates=updates,
-                             seconds=time.time() - t0, policy_state=policy_state, stopped=stopped)
+                             seconds=time.time() - t0, policy_state=policy_state, stopped=stopped,
+                             true_log=true_log)
 
     # ------------------------------------------------------------ PPO
 
@@ -256,7 +261,7 @@ class CuriositySession:
             rng.shuffle(idx)
             for s0 in range(0, len(items), mb):
                 sel = idx[s0:s0 + mb]
-                batch = FusionPolicy.collate(feats=[items[j]["feat"] for j in sel], device=self.device)
+                batch = type(policy).collate(feats=[items[j]["feat"] for j in sel], device=self.device)
                 logits, new_v, _ = policy(batch)
                 dist = torch.distributions.Categorical(logits=logits)
                 choice = torch.tensor([items[j]["choice"] for j in sel], device=self.device)

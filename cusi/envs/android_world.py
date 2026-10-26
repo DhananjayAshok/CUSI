@@ -105,6 +105,15 @@ def parse_action(*, text: str) -> tuple[Optional[dict], Optional[str]]:
     return parsed, None
 
 
+_FRAGMENT_RE = re.compile(r"#\d+: ([A-Za-z_$][\w$]*)\{")
+
+
+def top_fragments(*, dump: str) -> list:
+    """The fragment classes listed under the last (top) ACTIVITY block of `dumpsys activity top`, sorted."""
+    block = dump[dump.rfind("ACTIVITY "):] if "ACTIVITY " in dump else ""
+    return sorted(set(_FRAGMENT_RE.findall(block)))
+
+
 def add_resource_ids(*, text: str, ui_elements: list) -> str:
     """M3A's element list with each element's resource id (short name) after its index."""
     def sub(m):
@@ -190,6 +199,7 @@ class AndroidPlayEnv(TextActionEnv):
     """An AndroidWorld task scene as a text-action gym.Env; info["raw_frame"] is the unlabelled screenshot."""
 
     env_description = "an Android phone"
+    change_ignore_top = 0.06     # the status bar (its clock ticks): the app area starts at 128 of 2400 pixels
     # M3A's action prompt puts this before its UI element list (android_world/agents/m3a.py); the VLM explorer shows
     # it before obs["elements"], so both agents choose indices from the same list.
     elements_intro = ("Here is a list of detailed information for some of the UI elements (notice that some elements"
@@ -446,6 +456,20 @@ class AndroidPlayEnv(TextActionEnv):
         goal = self._task.goal if self.mode == "test" else ""
         return {"frame": frame, "texts": {"ui_elements": ui_elements}, "text_boxes": boxes,
                 "actions": self.actions_text, "goal": goal, "elements": ui_elements}
+
+    def true_state(self) -> Optional[dict]:
+        """The foreground activity (package/class) and the fragments its window shows (dumpsys activity top), so
+        screens one activity hosts (most of Settings) tell apart."""
+        if self._env is None:
+            return None
+        out = {}
+        try:
+            activity, _ = self._guarded(fn=lambda: adb_utils.get_current_activity(self._env.controller))
+            out["activity"] = activity
+            out["fragments"] = top_fragments(dump=self._adb("shell", "dumpsys", "activity", "top", timeout=10))
+        except Exception as e:      # a stalled device: the step keeps what was read
+            out["true_error"] = str(e).splitlines()[0][:120] if str(e) else type(e).__name__
+        return out
 
     def observe(self) -> tuple:
         """Re-observe the screen (stabilized) without acting, as M3A does at each step start."""

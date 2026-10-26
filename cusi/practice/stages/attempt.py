@@ -1,86 +1,113 @@
 """
-Stage 2: attempt each proposed task, judged, retrying with a critique hint on failure.
+Attempt each task with the env's final agent (executor under its supervisor), from its start: the tree node it was
+inferred at, restored from an annotated search run. The same model
+judges each try (judge_leg); after a failure it writes a critique hint (derive_critique_hint), shown to the executor
+alone as guidance on the next try from the same start, up to max_tries.
+
+Each task's tries are saved as one pickle (episodes/<task_id>.pkl), the input of the dataset stage:
+    {"task": {task_id, task, scene, source, node_id, child}, "success", "restore_error",
+     "tries": [{"try", "hint", "report" (SupervisorReport: supervisor calls and every executor leg with its calls and
+                frames), "supervisor_state", "verdict" (judge_leg's, with the judge's calls),
+                "critique_calls"}]}
+results.csv has one row per task. A task with a pickle is done; rerunning continues with the rest.
 """
-import json
 import os
 import pickle
 import pandas as pd
-from cusi.utils.log_handling import log_info, log_warn
+from cusi.agents.agent import AGENT_VERSION, merged_leg
+from cusi.eval.supervision import supervisor_state
 from cusi.practice.judging import derive_critique_hint, judge_leg
-from cusi.practice.stages.common import atomic_json, atomic_pickle, load_json, run_jobs
+from cusi.practice.stages.common import atomic_json, atomic_pickle, run_jobs
+from cusi.search.restore import NodeRestorer, RestoreFailed
+from cusi.utils.log_handling import log_error, log_info, log_warn
 from cusi.utils.paths import PracticePaths
-from cusi.agents.agent import merged_leg
 
 
-def attempt(*, spec, pool, vlm, paths: PracticePaths, max_attempts: int, lookback: int, judge_max_new_tokens: int,
-            overwrite: bool, parameters: dict) -> None:
-    out_dir = paths.attempts_dir
-    os.makedirs(out_dir, exist_ok=True)
-    csv_path = os.path.join(out_dir, "results.csv")
-    if os.path.exists(csv_path) and not overwrite:
-        log_info(f"attempt: already done ({csv_path}).", parameters=parameters)
-        return
-    ckpt_json, ckpt_pkl = os.path.join(out_dir, "checkpoint.json"), os.path.join(out_dir, "checkpoint.pkl")
-    results = {} if overwrite else load_json(ckpt_json, {})
-    legs = {}
-    if not overwrite and os.path.exists(ckpt_pkl):
-        with open(ckpt_pkl, "rb") as f:
-            legs = pickle.load(f)
-    results = {g: r for g, r in results.items() if g in legs}   # a result counts only with its leg
+def tree_tasks(*, restorer: NodeRestorer, parameters: dict) -> list:
+    """Every task of an annotated search run's nodes, in node order (unrestorable nodes' tasks are left out)."""
+    nodes = restorer.nodes
+    if not any(n.get("node_notes_raw") is not None for n in nodes.values()):
+        log_error(f"{restorer.directory} has no task annotations: run cusi.search.annotate first",
+                  parameters=parameters)
+    out = []
+    for nid in sorted(nodes):
+        flags = nodes[nid].get("flags") or {}
+        if flags.get("unrestorable") or flags.get("replay_diverged") or flags.get("challenge_page"):
+            continue
+        for i, t in enumerate(nodes[nid].get("tasks") or []):
+            out.append({"task_id": f"n{nid}_{i}", "task": t["task"], "scene": nodes[nid]["env_key"],
+                        "source": t["source"], "node_id": nid, "child": t.get("child")})
+    return out
 
-    with open(paths.proposals) as f:
-        proposals = [json.loads(line) for line in f]
-    jobs = [(f"{p['scene']}_{i}", p["scene"], task) for p in proposals for i, task in enumerate(p["tasks"])
-            if f"{p['scene']}_{i}" not in results]
-    log_info(f"attempt: {len(results)} done, {len(jobs)} to run.", parameters=parameters)
 
-    def one(job, *, worker: int):
-        group, scene, task = job
-        env = pool.get(worker=worker, scene=scene)
+def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, max_tries: int, lookback: int,
+            judge_max_new_tokens: int, max_tasks, parameters: dict) -> None:
+    """restorer: the annotated search run's NodeRestorer. max_tasks: the first this many (None: all)."""
+    tasks = tree_tasks(restorer=restorer, parameters=parameters)
+    tasks = tasks[:max_tasks] if max_tasks is not None else tasks
+    os.makedirs(paths.episodes_dir, exist_ok=True)
+    atomic_json({"env": spec.name, "model_name": vlm.model_name, "agent": AGENT_VERSION, "max_tries": max_tries,
+                 "max_steps": spec.max_steps, "lookback": lookback,
+                 "tree": restorer.directory},
+                os.path.join(paths.root, "config.json"))
+    done = {t["task_id"] for t in tasks if os.path.exists(os.path.join(paths.episodes_dir, f"{t['task_id']}.pkl"))}
+    jobs = [t for t in tasks if t["task_id"] not in done]
+    # Grouped by scene: a worker switching scene rebuilds its env.
+    jobs.sort(key=lambda t: t["scene"])
+    log_info(f"attempt: {len(done)} of {len(tasks)} tasks done, {len(jobs)} to run.", parameters=parameters)
+
+    def start(env, task: dict) -> tuple:
+        return restorer.restore(env=env, node_id=task["node_id"])
+
+    def one(task: dict, *, worker: int) -> dict:
+        env = pool.get(worker=worker, scene=task["scene"])
         agent = spec.make_agent(env=env, vlm=vlm, parameters=parameters)
-        hint, verdict, report = "", None, None
-        for n_try in range(1, max_attempts + 1):
-            obs, info = env.reset()
-            _, result = agent.run(task=task, obs=obs, info=info, max_steps=spec.max_steps, guidance=hint or None)
-            report = merged_leg(report=result["report"])
-            verdict = judge_leg(report=report, vlm=vlm, domain=spec.domain, lookback=lookback,
-                                max_new_tokens=judge_max_new_tokens)
-            log_info(f"attempt [{group}] try {n_try}: {'success' if verdict['success'] else 'failure'} "
-                     f"({report.termination_reason}, {len(report.env_steps)} steps) | {task}", parameters=parameters)
-            if verdict["success"]:
+        record = {"task": task, "success": False, "restore_error": None, "tries": []}
+        hint = ""
+        for n_try in range(1, max_tries + 1):
+            try:
+                obs, info = start(env, task)
+            except RestoreFailed as e:
+                record["restore_error"] = str(e)
+                log_warn(f"attempt [{task['task_id']}]: {e}", parameters=parameters)
                 break
-            if n_try < max_attempts:
-                hint = derive_critique_hint(report=report, vlm=vlm, domain=spec.domain, previous_hint=hint,
-                                            max_new_tokens=judge_max_new_tokens)
-        row = {"group_idx": group, "scene": scene, "task_string": task, "success": verdict["success"],
-               "n_tries": n_try, "final_hint": hint, "judge_description": verdict["description"],
-               "judge_reasoning": verdict["reasoning"], "safe_success_point": verdict["safe_success_point"],
-               "termination_reason": verdict["termination_reason"], "n_env_steps": verdict["n_env_steps"],
-               "max_steps": verdict["max_steps"], "answer": report.answer,
-               "input_tokens": sum((c.input_tokens or 0) for c in report.calls),
-               "output_tokens": sum((c.output_tokens or 0) for c in report.calls)}
-        return row, report
-
-    def save(job, result):
-        row, report = result
-        results[row["group_idx"]] = row
-        legs[row["group_idx"]] = report
-        atomic_pickle(legs, ckpt_pkl)
-        atomic_json(results, ckpt_json)
+            _, result = agent.run(task=task["task"], obs=obs, info=info, max_steps=spec.max_steps,
+                                  guidance=hint or None)
+            leg = merged_leg(report=result["report"])
+            verdict = judge_leg(report=leg, vlm=vlm, domain=spec.domain, lookback=lookback,
+                                max_new_tokens=judge_max_new_tokens)
+            entry = {"try": n_try, "hint": hint or None, "report": result["report"],
+                     "supervisor_state": supervisor_state(result=result), "verdict": verdict, "critique_calls": []}
+            record["tries"].append(entry)
+            log_info(f"attempt [{task['task_id']}] try {n_try}: {'success' if verdict['success'] else 'failure'} "
+                     f"({leg.termination_reason}, {len(leg.env_steps)} steps) | {task['task']}", parameters=parameters)
+            if verdict["success"]:
+                record["success"] = True
+                break
+            if n_try < max_tries:
+                hint = derive_critique_hint(report=leg, vlm=vlm, domain=spec.domain, previous_hint=hint,
+                                            log=entry["critique_calls"], max_new_tokens=judge_max_new_tokens)
+        atomic_pickle(record, os.path.join(paths.episodes_dir, f"{task['task_id']}.pkl"))
+        return record
 
     failures = run_jobs(jobs=jobs, fn=one, n_workers=min(spec.max_workers, max(1, len(jobs))), desc="attempt",
-                        on_result=save, parameters=parameters)
+                        on_result=lambda job, record: None, parameters=parameters)
+    rows = []
+    for task in tasks:
+        path = os.path.join(paths.episodes_dir, f"{task['task_id']}.pkl")
+        if not os.path.exists(path):
+            continue
+        with open(path, "rb") as f:
+            record = pickle.load(f)
+        tries = record["tries"]
+        rows.append({**task, "success": record["success"], "n_tries": len(tries),
+                     "restore_error": record["restore_error"],
+                     "termination_reasons": [t["verdict"]["termination_reason"] for t in tries],
+                     "n_env_steps": [t["verdict"]["n_env_steps"] for t in tries],
+                     "judge_reasoning": tries[-1]["verdict"]["reasoning"] if tries else ""})
+    pd.DataFrame(rows).to_csv(paths.results, index=False)
+    n_ok = sum(r["success"] for r in rows)
+    log_info(f"attempt: {n_ok}/{len(rows)} tasks succeeded ({sum(r['n_tries'] > 1 and r['success'] for r in rows)} "
+             f"after a hint) -> {paths.root}", parameters=parameters)
     if failures:
-        log_warn("attempt: some tasks failed with an exception; not finalising. Rerun to retry them.",
-                 parameters=parameters)
-        return
-    order = [g for p in proposals for g in (f"{p['scene']}_{i}" for i in range(len(p["tasks"])))]
-    pd.DataFrame([results[g] for g in order if g in results]).to_csv(csv_path, index=False)
-    atomic_pickle(legs, os.path.join(out_dir, "legs.pkl"))
-    success = {g: {"task": results[g]["task_string"], "scene": results[g]["scene"]}
-               for g in order if g in results and results[g]["success"]}
-    atomic_json(success, os.path.join(out_dir, "success.json"))
-    log_info(f"attempt: {len(success)}/{len(results)} tasks succeeded -> {out_dir}", parameters=parameters)
-    for p in (ckpt_json, ckpt_pkl):
-        if os.path.exists(p):
-            os.remove(p)
+        log_warn("attempt: some tasks raised; rerun to retry them.", parameters=parameters)

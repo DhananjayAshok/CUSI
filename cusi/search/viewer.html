@@ -137,7 +137,7 @@ tbody tr { cursor: pointer; } tbody tr:hover { background: var(--surface-2); }
   <section id="timeTab" class="tab"><div class="charts" id="charts"></div></section>
   <section id="expTab" class="tab"><div class="panel" style="overflow:auto;max-height:calc(100vh - 110px)">
     <table><thead><tr><th>#</th><th>Iter</th><th>Node</th><th>Expander</th><th>Steps</th><th>Children</th>
-    <th>Yield</th><th>Seconds</th><th>Description</th></tr></thead><tbody id="expRows"></tbody></table></div>
+    <th>Yield</th><th>Seconds</th><th>Reached</th></tr></thead><tbody id="expRows"></tbody></table></div>
   </section>
 </main>
 <div id="tip"></div>
@@ -341,6 +341,13 @@ function openNode(id, center) {
       <dt>selection prob.</dt><dd>${fmt(sel.prob)}${sel.energy != null ? ` · energy ${fmt(sel.energy)}` : ""}</dd>
       <dt>decision score</dt><dd>${n.score ? `${fmt(n.score.score, 3)} <span class="reason">(iteration ${n.score.iteration})</span>` : "–"}</dd>
     </dl>
+    ${n.description ? `<h3>How it was reached</h3><div>${esc(n.description)}</div>` : ""}
+    ${n.discovered && n.discovered.length ? `<h3>Discovered</h3><div class="chips">${n.discovered.map(d => `<span class="chip">${esc(d)}</span>`).join("")}</div>` : ""}
+    ${n.windows && n.windows.length ? `<h3>Window descriptions</h3>${n.windows.map(w => `<div><span class="mono">frames ${w.frames[0]}–${w.frames[1]}</span> ${esc(w.text)}</div>`).join("")}` : ""}
+    ${n.screen_description ? `<h3>Screen</h3><div>${esc(n.screen_description)}</div>` : ""}
+    ${n.edge_task ? `<h3>Task completed reaching it</h3><div>${esc(n.edge_task)}</div>` : ""}
+    ${n.knowledge && n.knowledge.length ? `<h3>Knowledge</h3><ul style="margin:0;padding-left:18px">${n.knowledge.map(k => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
+    ${n.tasks && n.tasks.length ? `<h3>Tasks from here (${n.tasks.length})</h3><ul style="margin:0;padding-left:18px">${n.tasks.map(t => `<li><span class="chip">${esc(t.source)}${t.child != null ? ` → ${t.child}` : ""}</span> ${esc(t.task)}</li>`).join("")}</ul>` : ""}
     ${feats ? `<h3>Features${n.score ? " · verdicts against the discovered set" : ""}</h3>${feats}` : ""}
     ${ch.length ? `<h3>Children (${ch.length})</h3><div class="strip">${ch.map(k => `<img src="${esc(nodes.get(k).frame || "")}" data-node="${k}" title="node ${k}" alt="node ${k}">`).join("")}</div>` : ""}`;
 }
@@ -361,6 +368,7 @@ function openExp(id, step) {
       <dt>steps / children</dt><dd>${e.steps.length} / ${e.children.length} ${e.children.map(nlink).join(", ")}</dd>
       <dt>yield</dt><dd>${fmt(e.yield)}</dd>
       <dt>time</dt><dd>${fmt(st.seconds, 1)} s${st.restore ? ` · restore ${esc(st.restore)}` : ""}${st.session_seconds > 1 ? ` · session ${fmt(st.session_seconds, 0)} s` : ""}</dd>
+      ${info.objectives ? `<dt>objectives</dt><dd>${info.objectives.map(o => esc(o.feature) + (o.done ? ` <span class="chip">${esc(o.done)} at step ${o.done_step}</span>` : "")).join("<br>")}</dd>` : ""}
       ${info.plan != null ? `<dt>episode</dt><dd>${info.plan + 1} of ${info.plans} committed · return ${fmt(info.episode_return)}</dd>` : ""}
     </dl>
     ${extra}
@@ -370,10 +378,7 @@ function openExp(id, step) {
     <div class="stepbar"><button class="btn" id="prev">Prev</button><span id="stepLabel" class="mono"></span><button class="btn" id="next">Next</button>
       <span class="reason">or the arrow keys</span></div>
     <img class="big" id="stepImg" alt="">
-    <div id="stepInfo"></div>
-    ${e.description ? `<h3>Description</h3><div>${esc(e.description)}</div>` : ""}
-    ${e.discovered && e.discovered.length ? `<h3>Discovered</h3><div class="chips">${e.discovered.map(d => `<span class="chip">${esc(d)}</span>`).join("")}</div>` : ""}
-    ${e.windows && e.windows.length ? `<h3>Window descriptions</h3>${e.windows.map(w => `<div><span class="mono">frames ${w.frames[0]}–${w.frames[1]}</span> ${esc(w.text)}</div>`).join("")}` : ""}`;
+    <div id="stepInfo"></div>`;
   $("#prev").onclick = () => { current.i = Math.max(0, current.i - 1); renderStep(); };
   $("#next").onclick = () => { current.i = Math.min(e.steps.length, current.i + 1); renderStep(); };
   renderStep();
@@ -398,7 +403,10 @@ function renderStep() {
       <dt>value</dt><dd>${fmt(s.value)}${comps ? ` <span class="reason">(${comps})</span>` : ""}</dd>
       ${s.node_id != null ? `<dt>node</dt><dd>${nlink(s.node_id)}</dd>` : ""}
       ${!s.valid ? `<dt>invalid</dt><dd style="color:var(--critical)">${esc(s.error || "invalid action")}</dd>` : ""}
+      ${s.changed === false ? `<dt>screen</dt><dd>unchanged</dd>` : ""}
+      ${s.explorer.decision ? `<dt>decision</dt><dd>${esc(s.explorer.decision)}</dd>` : ""}
     </dl>
+    ${s.explorer.response ? `<details><summary>executor reply</summary><pre class="mono">${esc(s.explorer.response)}</pre></details>` : ""}
     ${s.texts && s.texts.length ? `<details><summary>text on screen (${s.texts.length})</summary><div class="texts">${s.texts.map(t => `<div>${esc(t)}</div>`).join("")}</div></details>` : ""}`;
 }
 document.addEventListener("keydown", ev => {
@@ -468,10 +476,13 @@ function drawCharts() {
 }
 
 // ------------------------------------------------------------ expansions table
+function reached(e) {   // the reports of the nodes the expansion made
+  return e.children.map(k => (nodes.get(k) || {}).description).filter(Boolean).join(" / ");
+}
 $("#expRows").innerHTML = R.expansions.map(e => `<tr data-exp="${e.id}"><td class="num">${e.id}</td><td class="num">${e.iteration}</td>
   <td class="num">${e.node_id}</td><td>${esc(e.expander || "")}</td><td class="num">${e.steps.length}</td><td class="num">${e.children.length}</td>
   <td class="num">${fmt(e.yield)}</td><td class="num">${fmt((e.stats || {}).seconds, 0)}</td>
-  <td>${esc((e.description || "").slice(0, 160))}${(e.description || "").length > 160 ? "…" : ""}</td></tr>`).join("");
+  <td>${esc(reached(e).slice(0, 160))}${reached(e).length > 160 ? "…" : ""}</td></tr>`).join("");
 $("#expRows").addEventListener("click", ev => { const tr = ev.target.closest("tr"); if (tr) openExp(+tr.dataset.exp, 0); });
 
 // ------------------------------------------------------------ start

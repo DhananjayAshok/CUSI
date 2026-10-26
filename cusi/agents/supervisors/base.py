@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_error
+from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START
 from cusi.agents.records import EncodedImage, per_prompt_token_counts
 from cusi.agents.supervisors.report import LegEvent, SupervisorCall, SupervisorReport
 
@@ -19,7 +20,12 @@ class Supervisor(ABC):
     """Runs executor legs on one episode; make_executor(previous_history=...) builds a fresh executor per leg.
     task None = exploring; guidance (practice only) is shown to the executor in every leg."""
 
-    def __init__(self, *, task: Optional[str], guidance: Optional[str], env_name: str, env,
+    #: Mark the guidance (GUIDANCE markers, after the supervisor's own hint) for an executor that shows both in one
+    #: hint block (GameBoy), so training data can cut the guidance alone. M3A and WebVoyager mark it themselves, and
+    #: their supervisor never hints.
+    MARK_GUIDANCE = False
+
+    def __init__(self, *, task: str, guidance: Optional[str], env_name: str, env,
                  make_executor: Callable[..., Any], vlm, obs: dict, info: dict, max_steps: int,
                  parameters: Optional[dict] = None) -> None:
         self._task = task
@@ -79,13 +85,16 @@ class Supervisor(ABC):
     def _evaluate(self) -> Optional[dict]:
         raise NotImplementedError
 
-    def call_executor(self, *, task: Optional[str], hint: Optional[str], max_steps: int, target: Optional[str] = None,
+    def call_executor(self, *, task: str, hint: Optional[str], max_steps: int, target: Optional[str] = None,
                       final: bool = True, self_terminate: bool = False):
         """Run one leg from the current state and file it -> its LegReport. The executor sees the guidance and then
         the supervisor's hint; self_terminate lets its done-check end the leg."""
         executor = self._make_executor(previous_history=self._carried_history)
         t0 = time.time()
-        shown = "\n".join(h for h in (self._guidance, hint) if h) or None
+        if self.MARK_GUIDANCE and self._guidance:
+            shown = (hint or "") + f"{GUIDANCE_START}\nGuidance: {self._guidance}{GUIDANCE_END}"
+        else:
+            shown = "\n".join(h for h in (self._guidance, hint) if h) or None
         report = executor.run(task=task, hint=shown, max_steps=max_steps, obs=self.obs, info=self.info,
                               self_terminate=self_terminate)
         self.obs, self.info = executor.final_obs, executor.final_info

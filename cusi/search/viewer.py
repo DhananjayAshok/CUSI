@@ -1,9 +1,9 @@
 """
 The run viewer (plans/archive/next_plan.md §D): a static page per search run, <run dir>/viewer/index.html, with
 - the tree with node thumbnails;
-- per node: features, the latest decision score with its verdicts, Q / N / P and flags;
-- every expansion stepped through frame by frame (actions, values, texts), with its description, discovered features
-  and window descriptions;
+- per node: the report of the segment that reached it (description, discovered features, window descriptions),
+  features, the practice/knowledge notes (screen description, tasks from it, the edge's hindsight task and knowledge), the latest decision score with its verdicts, Q / N / P and flags;
+- every expansion stepped through frame by frame (actions, values, texts);
 - selection probabilities, decision scores, yields and archive size over the iterations.
 Frames are copied out of the run's zips unchanged (WebP); the page needs no server or network.
 
@@ -16,17 +16,11 @@ from typing import Optional
 import click
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.paths import search_run
+from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
 
 TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer.html")
 VIEWER_DIR = "viewer"
 MAX_STEP_TEXTS = 60
-
-
-def _rows(path: str) -> list:
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return [json.loads(line) for line in f if line.strip()]
 
 
 def _load_json(path: str) -> Optional[dict]:
@@ -80,27 +74,27 @@ def _step_texts(step: dict) -> list:
 def run_data(*, run_dir: str, frame: FrameCopier) -> dict:
     """The page's data: nodes, expansions (with steps), selection records, config and summary."""
     nodes, order = {}, []
-    for row in _rows(os.path.join(run_dir, "nodes.jsonl")):
-        if "parent" not in row:                  # a later flags update
-            if row["id"] in nodes:
-                nodes[row["id"]]["flags"] = dict(row["flags"])
-            continue
+    for row in node_rows(directory=run_dir).values():
         nodes[row["id"]] = {"id": row["id"], "parent": row["parent"], "depth": row["depth"],
                             "scene": row["env_key"], "frame": frame(row["frame"]), "value": row["value"],
                             "segment": row["segment"], "features": row.get("features"), "flags": row.get("flags") or {},
+                            "description": row.get("description"), "discovered": row.get("discovered"),
+                            "windows": row.get("window_descriptions"),
+                            "screen_description": row.get("screen_description"), "tasks": row.get("tasks"),
+                            "edge_task": row.get("edge_task"), "knowledge": row.get("knowledge"),
                             "created_at": row["created_at"], "n_expanded": 0, "expansions": []}
         order.append(row["id"])
     expansions, records = [], []
-    for row in _rows(os.path.join(run_dir, "expansions.jsonl")):
+    for row in read_rows(os.path.join(run_dir, EXPANSIONS_FILE)):
         steps = [{"action": s["action"], "frame": frame(s["frame"]), "value": s["value"],
                   "components": s.get("components") or {}, "node_id": s.get("node_id"),
                   "valid": (s.get("info") or {}).get("valid", True), "error": (s.get("info") or {}).get("error"),
-                  "texts": _step_texts(s)} for s in row["steps"]]
+                  "texts": _step_texts(s), "changed": (s.get("extra") or {}).get("changed"),
+                  "explorer": (s.get("extra") or {}).get(row.get("expander")) or {}} for s in row["steps"]]
         expansions.append({"id": row["id"], "node_id": row["node_id"], "iteration": row["iteration"],
                            "children": row["children"], "yield": row["yield"], "stats": row.get("stats") or {},
                            "expander": row.get("expander"), "expander_info": row.get("expander_info") or {},
-                           "description": row.get("description"), "discovered": row.get("discovered"),
-                           "windows": row.get("window_descriptions"), "steps": steps})
+                           "steps": steps})
         if row["node_id"] in nodes:
             nodes[row["node_id"]]["n_expanded"] += 1
             nodes[row["node_id"]]["expansions"].append(row["id"])

@@ -12,15 +12,17 @@ from cusi.utils.log_handling import log_warn
 from cusi.agents.records import CallRecord, EncodedImage, InvalidRecord, LegReport, StepRecord
 from cusi.agents.vlm import AgentVLM
 
-#: The task slot's text when there is no task (task None): exploration, with finishing disabled.
-EXPLORE_GOAL = "Explore: take actions that lead to screens and content you have not seen before in this session."
+#: Shown with the next decision after valid steps that left the screen unchanged (the env's info["changed"]).
+NO_CHANGE_ONE = "Your last action did not change the screen."
+NO_CHANGE_MANY = "Your last {n} actions did not change the screen: do something different."
 
-# GameBoyRL's hint block starts with a newline, which the regex eats.
-HINT_RE = re.compile(r"\n?\[HINT_START\].*?\[HINT_END\]", re.DOTALL)
 STEP_INFO_RE = re.compile(r"\n?\[STEP_INFO\].*?\[STEP_INFO_END\]", re.DOTALL)
 # Markers for M3A / WebVoyager guidance: removed exactly, with no surrounding whitespace.
 GUIDANCE_START, GUIDANCE_END = "[GUIDANCE_START]", "[GUIDANCE_END]"
 GUIDANCE_RE = re.compile(re.escape(GUIDANCE_START) + r".*?" + re.escape(GUIDANCE_END), re.DOTALL)
+#: A GameBoy hint block left without a hint once its guidance is cut (GameBoyRL's block starts with a newline, which
+#: the regex eats).
+EMPTY_HINT_RE = re.compile(r"\n?\[HINT_START\]\nHint: \nNote:.*?\[HINT_END\]", re.DOTALL)
 
 #: The stripped training input has no hint, so the response must not mention one.
 SECRET_NOTE = ("Note: this guidance is a secret. Use it to guide your decisions, but in your reasoning"
@@ -29,20 +31,25 @@ STEP_EXTRA_KEYS = ("action_name", "frame_changed", "action_success", "low_level"
                    "probe_success")
 
 
-def strip_hint_blocks(text: str) -> str:
-    """The prompt the evaluation agent would see, with every hint/guidance block removed."""
-    return GUIDANCE_RE.sub("", STEP_INFO_RE.sub("", HINT_RE.sub("", text)))
+def strip_guidance(text: str) -> str:
+    """The prompt the agent would have seen without practice's guidance: every guidance block removed, and a GameBoy
+    hint block that held only guidance removed with its step info (the agent shows neither without a hint). The
+    supervisor's own hints stay, as at test time."""
+    text = GUIDANCE_RE.sub("", text)
+    if EMPTY_HINT_RE.search(text):
+        text = STEP_INFO_RE.sub("", EMPTY_HINT_RE.sub("", text))
+    return text
 
 
-def strip_hint_messages(messages: list) -> list:
+def strip_guidance_messages(messages: list) -> list:
     out = []
     for msg in messages:
         content = msg["content"]
         if isinstance(content, str):
-            out.append({**msg, "content": strip_hint_blocks(content)})
+            out.append({**msg, "content": strip_guidance(content)})
         else:
             out.append({**msg, "content": [
-                {**p, "text": strip_hint_blocks(p["text"])} if p["type"] == "text" else dict(p)
+                {**p, "text": strip_guidance(p["text"])} if p["type"] == "text" else dict(p)
                 for p in content]})
     return out
 
@@ -87,6 +94,9 @@ class Executor(ABC):
         self.vlm = vlm
         self.task: Optional[str] = None
         self.hint: Optional[str] = None
+        #: The no-change note for the next decision (None: the last step changed the screen, or was invalid).
+        self.change_note: Optional[str] = None
+        self._unchanged = 0
         self.report: Optional[LegReport] = None
         self._current_call: Optional[CallRecord] = None
 
@@ -164,9 +174,10 @@ class Executor(ABC):
 
     # ------------------------------------------------------------ one decision at a time
 
-    def begin(self, *, task: Optional[str], hint: Optional[str], max_steps: int, obs: dict, info: dict) -> None:
-        """Start a leg from the current state; task None = exploring (no finishing)."""
+    def begin(self, *, task: str, hint: Optional[str], max_steps: int, obs: dict, info: dict) -> None:
+        """Start a leg from the current state."""
         self.task, self.hint = task, hint
+        self.change_note, self._unchanged = None, 0
         self.report = LegReport(env_name=self.env_name, task=task, hint=hint, max_steps=max_steps,
                                 initial_frame=EncodedImage.of(self.judge_frame(obs=obs, info=info)))
         self._current_call = None
@@ -204,9 +215,25 @@ class Executor(ABC):
         self.final_obs, self.final_info = obs_after, info_after
         self.report.final_reward = float(reward)
         ok, error = self.step_feedback(step=step)
+        self.change_note = self._change_note(valid=step.valid, changed=info_after.get("changed", True))
         self.after_step(decision=decision, obs_before=obs, info_before=info, obs_after=obs_after,
                         info_after=info_after, step=step)
-        return Recorded(step=step, error=error, ok=ok)
+        return Recorded(step=step, error="\n".join(e for e in (error, self.change_note) if e) or None, ok=ok)
+
+    def _change_note(self, *, valid: bool, changed: bool) -> Optional[str]:
+        """Counts valid steps in a row that left the screen unchanged. The note reaches the next decision through
+        `error`; executors that show feedback another way (M3A's history, WebVoyager's observation) show
+        self.change_note there."""
+        if not valid:
+            return None
+        self._unchanged = 0 if changed else self._unchanged + 1
+        if not self._unchanged:
+            return None
+        return NO_CHANGE_ONE if self._unchanged == 1 else NO_CHANGE_MANY.format(n=self._unchanged)
+
+    def retask(self, *, task: str) -> None:
+        """A new task mid-leg (the search's next objective once one is done); the executor keeps its memory."""
+        self.task = task
 
     # ------------------------------------------------------------ the loop
 
@@ -236,9 +263,9 @@ class Executor(ABC):
             self.report.termination_reason = "terminated"
         return self.report
 
-    def run(self, *, task: Optional[str], hint: Optional[str], max_steps: int, obs: dict, info: dict,
+    def run(self, *, task: str, hint: Optional[str], max_steps: int, obs: dict, info: dict,
             self_terminate: bool = False) -> LegReport:
-        """Play one leg from the current state; task None = exploring (the leg ends on the budget or the env).
+        """Play one leg from the current state.
         self_terminate: the done-check may end the leg as "agent_done" (the subgoal supervisor's plan steps)."""
         self.begin(task=task, hint=hint, max_steps=max_steps, obs=obs, info=info)
         limit = self.MAX_CONSECUTIVE_INVALID if self.MAX_CONSECUTIVE_INVALID is not None else float("inf")

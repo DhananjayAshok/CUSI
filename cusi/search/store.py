@@ -33,11 +33,35 @@ def _jsonable(value):
     return str(value)
 
 
-def _rows(path: str) -> list:
+def read_rows(path: str) -> list:
     if not os.path.exists(path):
         return []
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def step_from_row(*, directory: str, row: dict) -> Step:
+    """A Step from its expansions.jsonl row; its frame reads from the run directory."""
+    return Step(action=row["action"], frame=FrameRef(path=os.path.join(directory, row["frame"])), texts=row["texts"],
+                text_boxes=row.get("text_boxes", []), info=row["info"], value=row["value"],
+                components=row["components"], node_id=row["node_id"], extra=row["extra"])
+
+
+def append_node_updates(*, directory: str, rows: list) -> None:
+    """Later updates of some of a node's fields ({"id", field: value, ...}); on load the latest value wins."""
+    with open(os.path.join(directory, NODES_FILE), "a") as f:
+        for row in rows:
+            f.write(json.dumps(row, default=_jsonable) + "\n")
+
+def node_rows(*, directory: str) -> dict:
+    """node id -> its nodes.jsonl row with the later update rows (flags, annotations) applied, in file order."""
+    nodes = {}
+    for row in read_rows(os.path.join(directory, NODES_FILE)):
+        if "parent" in row:
+            nodes[row["id"]] = row
+        elif row["id"] in nodes:
+            nodes[row["id"]].update({k: v for k, v in row.items() if k != "id"})
+    return nodes
 
 
 class SearchStore:
@@ -80,6 +104,8 @@ class SearchStore:
                          "embedding": f"embeddings/{key}.pt#{n.id}", "frame": node_frames[n.id], "texts": n.texts,
                          "text_boxes": n.text_boxes,
                          "value": n.value, "segment": n.segment, "features": n.features, "features_raw": n.features_raw,
+                         "description": n.description, "discovered": n.discovered,
+                         "window_descriptions": n.window_descriptions,
                          "flags": n.flags, "created_at": n.created_at, "replay": n.replay})
         self._append(name=NODES_FILE, rows=rows)
         if expansion is not None:
@@ -90,15 +116,15 @@ class SearchStore:
             self._append(name=EXPANSIONS_FILE, rows=[{
                 "id": expansion.id, "node_id": expansion.node_id, "iteration": expansion.iteration,
                 "children": expansion.children, "yield": expansion.yield_value, "stats": expansion.stats,
-                "expander": expansion.expander, "expander_info": expansion.expander_info,
-                "description": expansion.description, "discovered": expansion.discovered,
-                "window_descriptions": expansion.window_descriptions, "record": record, "steps": steps}])
+                "expander": expansion.expander, "expander_info": expansion.expander_info, "record": record,
+                "steps": steps}])
         self._save_archive(search=search)
         self._n_nodes = len(search.tree.nodes)
 
     def write_flags(self, *, node) -> None:
         """Flags set after a node was written (e.g. unrestorable); the latest row for a node wins."""
         self._append(name=NODES_FILE, rows=[{"id": node.id, "flags": node.flags}])
+
 
     def _save_archive(self, *, search) -> None:
         new, old, cur = self._path(ARCHIVE_DIR + ".new"), self._path(ARCHIVE_DIR + ".old"), self._path(ARCHIVE_DIR)
@@ -131,8 +157,8 @@ class SearchStore:
 
     def _truncate(self, *, n_nodes: int, n_expansions: int) -> None:
         """Drop everything written after the commit, so the next writes continue from it."""
-        nodes = [r for r in _rows(self._path(NODES_FILE)) if r["id"] < n_nodes]
-        exps = [r for r in _rows(self._path(EXPANSIONS_FILE)) if r["id"] < n_expansions]
+        nodes = [r for r in read_rows(self._path(NODES_FILE)) if r["id"] < n_nodes]
+        exps = [r for r in read_rows(self._path(EXPANSIONS_FILE)) if r["id"] < n_expansions]
         for name, rows in ((NODES_FILE, nodes), (EXPANSIONS_FILE, exps)):
             if not os.path.exists(self._path(name)):
                 continue
@@ -174,9 +200,12 @@ class SearchStore:
         self._truncate(n_nodes=n_nodes, n_expansions=n_exps)
 
         tree, embeddings, state_files = search.tree, {}, {}
-        for row in _rows(self._path(NODES_FILE)):
-            if "parent" not in row:                      # a flags update
-                tree.nodes[row["id"]].flags = dict(row["flags"])
+        for row in read_rows(self._path(NODES_FILE)):
+            if "parent" not in row:          # a later update of some fields (flags, cusi.search.annotate's notes)
+                node = tree.nodes[row["id"]]
+                for key, value in row.items():
+                    if key != "id":
+                        setattr(node, key, dict(value) if key == "flags" else value)
                 continue
             file, nid = row["embedding"].split("#")
             if file not in embeddings:
@@ -188,19 +217,16 @@ class SearchStore:
                                  created_at=row["created_at"], replay=row["replay"],
                                  text_boxes=row.get("text_boxes"))
             node.features, node.features_raw = row["features"], row["features_raw"]
+            node.description, node.discovered = row.get("description"), row.get("discovered")
+            node.window_descriptions = row.get("window_descriptions")
             node.flags = dict(row["flags"])
             if row["state"] is not None:
                 state_files[node.id] = row["state"]
-        for row in _rows(self._path(EXPANSIONS_FILE)):
+        for row in read_rows(self._path(EXPANSIONS_FILE)):
             exp = tree.add_expansion(node_id=row["node_id"], iteration=row["iteration"])
-            exp.steps = [Step(action=s["action"], frame=FrameRef(path=self._path(s["frame"])), texts=s["texts"],
-                              text_boxes=s.get("text_boxes", []),
-                              info=s["info"], value=s["value"], components=s["components"], node_id=s["node_id"],
-                              extra=s["extra"]) for s in row["steps"]]
+            exp.steps = [step_from_row(directory=self.directory, row=s) for s in row["steps"]]
             exp.children, exp.yield_value, exp.stats = list(row["children"]), row["yield"], row["stats"]
             exp.expander, exp.expander_info = row["expander"], row["expander_info"]
-            exp.description, exp.discovered = row["description"], row["discovered"]
-            exp.window_descriptions = row["window_descriptions"]
             search.stats.record_yield(tree=tree, node_id=exp.node_id, value=exp.yield_value)
             tree.nodes[exp.node_id].n_expanded += 1
             if row["record"] is not None:

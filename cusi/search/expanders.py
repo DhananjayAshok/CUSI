@@ -1,20 +1,14 @@
 """
-Exploration policies that expand a node through the env's text actions: random and a goal-free VLM.
+Exploration policies that expand a node through the env's text actions: random, and the env's eval executor
+pursuing objectives. An expander's observe() gets each env.step result; info["changed"] says whether the step changed
+the screen.
 """
 from typing import Optional
+from urllib.parse import urlparse
 import numpy as np
-from cusi.search.context import action_line, path_lines, tried_lines
-from cusi.envs.text_boxes import render_boxes
+from cusi.search.context import explore_hint
+from cusi.search.describe import normalise_phrase
 from cusi.state.canvas import frame_for_embedding
-
-MAX_TEXT_LINES = 80
-MAX_TEXT_CHARS = 4000
-
-
-def screen_text(*, boxes: list) -> str:
-    """The screen's text boxes ('<role>: <text>' lines), truncated for prompts."""
-    out = render_boxes(boxes=boxes, max_lines=MAX_TEXT_LINES, max_chars=MAX_TEXT_CHARS)
-    return out if out else "(no text)"
 
 
 class RandomExpander:
@@ -46,97 +40,98 @@ class RandomExpander:
             tries += 1
         return action, {"resamples": tries - 1}
 
-    def observe(self, *, action: str, changed: bool, valid: bool = True, error: Optional[str] = None) -> None:
-        if changed:
+    def observe(self, *, action: str, result: tuple) -> None:
+        if result[4].get("changed", True):
             self._noops = set()
         elif self.avoid_noops:
             self._noops.add(action)
 
 
-EXPLORE_PROMPT = """You are operating {env_description}. No task is given: your job is to explore. \
-Do something that has not been done before, so that you reach screens, menus, pages or features \
-that have not been seen yet.
-
-Available actions and their exact format:
-{actions}
-
-How the screen you started this exploration from was reached from the start screen (oldest first):
-{path}
-
-Earlier explorations that started from that same screen (do something different from these):
-{tried}
-
-Text currently on the screen:
-{texts}
-{elements}
-Your actions so far in this exploration (oldest first):
-{history}
-{error}
-Look at the screenshot. Reply with exactly one action, written in the format given above."""
+#: The task an objective (a screen feature the scene has not discovered) is given to the executor as.
+OBJECTIVE_TASK = 'Find and open "{feature}".'
+#: Only when a screen yields no features at all.
+FALLBACK_FEATURE = "a screen you have not seen before"
+#: What the env is sent when a decision is invalid (or finishes twice running): it rejects it without acting, so the
+#: decision uses a step.
+NO_ACTION = ""
+MAX_RESPONSE_CHARS = 2000
 
 
-def _bullets(lines: list, *, empty: str) -> str:
-    return "\n".join(f"- {line}" for line in lines) or empty
+class ExecutorExpander:
+    """VLM exploration by the env's eval executor (cusi.agents.agent), which search drives one decision at a time
+    (begin / act / record). The walk's task is an objective: one of the screen's features (VLMFeatures; at the start,
+    the node's) that the scene has not discovered and the walk has not pursued. The hint is the tree context
+    (cusi.search.context.explore_hint). When the executor says the objective is done (its finish action, or the
+    done-check every executor runs after each step; only GameBoy's makes a call), the current screen's features give
+    the next objective and the executor is retasked, keeping its memory."""
 
-
-class VLMExplorer:
     name = "vlm"
 
-    def __init__(self, *, vlm, history_k: int = 5, max_new_tokens: int = 256, temperature: float = 1.0,
-                 use_raw_frame: bool = False, max_path_actions: int = 20, max_tries: int = 5,
-                 actions_per_try: int = 5) -> None:
-        """use_raw_frame=False shows the set-of-mark frame, whose labels the action format refers to. The prompt
-        also carries the node's root->node actions (the last max_path_actions) and the earlier expansions from it
-        (the last max_tries, actions_per_try actions each, and where each ended)."""
-        self.vlm, self.history_k = vlm, history_k
-        self.max_new_tokens, self.temperature = max_new_tokens, temperature
-        self.use_raw_frame = use_raw_frame
-        self.max_path_actions, self.max_tries, self.actions_per_try = max_path_actions, max_tries, actions_per_try
-        self.history: list = []
-        self._last_error: Optional[str] = None
-        self._path, self._tried = "", ""
-        self._context: dict = {}
+    def __init__(self, *, env_name: str, vlm, seed: int = 0, parameters: dict) -> None:
+        self.env_name, self.vlm, self.seed, self._parameters = env_name, vlm, seed, parameters
+        self.executor = None
 
-    def start(self, *, env, iteration: int, tree=None, node=None, expansion_id: Optional[int] = None,
-              search=None) -> None:
-        """tree/node: the node being expanded; expansion_id: this expansion (earlier ones are listed as tried)."""
-        self.history = []
-        self._last_error = None
-        self._context = {}
-        if tree is None or node is None:
-            self._path, self._tried = "(unknown)", "(unknown)"
-            return
-        self._path = _bullets(path_lines(tree=tree, node_id=node.id, max_actions=self.max_path_actions),
-                              empty="(none: it is the start screen)")
+    def start(self, *, env, iteration: int, tree, node, expansion_id: Optional[int] = None, search) -> None:
+        from cusi.agents.agent import Agent
+        self.env, self.search = env, search
+        self.rng = np.random.default_rng([self.seed, iteration])
+        self.discovered = search.discovered(env_key=node.env_key)
+        self.objectives: list = []
+        self._t, self._error, self._pending = 0, None, None
+        site = urlparse(env.start_url).netloc if getattr(env, "start_url", None) else None
         before = expansion_id if expansion_id is not None else len(tree.expansions)
-        self._tried = _bullets(tried_lines(tree=tree, node_id=node.id, before_expansion=before,
-                                           max_tries=self.max_tries, actions_per_try=self.actions_per_try),
-                               empty="(none: this is the first exploration from it)")
-        tried = [e.id for e in tree.expansions if e.node_id == node.id and e.id < before and e.steps]
-        self._context = {"path_actions": len(tree.path_steps(node.id)), "tried_ids": tried[-self.max_tries:]}
+        self.hint = explore_hint(tree=tree, node_id=node.id, before_expansion=before, discovered=self.discovered,
+                                 site=site)
+        self.executor = Agent(env_name=self.env_name, env=env, vlm=self.vlm,
+                              parameters=self._parameters).make_executor()
+        self.executor.begin(task=self._objective(features=node.features), hint=self.hint, max_steps=search.k_steps,
+                            obs=env.current_obs, info={"raw_frame": env.raw_frame})
+
+    def _objective(self, *, features: Optional[list]) -> str:
+        """The next objective's task, recorded."""
+        pursued = {normalise_phrase(text=o["feature"]) for o in self.objectives}
+        seen = pursued | {normalise_phrase(text=d) for d in self.discovered}
+        features = list(features or [])
+        open_ = ([f for f in features if normalise_phrase(text=f) not in seen]
+                 or [f for f in features if normalise_phrase(text=f) not in pursued] or [FALLBACK_FEATURE])
+        feature = open_[int(self.rng.integers(len(open_)))]
+        self.objectives.append({"feature": feature, "step": self._t, "done": None})
+        return OBJECTIVE_TASK.format(feature=feature)
+
+    def _next_objective(self, *, obs: dict, info: dict, how: str) -> None:
+        """The current objective is done (how: "finish" or "done_check"): the next one from this screen."""
+        self.objectives[-1].update(done=how, done_step=self._t)
+        f = self.search.features(env_description=self.env.env_description, frame=frame_for_embedding(obs=obs, info=info),
+                                 text_boxes=obs.get("text_boxes", []))
+        self.executor.retask(task=self._objective(features=f["features"]))
 
     def info(self) -> dict:
-        """Expansion.expander_info: the model and the tree context its prompts were given."""
-        return {"model_name": getattr(self.vlm, "model_name", None), "context": dict(self._context)}
-
-    def prompt(self, *, env, obs: dict) -> str:
-        history = "\n".join(f"- {a}" for a in self.history[-self.history_k:]) or "(none)"
-        error = f"\nYour previous action failed: {self._last_error}\n" if self._last_error else ""
-        # The element list the env's own agent is shown (Web: WebVoyager's numbered elements), so labels can be
-        # chosen from what exists.
-        elements = f"\n{env.elements_intro}\n{obs['elements']}\n" if obs.get("elements") is not None else ""
-        return EXPLORE_PROMPT.format(env_description=env.env_description, actions=obs.get("actions", ""),
-                                     path=self._path, tried=self._tried,
-                                     texts=screen_text(boxes=obs.get("text_boxes", [])), elements=elements,
-                                     history=history, error=error)
+        calls: dict = {}
+        for call in self.executor.report.calls:
+            calls[call.tag] = calls.get(call.tag, 0) + 1
+        return {"model_name": getattr(self.vlm, "model_name", None), "executor": self.executor.name,
+                "hint": self.hint, "objectives": [dict(o) for o in self.objectives], "calls": calls}
 
     def next_action(self, *, env, obs: dict, info: dict) -> tuple:
-        frame = frame_for_embedding(obs=obs, info=info) if self.use_raw_frame else obs["frame"]
-        text = self.prompt(env=env, obs=obs)
-        out = self.vlm.infer(texts=text, images=[frame], max_new_tokens=self.max_new_tokens,
-                             temperature=self.temperature)
-        return str(out["output"]), {"prompt_chars": len(text)}
+        self._before, self._pending = (obs, info), None
+        decision = self.executor.act(obs=obs, info=info, error=self._error)
+        if decision.finish:
+            self._next_objective(obs=obs, info=info, how="finish")
+            decision = self.executor.act(obs=obs, info=info, error=None)
+        meta = {"objective": len(self.objectives) - 1,
+                "response": self.executor.report.calls[-1].response[:MAX_RESPONSE_CHARS]}
+        if decision.finish or decision.invalid is not None:
+            self._error = decision.error
+            return NO_ACTION, {**meta, "decision": "finish" if decision.finish else f"invalid: {decision.invalid}"}
+        self._pending = decision
+        return decision.action_text, meta
 
-    def observe(self, *, action: str, changed: bool, valid: bool = True, error: Optional[str] = None) -> None:
-        self.history.append(action_line(action=action, valid=valid))
-        self._last_error = None if valid else error
+    def observe(self, *, action: str, result: tuple) -> None:
+        self._t += 1
+        if self._pending is None:
+            return
+        obs, info = self._before
+        recorded = self.executor.record(decision=self._pending, obs=obs, info=info, result=result)
+        self._error = recorded.error
+        if recorded.step is not None and not (result[2] or result[3]) and self.executor.done_check(step=recorded.step):
+            self._next_objective(obs=result[0], info=result[4], how="done_check")

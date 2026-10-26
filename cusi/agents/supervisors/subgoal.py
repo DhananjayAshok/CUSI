@@ -94,6 +94,7 @@ def plan_block(*, targets: list, index: int) -> str:
 
 
 class SubgoalSupervisor(Supervisor):
+    MARK_GUIDANCE = True
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
@@ -273,9 +274,6 @@ class SubgoalSupervisor(Supervisor):
         return None, hint, False
 
     def _evaluate(self) -> dict:
-        if self._task is None:
-            self.call_executor(task=None, hint=None, max_steps=self._max_steps)
-            return self._extras()
         budget = self._max_steps
         targets = self._resolve_targets()
         index = 0

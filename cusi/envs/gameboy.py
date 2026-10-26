@@ -7,7 +7,9 @@ from enum import Enum
 from typing import Any, Optional
 import numpy as np
 from gameboy_worlds import get_environment, get_test_environment
+from gameboy_worlds.emulation.pokemon.parsers import AgentState, PokemonStateParser
 from gameboy_worlds.interface.action import LowLevelAction, LowLevelActions
+from gameboy_worlds.interface.pokemon.actions import MoveStepsAction, frame_changed as gb_frame_changed
 from gameboy_worlds.utils import get_benchmark_tasks
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
@@ -19,6 +21,19 @@ TEXT_KEYS = ()
 
 MSG_PARSE_FAILED = "Could not parse an action from the output. Reply with one of the allowed actions."
 MSG_UNAVAILABLE = "That action is not available right now. No action was performed."
+#: The RAM read for GameBoyPlayEnv.true_state, per game (addresses from pret's pokered / pokecrystal symbol files).
+#: Pokemon Crystal keeps them in switchable WRAM bank 1, so they are read from that bank whatever is mapped in.
+#: Ranges are (first address, length); "flags" is the event-flag array.
+GAME_RAM = {
+    "pokemon_red": {"bank": None, "map": (0xD35E,), "y": 0xD361, "x": 0xD362, "map_hw": (0xD368, 0xD369),
+                    "battle": 0xD057, "party": 0xD163, "badges": (0xD356, 1), "dex_seen": (0xD30A, 19),
+                    "dex_caught": (0xD2F7, 19), "items": (0xD31D,), "money": (0xD347, 3), "money_bcd": True,
+                    "flags": (0xD747, 320)},
+    "pokemon_crystal": {"bank": 1, "map": (0xDCB5, 0xDCB6), "y": 0xDCB7, "x": 0xDCB8, "map_hw": (0xD19E, 0xD19F),
+                        "battle": 0xD22D, "party": 0xDCD7, "badges": (0xD857, 2), "dex_seen": (0xDEB9, 32),
+                        "dex_caught": (0xDE99, 32), "items": (0xD892, 0xD8BC), "money": (0xD84E, 3),
+                        "flags": (0xDA72, 256)},
+}
 
 
 def render_action_strings(*, action_strings: Any) -> str:
@@ -111,6 +126,13 @@ class GameBoyPlayEnv(TextActionEnv):
                                           named_regions=emulator.state_parser.named_screen_regions,
                                           kinds=emulator_kinds(emulator=emulator))
         self._kinds = []          # GameBoyWorlds' OCR kinds at the last observation
+        self._ram = GAME_RAM.get(game)
+        self._flags_start: Optional[np.ndarray] = None    # the scene's event flags at its first reset
+        # info["changed"] (see _screen_changed) uses MoveSteps' movement judge, which only Pokemon games have.
+        self._mover = None
+        if isinstance(emulator.state_parser, PokemonStateParser):
+            self._mover = MoveStepsAction(parameters=emulator._parameters)
+            self._mover.assign_emulator(emulator)
         super().__init__(mode=mode, frame_shape=frame.shape, text_keys=TEXT_KEYS, parameters=self._parameters)
         self._last = (frame, raw_info)
         self._steps = 0
@@ -259,6 +281,8 @@ class GameBoyPlayEnv(TextActionEnv):
                               parsed_action=parsed, step=self._steps, scene_id=self.scene_id,
                               action_name=action_display_name(action_class=action_class, kwargs=kwargs),
                               frame_changed=bool(core.get("frame_changed", True)),
+                              changed=self._screen_changed(before=core_frame_before,
+                                                           after=raw_info.get("core", {}).get("current_frame")),
                               action_success=action_success,
                               low_level=issubclass(action_class, LowLevelAction),
                               # GameBoyRL's EnvironmentStepRecord fields.
@@ -268,6 +292,53 @@ class GameBoyPlayEnv(TextActionEnv):
                               core_frame_before=core_frame_before, core_frame_after=core.get("current_frame"),
                               **self._extra(raw_info=raw_info))
         return self._obs(frame=frame), reward, bool(terminated), bool(truncated), info
+
+    def _screen_changed(self, *, before, after) -> bool:
+        """info["changed"], from GameBoyRL's screen parsing: when the agent state (free roam, dialogue, menu,
+        battle) changes, the screen did; while free-roaming before and after, only moving or turning counts (MoveSteps'
+        judge_movement, which compares the four screen quadrants); in a dialogue, menu or battle, any change of the
+        frame does (a cursor move, the next line of text). Tile animations (water, flowers) can still make a no-op
+        count as changed: accepted."""
+        if before is None or after is None:
+            return True
+        if self._mover is None:
+            return bool(gb_frame_changed(before, after))
+        parser = self._env._emulator.state_parser
+        state = parser.get_agent_state(before)
+        if state != parser.get_agent_state(after):
+            return True
+        if state == AgentState.FREE_ROAM:
+            moved, rotated = self._mover.judge_movement(before, after)
+            return bool(moved or rotated)
+        return bool(gb_frame_changed(before, after))
+
+    def _read(self, *, addr: int, n: int = 1) -> list:
+        memory, bank = self._env._emulator._pyboy.memory, self._ram["bank"]
+        return [memory[bank, a] if bank is not None else memory[a] for a in range(addr, addr + n)]
+
+    def _money(self) -> int:
+        raw = bytes(self._read(addr=self._ram["money"][0], n=self._ram["money"][1]))
+        return int(raw.hex()) if self._ram.get("money_bcd") else int.from_bytes(raw, "big")   # Red: binary-coded decimal
+
+    def true_state(self) -> Optional[dict]:
+        """Pokemon RAM: map, position, map size, battle, party and bag counts, badges, Pokedex, money, and the event
+        flags set now that were not at the scene's start (flags_on, bit indices)."""
+        if self._ram is None:
+            return None
+        ram = self._ram
+        flags = np.unpackbits(np.array(self._read(addr=ram["flags"][0], n=ram["flags"][1]), dtype=np.uint8),
+                              bitorder="little")
+        if self._flags_start is None:
+            self._flags_start = flags
+        bits = lambda span: int(np.unpackbits(np.array(self._read(addr=span[0], n=span[1]), dtype=np.uint8)).sum())
+        return {"map": ".".join(str(self._read(addr=a)[0]) for a in ram["map"]),
+                "x": self._read(addr=ram["x"])[0], "y": self._read(addr=ram["y"])[0],
+                "map_hw": [self._read(addr=a)[0] for a in ram["map_hw"]],
+                "battle": self._read(addr=ram["battle"])[0], "party": self._read(addr=ram["party"])[0],
+                "badges": bits(ram["badges"]), "dex_seen": bits(ram["dex_seen"]), "dex_caught": bits(ram["dex_caught"]),
+                "items": sum(self._read(addr=a)[0] for a in ram["items"]),
+                "money": self._money(),
+                "flags_on": np.flatnonzero(flags & ~self._flags_start).tolist()}
 
     # ------------------------------------------------------------ saved states
     # load_custom_state overwrites the emulator's init_state; it is restored so reset() returns to the scene start.

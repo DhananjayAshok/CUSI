@@ -1,6 +1,5 @@
 """
-Curiosity tasks and world-model / embedder / decoder training from exploration and search replays, one environment
-per process.
+World-model / embedder / decoder training from exploration and search replays, one environment per process.
 
     python run_explore.py --env gameboy <command> [options]
 """
@@ -11,7 +10,7 @@ import numpy as np
 from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
 from cusi.utils import paths
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.agents.specs import ENV_NAMES
 
 loaded_parameters = load_parameters()
 
@@ -20,7 +19,7 @@ loaded_parameters = load_parameters()
 @click.group()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
 @click.option("--random_seed", default=loaded_parameters["random_seed"])
-@click.option("--vllm_port", default=loaded_parameters["vllm_port"], help="Port of the vLLM server (tasks only).")
+@click.option("--vllm_port", default=loaded_parameters["vllm_port"], help="Port of the vLLM server.")
 @click.pass_context
 def main(ctx, env_name, random_seed, vllm_port):
     loaded_parameters["random_seed"] = random_seed
@@ -33,36 +32,6 @@ def main(ctx, env_name, random_seed, vllm_port):
 
 def _run_dirs(obj, run_names: str) -> list:
     return paths.explore_runs(parameters=obj["parameters"], env=obj["env_name"], run_names=run_names)
-
-
-@main.command()
-@click.option("--run_name", required=True, help="An exploration run, or search:<run> for a search run.")
-@click.option("--scene", default=None, help="Default: the run's scene.txt (required for search runs).")
-@click.option("--model_name", required=True, help="Model name the vLLM server serves.")
-@click.option("--outlier_threshold", default=2.5)
-@click.option("--z_min", default=3.0)
-@click.option("--max_groups", default=None, type=int)
-@click.option("--max_new_tokens", default=2000)
-@click.option("--rescore_text_alpha", default=None, type=float,
-              help="Recompute intrinsic rewards with the current curiosity code first (for older replays).")
-@click.pass_obj
-def tasks(obj, run_name, scene, model_name, outlier_threshold, z_min, max_groups, max_new_tokens, rescore_text_alpha):
-    """High-novelty trajectories -> groups -> tasks (the curiosity task source for run_practice.py)."""
-    from cusi.explore.trajectories import curiosity_tasks
-    from cusi.agents.vlm import AgentVLM
-    env_name, parameters = obj["env_name"], obj["parameters"]
-    run_dir = paths.explore_run(parameters=parameters, env=env_name, run=run_name)
-    if scene is None and run_name.startswith("search:"):
-        raise click.UsageError("a search run (search:<run>) covers several scenes: pass --scene")
-    scene = scene or open(os.path.join(run_dir, "scene.txt")).read().strip()
-    practice = paths.PracticePaths(parameters=parameters, env_name=env_name, model_name=model_name, source="curiosity")
-    stats = curiosity_tasks(replay_dir=paths.explore_replay(run_dir=run_dir), scene=scene, env_name=env_name,
-                            vlm=AgentVLM(model_name=model_name, parameters=parameters),
-                            domain=ENV_SPECS[env_name].domain, out_attempts_dir=practice.attempts_dir,
-                            max_new_tokens=max_new_tokens, outlier_threshold=outlier_threshold, z_min=z_min,
-                            max_groups=max_groups, rescore_text_alpha=rescore_text_alpha, seed=parameters["random_seed"],
-                            parameters=parameters)
-    log_info(f"curiosity tasks: {stats} -> {practice.attempts_dir}", parameters=parameters)
 
 
 @main.command(name="world_model")

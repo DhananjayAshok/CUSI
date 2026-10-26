@@ -1,19 +1,20 @@
 """
---expander curiosity (plans/archive/next_plan.md §E.5): expanding a node trains a fresh policy from it in one curiosity RL
-session; the expansion is the session's best episode, materialised by replaying its actions from the node through the
+--expander curiosity (plans/archive/next_plan.md §E.5): expanding a node trains the policy from it in one curiosity RL
+session, starting from the weights the previous session ended with (the first session's policy is fresh; a resumed
+search starts fresh again); the expansion is the session's best episode, materialised by replaying its actions from the node through the
 search's ordinary step loop (scored against the global archive). GameBoy replays are checked frame by frame and a
 mismatch fails the run; Web and Android replays are checked by embedding similarity, and the expansion stops at the
 first diverging step (expander_info["materialise_diverged"]). With config.keep_episodes > 1 the session's top
 distinct episodes are each committed as their own expansion of the node (n_plans / begin_plan), so more of what a
 session explored reaches the tree and the archive.
 """
+import json
 import os
 import tempfile
 from typing import Any, Callable, Optional
 import numpy as np
 import torch
 from cusi.utils.log_handling import log_info, log_warn
-from cusi.search.curiosity.candidates import load_strings
 from cusi.search.curiosity.overlay import local_base
 from cusi.search.curiosity.session import CuriositySession, PPOConfig, RestoreFailed
 from cusi.state import frame_for_embedding
@@ -30,18 +31,18 @@ class MaterialiseMismatch(RuntimeError):
 class CuriosityExpander:
     name = "curiosity"
 
-    def __init__(self, *, env_name: str, frozen, config: PPOConfig, reward_buffer: str = "global",
+    def __init__(self, *, env_name: str, observer, config: PPOConfig, reward_buffer: str = "global",
                  make_copy: Optional[Callable] = None, keep_policies: str = "all", seed: int = 0,
                  device: str = "cpu", replay_similarity: float = 0.95, parameters: dict[str, Any] = None) -> None:
-        """make_copy(env_key) -> a new env of that scene, for parallel copies (config.num_envs > 1; GameBoy)."""
+        """observer: the policy's observer (FrozenEncoders or PixelObserver). make_copy(env_key) -> a new env of that
+        scene, for parallel copies (config.num_envs > 1; GameBoy)."""
         if reward_buffer not in REWARD_BUFFERS:
             raise ValueError(f"reward_buffer must be one of {REWARD_BUFFERS}, got {reward_buffer!r}")
         if config.num_envs > 1 and make_copy is None:
             raise ValueError("num_envs > 1 needs make_copy")
-        self.env_name, self.frozen, self.cfg, self.reward_buffer = env_name, frozen, config, reward_buffer
+        self.env_name, self.observer, self.cfg, self.reward_buffer = env_name, observer, config, reward_buffer
         self.make_copy, self.keep_policies, self.seed, self.device = make_copy, keep_policies, seed, device
         self.replay_similarity, self._parameters = replay_similarity, parameters
-        self.strings = load_strings()
         self._copies: dict = {}       # env key -> [extra envs]
         self._plan: list = []
         self._extras: list = []
@@ -50,6 +51,7 @@ class CuriosityExpander:
         self._search = None
         self._best = None
         self._episodes: list = []
+        self._policy_state: Optional[dict] = None    # the last session's final weights, the next one's start
         self.n_plans = 0
 
     # ------------------------------------------------------------ env copies
@@ -98,13 +100,15 @@ class CuriosityExpander:
             base = search.archive
         else:
             base = local_base(like=search.archive, embedding=node.embedding, obs=env.current_obs)
-        session = CuriositySession(env_name=self.env_name, scene=node.env_key, envs=envs, restore=restore,
+        session = CuriositySession(env_name=self.env_name, envs=envs, restore=restore,
                                    encoder=search.encoder, scorer=search.scorer, base_archive=base,
-                                   frozen=self.frozen, config=self.cfg, seed=int(np.random.SeedSequence(
+                                   observer=self.observer, config=self.cfg, seed=int(np.random.SeedSequence(
                                        [self.seed, iteration]).generate_state(1)[0]), device=self.device,
-                                   strings=self.strings, log_every=10 if self.env_name == "gameboy" else 1,
+                                   init_state=self._policy_state,
+                                   log_every=10 if self.env_name == "gameboy" else 1,
                                    parameters=self._parameters)
         result = session.run()
+        self._policy_state = result.policy_state
         best = result.best
         if best is None:
             # Possible only when the node could not be restored (Android replay): the search skips this iteration.
@@ -117,6 +121,7 @@ class CuriosityExpander:
                     "max": float(returns[i:i + 100].max())} for i in range(0, len(returns), 100)]
         self._info = {"reward_buffer": self.reward_buffer, "total_steps": result.total_steps,
                       "episodes": len(returns), "returns_summary": summary, "returns": files.get("returns"),
+                      "true_log": files.get("true_log"),
                       "best_episode": best.index, "best_return": best.ret, "updates": result.updates,
                       "policy": files.get("policy"), "materialise": "replay", "seconds": round(result.seconds, 1),
                       "num_envs": len(envs)}
@@ -149,6 +154,11 @@ class CuriosityExpander:
         rel = f"{CURIOSITY_DIR}/{self._exp_id}_returns.npy"
         np.save(os.path.join(store.directory, rel), np.asarray(result.returns, dtype=np.float32))
         out["returns"] = rel
+        if result.true_log:       # every session step's true state, for coverage (cusi/search/coverage.py)
+            rel = f"{CURIOSITY_DIR}/{self._exp_id}_true.jsonl"
+            with open(os.path.join(store.directory, rel), "w") as f:
+                f.writelines(json.dumps(row) + "\n" for row in result.true_log)
+            out["true_log"] = rel
         if self.keep_policies == "all":
             os.makedirs(os.path.join(store.directory, POLICY_DIR), exist_ok=True)
             rel = f"{POLICY_DIR}/{self._exp_id}.pt"
@@ -165,7 +175,7 @@ class CuriosityExpander:
         action, extra = self._plan[self._t], self._extras[self._t]
         return action, dict(extra)
 
-    def observe(self, *, action: str, changed: bool, valid: bool = True, error: Optional[str] = None) -> None:
+    def observe(self, *, action: str, result: tuple) -> None:
         pass
 
     def after_step(self, *, obs: dict, info: dict, embedding) -> bool:

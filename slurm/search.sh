@@ -4,7 +4,8 @@
 #       --env <env> --run <run> --max_expansions <max_expansions> \
 #       --image_embedder <image_embedder> --text_embedder <text_embedder> --novelty_scorer <novelty_scorer>
 # Arguments after the script name are passed through to scripts/slurm/search.sh.
-# One GPU covers SigLIP. With --model, vLLM gets every GPU the search process doesn't need (Gemma-4-31B needs 2).
+# One GPU covers SigLIP or the curiosity policy. With --expander vlm, vLLM gets every GPU the search process doesn't
+# need (Gemma-4-31B needs 2: --gres=gpu:rtxa6000:2).
 #SBATCH --job-name=cusi-search
 #SBATCH --partition=medium-lg
 #SBATCH --gres=gpu:rtxa6000:1
