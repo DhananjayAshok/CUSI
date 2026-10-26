@@ -26,6 +26,8 @@ fi
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=$ENV_NAME source=${ARGS["source"]} model=$MODEL"
 bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" || exit 1
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
+# The container gets the job's GPUs (NVML accounts for the vLLM server's work); the client itself uses none.
+[[ -n "${CUDA_VISIBLE_DEVICES:-}" ]] && export CUSI_CONTAINER_NV=1
 export CUDA_VISIBLE_DEVICES=""
 
 FLAGS=(--env "$ENV_NAME" --model_name "$MODEL" --vllm_port "$PORT" --source "${ARGS["source"]}" all)

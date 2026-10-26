@@ -19,6 +19,7 @@ from cusi.eval.supervision import supervisor_state
 from cusi.practice.judging import derive_critique_hint, judge_leg
 from cusi.practice.stages.common import atomic_json, atomic_pickle, run_jobs
 from cusi.search.restore import NodeRestorer, RestoreFailed
+from cusi.utils.compute import part, tally
 from cusi.utils.log_handling import log_error, log_info, log_warn
 from cusi.utils.paths import PracticePaths
 
@@ -38,6 +39,17 @@ def tree_tasks(*, restorer: NodeRestorer, parameters: dict) -> list:
             out.append({"task_id": f"n{nid}_{i}", "task": t["task"], "scene": nodes[nid]["env_key"],
                         "source": t["source"], "node_id": nid, "child": t.get("child")})
     return out
+
+
+def compute_columns(compute) -> dict:
+    """A task's compute as results.csv columns (empty for a task attempted before compute was recorded)."""
+    if not compute:
+        return {}
+    llm = compute["llm"]
+    return {"wall_s": round(compute["wall_s"]["total"], 1), "llm_calls": llm["calls"],
+            "llm_prompt_tokens": llm["prompt_tokens"], "llm_completion_tokens": llm["completion_tokens"],
+            "llm_flops": llm["flops"], "local_gpu_s": round(sum(g["s"] for g in compute["gpu"].values()), 2),
+            "local_gpu_flops": sum(g["flops"] for g in compute["gpu"].values())}
 
 
 def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, max_tries: int, lookback: int,
@@ -64,29 +76,40 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
         agent = spec.make_agent(env=env, vlm=vlm, parameters=parameters)
         record = {"task": task, "success": False, "restore_error": None, "tries": []}
         hint = ""
-        for n_try in range(1, max_tries + 1):
-            try:
-                obs, info = start(env, task)
-            except RestoreFailed as e:
-                record["restore_error"] = str(e)
-                log_warn(f"attempt [{task['task_id']}]: {e}", parameters=parameters)
-                break
-            _, result = agent.run(task=task["task"], obs=obs, info=info, max_steps=spec.max_steps,
-                                  guidance=hint or None)
-            leg = merged_leg(report=result["report"])
-            verdict = judge_leg(report=leg, vlm=vlm, domain=spec.domain, lookback=lookback,
-                                max_new_tokens=judge_max_new_tokens)
-            entry = {"try": n_try, "hint": hint or None, "report": result["report"],
-                     "supervisor_state": supervisor_state(result=result), "verdict": verdict, "critique_calls": []}
-            record["tries"].append(entry)
-            log_info(f"attempt [{task['task_id']}] try {n_try}: {'success' if verdict['success'] else 'failure'} "
-                     f"({leg.termination_reason}, {len(leg.env_steps)} steps) | {task['task']}", parameters=parameters)
-            if verdict["success"]:
-                record["success"] = True
-                break
-            if n_try < max_tries:
-                hint = derive_critique_hint(report=leg, vlm=vlm, domain=spec.domain, previous_hint=hint,
-                                            log=entry["critique_calls"], max_new_tokens=judge_max_new_tokens)
+        with tally() as task_compute:
+            for n_try in range(1, max_tries + 1):
+                with tally() as try_compute:
+                    try:
+                        with part("restore"):
+                            obs, info = start(env, task)
+                    except RestoreFailed as e:
+                        record["restore_error"] = str(e)
+                        log_warn(f"attempt [{task['task_id']}]: {e}", parameters=parameters)
+                        break
+                    with part("agent"):
+                        _, result = agent.run(task=task["task"], obs=obs, info=info, max_steps=spec.max_steps,
+                                              guidance=hint or None)
+                    leg = merged_leg(report=result["report"])
+                    with part("judge"):
+                        verdict = judge_leg(report=leg, vlm=vlm, domain=spec.domain, lookback=lookback,
+                                            max_new_tokens=judge_max_new_tokens)
+                    entry = {"try": n_try, "hint": hint or None, "report": result["report"],
+                             "supervisor_state": supervisor_state(result=result), "verdict": verdict,
+                             "critique_calls": []}
+                    record["tries"].append(entry)
+                    log_info(f"attempt [{task['task_id']}] try {n_try}: "
+                             f"{'success' if verdict['success'] else 'failure'} ({leg.termination_reason}, "
+                             f"{len(leg.env_steps)} steps) | {task['task']}", parameters=parameters)
+                    if not verdict["success"] and n_try < max_tries:
+                        with part("critique"):
+                            hint = derive_critique_hint(report=leg, vlm=vlm, domain=spec.domain, previous_hint=hint,
+                                                        log=entry["critique_calls"],
+                                                        max_new_tokens=judge_max_new_tokens)
+                entry["compute"] = try_compute.snapshot()
+                if verdict["success"]:
+                    record["success"] = True
+                    break
+        record["compute"] = task_compute.snapshot()
         atomic_pickle(record, os.path.join(paths.episodes_dir, f"{task['task_id']}.pkl"))
         return record
 
@@ -104,7 +127,8 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
                      "restore_error": record["restore_error"],
                      "termination_reasons": [t["verdict"]["termination_reason"] for t in tries],
                      "n_env_steps": [t["verdict"]["n_env_steps"] for t in tries],
-                     "judge_reasoning": tries[-1]["verdict"]["reasoning"] if tries else ""})
+                     "judge_reasoning": tries[-1]["verdict"]["reasoning"] if tries else "",
+                     **compute_columns(record.get("compute"))})
     pd.DataFrame(rows).to_csv(paths.results, index=False)
     n_ok = sum(r["success"] for r in rows)
     log_info(f"attempt: {n_ok}/{len(rows)} tasks succeeded ({sum(r['n_tries'] > 1 and r['success'] for r in rows)} "

@@ -25,6 +25,23 @@ export UV_PYTHON_INSTALL_DIR="${storage_dir%/}/uv/python"
 if [[ -x "${storage_dir%/}/uv/bin/uv" ]]; then
     export PATH="${storage_dir%/}/uv/bin:$PATH"
 fi
+# The GPUs compute accounting reads through NVML (cusi.utils.compute): the job's, as UUIDs, fixed here before any
+# script narrows CUDA_VISIBLE_DEVICES for its own processes (and kept inside the container, which re-sources this).
+# Indices are taken in nvidia-smi (PCI bus) order, as Slurm assigns them. Unset (no GPUs, or no nvidia-smi): NVML
+# counts every GPU it can see, which on a node without device isolation includes other users' work.
+if [[ -z "${CUSI_ACCOUNT_GPUS:-}" && -n "${CUDA_VISIBLE_DEVICES:-}" ]] && command -v nvidia-smi > /dev/null; then
+    _uuids=()
+    for _gpu in ${CUDA_VISIBLE_DEVICES//,/ }; do
+        if [[ "$_gpu" == GPU-* ]]; then
+            _uuids+=("$_gpu")
+        else
+            _uuids+=("$(nvidia-smi -i "$_gpu" --query-gpu=uuid --format=csv,noheader 2> /dev/null)")
+        fi
+    done
+    CUSI_ACCOUNT_GPUS=$(IFS=,; echo "${_uuids[*]}")
+    export CUSI_ACCOUNT_GPUS
+    unset _uuids _gpu
+fi
 
 # args_to_flags <assoc_array_name>
 #
@@ -271,7 +288,7 @@ declare -A GAMEBOY_TEXT_DEFAULTS=(
 )
 
 # scripts/slurm/curiosity_parity.sh
-CURIOSITY_PARITY_ESSENTIALS=("policy_text_encoder")
+CURIOSITY_PARITY_ESSENTIALS=()
 declare -A CURIOSITY_PARITY_DEFAULTS=(
     ["init_state"]="location_viridian_city_starting_charmander"
     ["scene"]="viridian"

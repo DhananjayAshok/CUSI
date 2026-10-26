@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/curiosity_parity.sh (all logic lives there). Submit from the CUSI root:
-#   sbatch --output="$results_dir/logs/curiosity_parity_%j.out" slurm/curiosity_parity.sh \
-#       --policy_text_encoder <policy_text_encoder>
+#   sbatch --output="$results_dir/logs/curiosity_parity_%j.out" slurm/curiosity_parity.sh
 # Arguments after the script name are passed through to scripts/slurm/curiosity_parity.sh.
 #SBATCH --job-name=cusi-curiosity-parity
 #SBATCH --partition=medium-lg

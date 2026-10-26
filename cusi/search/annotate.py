@@ -21,6 +21,7 @@ import click
 from cusi.agents.frames import FrameRef
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
 from cusi.search.store import EXPANSIONS_FILE, append_node_updates, node_rows, read_rows, step_from_row
+from cusi.utils.compute import tally
 from cusi.utils.log_handling import log_info
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.paths import search_run
@@ -56,34 +57,37 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
             continue
         update, parent_update = {}, {}
         frame = FrameRef(path=os.path.join(directory, node["frame"])).pil()
-        if node.get("features") is None:
-            f = features(env_description=env_description, frame=frame, text_boxes=node.get("text_boxes") or [])
-            if not f.pop("parsed"):
-                update["flags"] = {**(node.get("flags") or {}), "features_parse_failed": True}
-            update.update(f)
-            counts["features"] += 1
-        if node.get("node_notes_raw") is None:
-            notes = node_notes(env_description=env_description, frame=frame, text_boxes=node.get("text_boxes") or [])
-            edge_tasks = [t for t in node.get("tasks") or [] if t["source"] == "edge"]
-            update.update(notes, tasks=[{"task": t, "source": "node"} for t in notes["node_tasks"]] + edge_tasks)
-            counts["node_notes"] += 1
-        if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
-            exp_id, first, last = node["segment"]
-            steps = [step_from_row(directory=directory, row=r) for r in expansions[exp_id]["steps"][first:last + 1]]
-            parent = nodes[node["parent"]]
-            start_frame = FrameRef(path=os.path.join(directory, parent["frame"]))
-            if node.get("description") is None:
-                update.update(describer(env_description=env_description, steps=steps, start_frame=start_frame))
-                counts["reports"] += 1
-            if node.get("edge_notes_raw") is None:
-                notes = edge_notes(env_description=env_description, start_frame=start_frame.pil(), end_frame=frame,
-                                   steps=steps, description=update.get("description", node.get("description")))
-                update.update(notes)
-                if notes["edge_task"]:
-                    parent_update["tasks"] = (parent.get("tasks") or []) + [
-                        {"task": notes["edge_task"], "source": "edge", "child": nid, "segment": node["segment"]}]
-                counts["edge_notes"] += 1
+        with tally() as compute:     # this node's annotation calls
+            if node.get("features") is None:
+                f = features(env_description=env_description, frame=frame, text_boxes=node.get("text_boxes") or [])
+                if not f.pop("parsed"):
+                    update["flags"] = {**(node.get("flags") or {}), "features_parse_failed": True}
+                update.update(f)
+                counts["features"] += 1
+            if node.get("node_notes_raw") is None:
+                notes = node_notes(env_description=env_description, frame=frame,
+                                   text_boxes=node.get("text_boxes") or [])
+                edge_tasks = [t for t in node.get("tasks") or [] if t["source"] == "edge"]
+                update.update(notes, tasks=[{"task": t, "source": "node"} for t in notes["node_tasks"]] + edge_tasks)
+                counts["node_notes"] += 1
+            if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
+                exp_id, first, last = node["segment"]
+                steps = [step_from_row(directory=directory, row=r) for r in expansions[exp_id]["steps"][first:last + 1]]
+                parent = nodes[node["parent"]]
+                start_frame = FrameRef(path=os.path.join(directory, parent["frame"]))
+                if node.get("description") is None:
+                    update.update(describer(env_description=env_description, steps=steps, start_frame=start_frame))
+                    counts["reports"] += 1
+                if node.get("edge_notes_raw") is None:
+                    notes = edge_notes(env_description=env_description, start_frame=start_frame.pil(), end_frame=frame,
+                                       steps=steps, description=update.get("description", node.get("description")))
+                    update.update(notes)
+                    if notes["edge_task"]:
+                        parent_update["tasks"] = (parent.get("tasks") or []) + [
+                            {"task": notes["edge_task"], "source": "edge", "child": nid, "segment": node["segment"]}]
+                    counts["edge_notes"] += 1
         if update:
+            update["annotate_compute"] = compute.snapshot()
             rows = [{"id": nid, **update}] + ([{"id": node["parent"], **parent_update}] if parent_update else [])
             append_node_updates(directory=directory, rows=rows)
             node.update(update)

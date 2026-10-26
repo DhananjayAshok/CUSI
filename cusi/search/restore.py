@@ -12,6 +12,7 @@ import weakref
 from typing import Optional
 import torch
 from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
+from cusi.utils.compute import gpu_work
 
 
 class RestoreFailed(RuntimeError):
@@ -87,7 +88,9 @@ class NodeRestorer:
         encoder = self._get_encoder()
         path, key = self.nodes[node_id]["embedding"].split("#")
         stored = torch.load(os.path.join(self.directory, path), weights_only=False)[int(key)]
-        return float(encoder.similarity(a=stored, b=encoder.encode_one(obs=obs, info=info)))
+        with gpu_work("embed", key="one"):
+            current = encoder.encode_one(obs=obs, info=info)
+        return float(encoder.similarity(a=stored, b=current))
 
     def _get_encoder(self):
         with self._lock:

@@ -9,6 +9,7 @@ import json
 import os
 import time
 import click
+from cusi.utils.compute import BUDGET_METRICS, budget_value
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.paths import search_run, storage_relative
@@ -37,10 +38,16 @@ def expander_options(command):
     return command
 
 
-def stop_reason(*, search, max_expansions, saturation_patience):
+def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=None, budget=None):
     expansions = search.tree.expansions
     if len(expansions) >= max_expansions:
         return "max_expansions"
+    if budget_metric is not None:
+        # The expansions' recorded compute (kept across resumes); the roots' is left out.
+        used = sum(budget_value(snapshot=e.stats["compute"], metric=budget_metric)
+                   for e in expansions if "compute" in e.stats)
+        if used >= budget:
+            return f"budget ({budget_metric} {used:.4g} >= {budget:.4g})"
     recent = expansions[-saturation_patience:] if saturation_patience > 0 else []
     if len(recent) == saturation_patience > 0 and not any(e.children for e in recent):
         return "saturated"
@@ -59,6 +66,9 @@ def stop_reason(*, search, max_expansions, saturation_patience):
 @click.option("--archive_nodes_only/--archive_all_steps", default=True, show_default=True,
               help="Add only states that become nodes to the novelty archive (novelty = distance to the nearest "
                    "node).")
+@click.option("--budget_metric", default=None, type=click.Choice(BUDGET_METRICS),
+              help="Stop once the expansions' compute reaches --budget in this metric (cusi.utils.compute).")
+@click.option("--budget", default=None, type=float, help="The compute budget, in --budget_metric's unit.")
 @click.option("--saturation_patience", default=0, show_default=True,
               help="Stop once this many expansions in a row have added no node (0: never; --max_expansions still caps "
                    "the run).")
@@ -77,13 +87,6 @@ def stop_reason(*, search, max_expansions, saturation_patience):
 @click.option("--rl_commit_episodes", default=1, show_default=True,
               help="Curiosity: commit the session's top this-many distinct episodes, each as an expansion of the node.")
 @click.option("--keep_policies", default="all", show_default=True, type=click.Choice(["all", "none"]))
-@click.option("--curiosity_policy", default="fusion", show_default=True, type=click.Choice(["fusion", "cnn"]),
-              help="Curiosity: fusion (frozen vision and text encoders, a trained fusion transformer) or cnn "
-                   "(GameBoyRL's small CNN on stacked grayscale frames, trained from scratch, no text).")
-@click.option("--policy_vision_encoder", default=None,
-              help="Curiosity (fusion): the frozen vision trunk (mobilenet_v3_small); required with that policy.")
-@click.option("--policy_text_encoder", default=None,
-              help="Curiosity (fusion): the frozen sentence encoder (e.g. a MiniLM-L6 id); required with that policy.")
 @click.option("--max_features", default=8, show_default=True,
               help="VLM: features listed per new node (what exploring from it could surface).")
 @click.option("--score_top_m", default=8, show_default=True, help="VLM: candidates re-scored per decision (0: all).")
@@ -104,9 +107,10 @@ def stop_reason(*, search, max_expansions, saturation_patience):
               help="On resume, first restore up to this many nodes and compare them with what they stored.")
 @state_options(scorer=True)
 @run_options
-def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, saturation_patience, c_puct,
+def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, budget_metric, budget,
+         saturation_patience, c_puct,
          tau, normalise_p, q_ema, roots_only, expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs,
-         rl_commit_episodes, keep_policies, curiosity_policy, policy_vision_encoder, policy_text_encoder,
+         rl_commit_episodes, keep_policies,
          max_features, score_top_m, default_score, model_name, model_backend, vllm_base_url,
          restore, replay_similarity, seed, verify_restores, overwrite, ignore_config_violation,
          **kwargs):
@@ -125,10 +129,10 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     if env_name == "android" and restore != "replay":
         raise click.UsageError("Android needs --restore replay: its scenes share one emulator, so a scene's env is "
                                "rebuilt (losing its saved states) whenever another scene is used.")
+    if (budget_metric is None) != (budget is None):
+        raise click.UsageError("--budget_metric and --budget go together.")
     if (expander == "vlm") != bool(model_name):
         raise click.UsageError("--model_name goes with --expander vlm, and only with it.")
-    if expander == "curiosity" and curiosity_policy == "fusion" and not (policy_vision_encoder and policy_text_encoder):
-        raise click.UsageError("--curiosity_policy fusion needs --policy_vision_encoder and --policy_text_encoder.")
     if expander == "curiosity" and rl_num_envs > 1 and restore == "replay":
         raise click.UsageError("parallel curiosity copies (--rl_num_envs > 1) need saved node states.")
     per_expander = {name: (kwargs.pop(f"{name}_steps"), kwargs.pop(f"{name}_node_threshold"))
@@ -137,15 +141,13 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     sconfig = state_config(kwargs)
     curiosity = {"reward_buffer": reward_buffer, "rl_total_steps": rl_total_steps, "rl_max_minutes": rl_max_minutes,
                  "rl_num_envs": rl_num_envs, "rl_commit_episodes": rl_commit_episodes,
-                 "keep_policies": keep_policies, "curiosity_policy": curiosity_policy,
-                 **({"policy_vision_encoder": policy_vision_encoder, "policy_text_encoder": policy_text_encoder}
-                    if curiosity_policy == "fusion" else {})} if expander == "curiosity" else {}
+                 "keep_policies": keep_policies} if expander == "curiosity" else {}
     vlm_config = {"model_name": model_name, "model_backend": model_backend, "vllm_base_url": vllm_base_url,
                   "max_features": max_features, "score_top_m": score_top_m,
                   "default_score": default_score} if expander == "vlm" else {}
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
-              "saturation_patience": saturation_patience, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
+              "saturation_patience": saturation_patience, "budget_metric": budget_metric, "budget": budget, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
               "q_ema": q_ema, "roots_only": roots_only,
               "expander": expander, "restore": restore, "replay_similarity": replay_similarity,
               "seed": seed, **curiosity, **vlm_config,
@@ -179,14 +181,10 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     elif expander == "curiosity":
         import torch
         from cusi.search.curiosity.expander import CuriosityExpander
-        from cusi.search.curiosity.policy import FrozenEncoders, PixelObserver
+        from cusi.search.curiosity.policy import CNNObserver
         from cusi.search.curiosity.session import PPOConfig
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        if curiosity_policy == "fusion":
-            observer = FrozenEncoders(vision_encoder=policy_vision_encoder, text_encoder=policy_text_encoder,
-                                      device=device, long_side=224 if env_name == "gameboy" else 448)
-        else:
-            observer = PixelObserver(env_name=env_name)
+        observer = CNNObserver(env_name=env_name)
         explorer = CuriosityExpander(
             env_name=env_name, observer=observer, reward_buffer=reward_buffer, keep_policies=keep_policies, seed=seed,
             device=device, replay_similarity=replay_similarity, parameters=parameters,
@@ -213,7 +211,8 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
         if search.resume() and verify_restores > 0:
             verified = search.verify_restores(limit=verify_restores)
         reason = search.run(stop=lambda s: stop_reason(search=s, max_expansions=max_expansions,
-                                                       saturation_patience=saturation_patience))
+                                                       saturation_patience=saturation_patience,
+                                                       budget_metric=budget_metric, budget=budget))
     finally:
         envs.close()
         if hasattr(explorer, "close"):
@@ -233,6 +232,13 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     with open(os.path.join(directory, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
     log_info(f"search {directory}: {summary}", parameters=parameters)
+    # One row per launch: where it ran, its roots' compute and the process total (expansions keep their own).
+    from cusi.utils.compute import TOTAL, run_info
+    launch = {"run_info": run_info(), "seconds": summary["seconds_this_launch"], "roots": search.roots_compute,
+              "total": TOTAL.snapshot()}
+    with open(os.path.join(directory, "compute.jsonl"), "a") as f:
+        f.write(json.dumps(launch) + "\n")
+    log_info(f"compute this launch: {launch['total']}", parameters=parameters)
     from cusi.search.viewer import build_viewer
     try:
         log_info(f"viewer: {build_viewer(run_dir=directory, title=f'{env_name} / {run_name}')}", parameters=parameters)

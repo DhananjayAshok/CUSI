@@ -1268,3 +1268,43 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   the content, is borrowed from the test distribution. The random-tree practice runs started before this change.
 - Known cost: a GameBoy practice try always runs its full 50 steps (no env success signal in free play; the
   dataset's safe-success cut keeps the data right).
+
+## 2026-10-26: Compute accounting (cusi/utils/compute.py)
+
+- Goal: a fair accounting of every procedure (search per explorer, annotation, practice) in GPU work, time per step
+  and LLM calls; env simulation (CPU) is not accounted, only its wall time so the parts add up.
+- Thread-local tallies: a search step (step.extra["compute"]), an expansion from its selection on
+  (exp.stats["compute"]), each launch (compute.jsonl: run info, roots, process total), an annotated node
+  (annotate_compute), a practice try and task (pickle "compute", results.csv columns).
+- Recorded: wall seconds by part (select, restore, session, decide, env, embed, score, node, describe; agent, judge,
+  critique; observe and record: the VLM explorer's executor update and done-check, and storing the step); local GPU
+  work by section (embed, score, archive, policy_forward, ppo_update), timed with
+  synchronisation and counted only when it allocated on the GPU, with the device type, and FLOPs from
+  FlopCounterMode on the first call per (section, input shape); LLM calls (AgentVLM): latency, tokens, images and
+  FLOPs from the served model's cached config and safetensors headers (2N per token, attention over each token's
+  context with sliding windows capped, logits per generated token, vision tower per image); NVML on all the job's
+  GPUs: energy and busy time (utilisation integrated by a sampler), which covers the vLLM server.
+- LLM FLOPs assume no prefix cache (vLLM's prefix caching does less work); NVML busy time and energy are the
+  measured side. Containers get --nv whenever the job has GPUs so NVML works inside (search.sh, practice.sh).
+- NVML counts only the job's GPUs: scripts/utils.sh exports CUSI_ACCOUNT_GPUS (the job's UUIDs, from
+  CUDA_VISIBLE_DEVICES in nvidia-smi order) before scripts narrow CUDA_VISIBLE_DEVICES; without it NVML counts
+  every GPU it sees, which only equals the job's under Slurm's cgroup device isolation. run_info records the
+  scope.
+- run_search.py --budget_metric {wall_s,gpu_s,llm_flops,flops,gpu_busy_s,energy_j} --budget X stops at equal
+  compute instead of equal steps (the random trees ran 400-6000 steps, the VLM / curiosity ones 400-600).
+- python -m cusi.search.compute_summary --env E --run R sums a run.
+- Removed with this (user): every curiosity and VLM search run, the random debug runs, and the trained SigLIP
+  embedders and world models built on those trees (storage/explore/<env>/{embedder,world_model}).
+
+## 2026-10-26: Curiosity shelved; fusion policy removed
+
+- Curiosity exploration is shelved (kept in the code, not run): seed variance dominated every hyperparameter, GameBoy
+  sessions plateaued within ~15k steps without leaving the start town, the best episodes were menu / dialogue spam
+  (only menus that became nodes stop paying: archive_nodes_only, and the episode overlay resets each episode), and
+  Android got ~15 PPO updates in 5 h. A best-of-seeds design was sketched (many short seeds per expansion, successive
+  halving, episodes re-scored against the tree's node archive, top-k distinct committed; to be compared with
+  best-of-N random rollouts under the same selection and budget) but not built.
+- The fusion policy (frozen MobileNetV3-Small + MiniLM, a trained fusion transformer) is removed: it tied the CNN on
+  Web and Android and was slower on GameBoy; the frozen-embedder heads were no better either. --curiosity_policy,
+  --policy_vision_encoder and --policy_text_encoder are gone; the CNN (CNNObserver, CNNPolicy, formerly Pixel*) is the
+  only policy, and the curiosity_parity job runs it against GameBoyRL's cleanrl ppo_curiosity (the same CNN).

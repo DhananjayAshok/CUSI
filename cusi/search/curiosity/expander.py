@@ -34,7 +34,7 @@ class CuriosityExpander:
     def __init__(self, *, env_name: str, observer, config: PPOConfig, reward_buffer: str = "global",
                  make_copy: Optional[Callable] = None, keep_policies: str = "all", seed: int = 0,
                  device: str = "cpu", replay_similarity: float = 0.95, parameters: dict[str, Any] = None) -> None:
-        """observer: the policy's observer (FrozenEncoders or PixelObserver). make_copy(env_key) -> a new env of that
+        """observer: the policy's observer (CNNObserver). make_copy(env_key) -> a new env of that
         scene, for parallel copies (config.num_envs > 1; GameBoy)."""
         if reward_buffer not in REWARD_BUFFERS:
             raise ValueError(f"reward_buffer must be one of {REWARD_BUFFERS}, got {reward_buffer!r}")

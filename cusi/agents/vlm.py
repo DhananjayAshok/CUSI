@@ -2,7 +2,9 @@
 One model handle for every role, accepting any image type and the neutral chat format.
 """
 import base64
+import time
 from typing import Any, Optional, Union
+from cusi.utils.compute import record_llm
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.model_factory import build_model
 from cusi.agents.records import EncodedImage, to_pil
@@ -40,8 +42,15 @@ def to_openai_messages(*, messages: list, images: list) -> list:
     return out
 
 
+def _per_record(value, n: int) -> list:
+    """A meta count as one entry per record (a single prompt's can be a scalar)."""
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value] if n == 1 else [None] * n
+
+
 class AgentVLM:
-    """The pipeline's model, for single-turn prompts and chats."""
+    """The pipeline's model, for single-turn prompts and chats; every call is recorded (cusi.utils.compute)."""
 
     def __init__(self, *, model_name: str, model_backend: str = "vllm", vllm_base_url: Optional[str] = None,
                  parameters: dict[str, Any] = None) -> None:
@@ -58,11 +67,28 @@ class AgentVLM:
             images = None
         if isinstance(texts, list) and images is not None and all(len(i) == 0 for i in images):
             images = None
-        return self._model.infer(texts=texts, images=images, max_new_tokens=max_new_tokens,
-                                 temperature=temperature)
+        t0 = time.perf_counter()
+        out = self._model.infer(texts=texts, images=images, max_new_tokens=max_new_tokens,
+                                temperature=temperature)
+        n = len(texts) if isinstance(texts, list) else 1
+        n_images = [0] * n if images is None else [len(images)] if n == 1 and not isinstance(texts, list) \
+            else [len(i) for i in images]
+        self._record(out=out, latency=time.perf_counter() - t0, n=n, images=n_images)
+        return out
 
     def chat(self, *, messages: list, images: list, max_new_tokens: int,
              temperature: Optional[float] = None) -> dict:
         """`messages` in the neutral format of CallRecord.messages."""
-        return self._model.infer_messages(messages=to_openai_messages(messages=messages, images=images),
-                                          max_new_tokens=max_new_tokens, temperature=temperature)
+        t0 = time.perf_counter()
+        out = self._model.infer_messages(messages=to_openai_messages(messages=messages, images=images),
+                                         max_new_tokens=max_new_tokens, temperature=temperature)
+        n_images = sum(1 for m in messages if not isinstance(m["content"], str)
+                       for part in m["content"] if part["type"] != "text")
+        self._record(out=out, latency=time.perf_counter() - t0, n=1, images=[n_images])
+        return out
+
+    def _record(self, *, out: dict, latency: float, n: int, images: list) -> None:
+        meta = out.get("meta") or {}
+        record_llm(model_name=self.model_name, latency=latency,
+                   prompt_tokens=_per_record(meta.get("input_tokens"), n),
+                   completion_tokens=_per_record(meta.get("output_tokens"), n), images=images)

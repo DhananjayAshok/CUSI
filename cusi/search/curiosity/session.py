@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 import numpy as np
 import torch
+from cusi.utils.compute import gpu_work, shape_key
 import torch.nn as nn
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.search.curiosity.candidates import candidates_for
@@ -88,7 +89,7 @@ class CuriositySession:
                  base_archive, observer, config: PPOConfig, seed: int, device: str, init_state: Optional[dict] = None,
                  log_every: int = 10, parameters: dict[str, Any] = None) -> None:
         """envs: the env copies; restore(i) -> obs puts copy i in the start node's state. base_archive: B0 (read
-        only). observer: the policy's observer (FrozenEncoders or PixelObserver), which also builds the policy.
+        only). observer: the policy's observer (CNNObserver), which also builds the policy.
         init_state: weights the policy starts from (None: a fresh one)."""
         self.env_name, self.envs, self.restore = env_name, envs, restore
         self.encoder, self.scorer, self.base, self.observer = encoder, scorer, base_archive, observer
@@ -97,9 +98,8 @@ class CuriositySession:
 
     # ------------------------------------------------------------ helpers
 
-    def _observe(self, obs_list: list, info_list: list, prevs: list, hists: list) -> tuple:
-        """(features, candidates, elements) per env; prevs: the previous (candidate, its target's text) or None;
-        hists: the episode's previous grayscale frames (PixelObserver's)."""
+    def _observe(self, obs_list: list, info_list: list, hists: list) -> tuple:
+        """(features, candidates, elements) per env; hists: the episode's previous grayscale frames."""
         elements_list, cands_list, frames = [], [], []
         for obs, info in zip(obs_list, info_list):
             elements, cands = candidates_for(env_name=self.env_name, obs=obs)
@@ -107,7 +107,7 @@ class CuriositySession:
             cands_list.append(cands)
             frames.append(np.asarray(frame_for_embedding(obs=obs, info=info), dtype=np.uint8))
         feats = self.observer.observe(frames=frames, elements_list=elements_list, candidates_list=cands_list,
-                                      prevs=prevs, hists=hists)
+                                      hists=hists)
         return feats, cands_list, elements_list
 
     @staticmethod
@@ -129,6 +129,15 @@ class CuriositySession:
         if self.init_state is not None:
             policy.load_state_dict(self.init_state)
         collate = type(policy).collate
+
+        def forward(feats: list):
+            batch = collate(feats=feats, device=self.device)
+            with gpu_work("policy_forward", key=shape_key(batch)):
+                return policy(batch)
+
+        def encode(obs, info):
+            with gpu_work("embed", key="one"):
+                return self.encoder.encode_one(obs=obs, info=info)
         optim = torch.optim.Adam(policy.parameters(), lr=cfg.lr, eps=1e-5)
         n = len(self.envs)
         overlays = [OverlayArchive(base=self.base) for _ in range(n)]
@@ -144,8 +153,8 @@ class CuriositySession:
             overlays[i].new_episode()
             ep = Episode(index=n_episodes)
             n_episodes += 1
-            rec = StateRecord(obs=obs, info=info, embedding=self.encoder.encode_one(obs=obs, info=info))
-            return {"obs": obs, "info": info, "rec": rec, "prev": None, "hist": [], "t": 0, "ep": ep}
+            rec = StateRecord(obs=obs, info=info, embedding=encode(obs, info))
+            return {"obs": obs, "info": info, "rec": rec, "hist": [], "t": 0, "ep": ep}
 
         stopped = None
         try:
@@ -156,9 +165,9 @@ class CuriositySession:
                     if steps >= cfg.total_steps or time.time() >= deadline:
                         break
                     feats, cands, elements = self._observe([s["obs"] for s in live], [s["info"] for s in live],
-                                                           [s["prev"] for s in live], [s["hist"] for s in live])
+                                                           [s["hist"] for s in live])
                     with torch.no_grad():
-                        logits, values, _ = policy(collate(feats=feats, device=self.device))
+                        logits, values, _ = forward(feats)
                         dist = torch.distributions.Categorical(logits=logits)
                         choice = dist.sample()
                         logp, ent = dist.log_prob(choice), dist.entropy()
@@ -171,10 +180,11 @@ class CuriositySession:
                         info2 = self._info(env, info2)
                         if "true" in info2:
                             true_log.append({"step": steps, "seconds": round(time.time() - t0, 2), "true": info2["true"]})
-                        emb = self.encoder.encode_one(obs=obs2, info=info2)
+                        emb = encode(obs2, info2)
                         nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=s["rec"].embedding.image)
-                        reward, _ = self.scorer.score(prev=s["rec"], action=cand.action, next=nxt, archive=overlays[i],
-                                                      add=True)
+                        with gpu_work("score", key="one"):
+                            reward, _ = self.scorer.score(prev=s["rec"], action=cand.action, next=nxt,
+                                                          archive=overlays[i], add=True)
                         if not info2.get("valid", True):
                             reward -= cfg.invalid_action_penalty
                         s["t"] += 1
@@ -192,19 +202,17 @@ class CuriositySession:
                         item = {"feat": feats[i], "choice": k, "logp": float(logp[i]), "value": float(values[i]),
                                 "reward": float(reward), "done": ended, "terminated": bool(terminated),
                                 "trunc_value": 0.0}
-                        target_text = elements[i][cand.target].text if cand.target is not None else ""
                         if ended:
                             ep.terminated = bool(terminated)
                             if not terminated:   # truncation: bootstrap from the value of where it stopped
-                                f2, _c, _e = self._observe([obs2], [info2], [(cand, target_text)],
-                                                           [self._hist(feats[i])])
+                                f2, _c, _e = self._observe([obs2], [info2], [self._hist(feats[i])])
                                 with torch.no_grad():
-                                    item["trunc_value"] = float(policy(collate(feats=f2, device=self.device))[1][0])
+                                    item["trunc_value"] = float(forward(f2)[1][0])
                             returns.append(ep.ret)
                             keep_top(top=top, ep=ep, k=max(1, cfg.keep_episodes))
                             live[i] = start_episode(i)
                         else:
-                            s.update(obs=obs2, info=info2, rec=nxt, prev=(cand, target_text), hist=self._hist(feats[i]))
+                            s.update(obs=obs2, info=info2, rec=nxt, hist=self._hist(feats[i]))
                         row.append(item)
                         steps += 1
                     buf.append(row)
@@ -212,9 +220,9 @@ class CuriositySession:
                     break
                 # bootstrap values for unfinished episodes
                 feats, _c, _e = self._observe([s["obs"] for s in live], [s["info"] for s in live],
-                                              [s["prev"] for s in live], [s["hist"] for s in live])
+                                              [s["hist"] for s in live])
                 with torch.no_grad():
-                    last_values = policy(collate(feats=feats, device=self.device))[1].cpu().numpy()
+                    last_values = forward(feats)[1].cpu().numpy()
                 frac = 1.0 - max(steps / cfg.total_steps, (time.time() - t0) / (deadline - t0))
                 if cfg.anneal_lr:
                     optim.param_groups[0]["lr"] = cfg.lr * max(frac, 0.0)
@@ -262,25 +270,26 @@ class CuriositySession:
             for s0 in range(0, len(items), mb):
                 sel = idx[s0:s0 + mb]
                 batch = type(policy).collate(feats=[items[j]["feat"] for j in sel], device=self.device)
-                logits, new_v, _ = policy(batch)
-                dist = torch.distributions.Categorical(logits=logits)
-                choice = torch.tensor([items[j]["choice"] for j in sel], device=self.device)
-                new_logp, ent = dist.log_prob(choice), dist.entropy()
-                old_logp = torch.tensor([items[j]["logp"] for j in sel], device=self.device)
-                old_v = torch.tensor([items[j]["value"] for j in sel], device=self.device)
-                a = torch.tensor(adv_f[sel], device=self.device)
-                r = torch.tensor(ret_f[sel], device=self.device)
-                if cfg.norm_adv and len(sel) > 1:
-                    a = (a - a.mean()) / (a.std() + 1e-8)
-                ratio = (new_logp - old_logp).exp()
-                pg = torch.max(-a * ratio, -a * ratio.clamp(1 - cfg.clip, 1 + cfg.clip)).mean()
-                v_clipped = old_v + (new_v - old_v).clamp(-cfg.clip, cfg.clip)
-                v_loss = 0.5 * torch.max((new_v - r) ** 2, (v_clipped - r) ** 2).mean()
-                loss = pg - cfg.ent_coef * ent.mean() + cfg.vf_coef * v_loss
-                optim.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(policy.parameters(), cfg.max_grad_norm)
-                optim.step()
+                with gpu_work("ppo_update", key=shape_key(batch)):
+                    logits, new_v, _ = policy(batch)
+                    dist = torch.distributions.Categorical(logits=logits)
+                    choice = torch.tensor([items[j]["choice"] for j in sel], device=self.device)
+                    new_logp, ent = dist.log_prob(choice), dist.entropy()
+                    old_logp = torch.tensor([items[j]["logp"] for j in sel], device=self.device)
+                    old_v = torch.tensor([items[j]["value"] for j in sel], device=self.device)
+                    a = torch.tensor(adv_f[sel], device=self.device)
+                    r = torch.tensor(ret_f[sel], device=self.device)
+                    if cfg.norm_adv and len(sel) > 1:
+                        a = (a - a.mean()) / (a.std() + 1e-8)
+                    ratio = (new_logp - old_logp).exp()
+                    pg = torch.max(-a * ratio, -a * ratio.clamp(1 - cfg.clip, 1 + cfg.clip)).mean()
+                    v_clipped = old_v + (new_v - old_v).clamp(-cfg.clip, cfg.clip)
+                    v_loss = 0.5 * torch.max((new_v - r) ** 2, (v_clipped - r) ** 2).mean()
+                    loss = pg - cfg.ent_coef * ent.mean() + cfg.vf_coef * v_loss
+                    optim.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(policy.parameters(), cfg.max_grad_norm)
+                    optim.step()
                 clipfracs.append(float(((ratio - 1).abs() > cfg.clip).float().mean()))
                 losses.append(float(loss))
         return {"loss": round(float(np.mean(losses)), 4), "clipfrac": round(float(np.mean(clipfracs)), 3)}

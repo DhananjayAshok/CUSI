@@ -65,9 +65,12 @@ if [[ "$MODEL" != "none" ]]; then
     CUDA_VISIBLE_DEVICES="$VLLM_GPUS" bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" || exit 1
     trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 fi
+JOB_GPUS="${CUDA_VISIBLE_DEVICES:-}"
 export CUDA_VISIBLE_DEVICES="$SEARCH_GPU"
+# The container gets the job's GPUs whenever it has any, so NVML can account for them (a vLLM server's included);
+# CUDA_VISIBLE_DEVICES still decides what the search process itself uses.
 NV=0
-[[ -n "$SEARCH_GPU" ]] && NV=1
+[[ -n "$JOB_GPUS" ]] && NV=1
 
 CMD="python -u run_search.py ${FLAGS[*]@Q} ${EXTRA[*]@Q}"
 case "$ENV_NAME" in

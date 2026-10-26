@@ -4,6 +4,7 @@ The tree search loop: select a node, restore it, expand it, score the steps agai
 import time
 from typing import Any, Callable, Optional
 import numpy as np
+from cusi.utils.compute import Tally, gpu_work, part, tally
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.state import StateRecord, frame_for_embedding
 from cusi.agents.records import EncodedImage
@@ -65,8 +66,18 @@ class TreeSearch:
         self.records: list = []
         self._at: dict = {}       # env key -> (node id, env) the env is currently in, so its restore can be skipped
         self.max_expansions: Optional[int] = None    # caps the expansions one iteration may add (several plans)
+        self.roots_compute: dict = {}     # scene -> compute of making its root (cusi.utils.compute)
 
     # ------------------------------------------------------------ nodes
+
+    def _encode(self, *, obs: dict, info: dict):
+        with part("embed"), gpu_work("embed", key="one"):
+            return self.encoder.encode_one(obs=obs, info=info)
+
+    def _score(self, *, prev, action, nxt):
+        with part("score"), gpu_work("score", key="one"):
+            return self.scorer.score(prev=prev, action=action, next=nxt, archive=self.archive,
+                                     add=not self.archive_nodes_only)
 
     def _make_node(self, *, env_key: str, obs: dict, info: dict, embedding, value: Optional[float],
                    parent: Optional[int], segment: Optional[tuple]):
@@ -97,12 +108,16 @@ class TreeSearch:
 
     def add_roots(self) -> None:
         for key, env in self.envs.items():
-            obs, info = env.reset()
-            emb = self.encoder.encode_one(obs=obs, info=info)
-            if not info.get("challenge"):
-                self.archive.add(emb)
-            node = self._make_node(env_key=key, obs=obs, info=info, embedding=emb, value=None, parent=None,
-                                   segment=None)
+            with tally() as t:
+                with part("env"):
+                    obs, info = env.reset()
+                emb = self._encode(obs=obs, info=info)
+                if not info.get("challenge"):
+                    self.archive.add(emb)
+                with part("node"):
+                    node = self._make_node(env_key=key, obs=obs, info=info, embedding=emb, value=None, parent=None,
+                                           segment=None)
+            self.roots_compute[key] = t.snapshot()
             self._at[key] = (node.id, env)
             log_info(f"root {node.id}: scene {key}, features {node.features}, flags {node.flags}",
                      parameters=self._parameters)
@@ -133,13 +148,12 @@ class TreeSearch:
             obs, _r, terminated, truncated, info = env.step(step.action)
             if (terminated or truncated) and i < len(path) - 1:
                 return 0.0, f"the episode ended at replay step {i + 1}/{len(path)}"
-        sim = float(self.encoder.similarity(a=node.embedding, b=self.encoder.encode_one(obs=obs, info=info)))
+        sim = float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info)))
         if sim < self.replay_similarity and hasattr(env, "observe"):
             # Android: the a11y tree can lag the screen for a moment (no text, or the previous screen's): look again.
             time.sleep(2.0)
             obs, info = env.observe()
-            sim = max(sim, float(self.encoder.similarity(a=node.embedding,
-                                                         b=self.encoder.encode_one(obs=obs, info=info))))
+            sim = max(sim, float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info))))
         if sim < self.replay_similarity:
             return sim, f"replay reached similarity {sim:.3f} < {self.replay_similarity}"
         return sim, None
@@ -227,50 +241,60 @@ class TreeSearch:
     def iterate(self) -> Optional[dict]:
         self.selector.reseed(iteration=self.iteration)    # a resumed run draws as an uninterrupted one would
         self._n_discovered = None
-        sel = self.selector.select(tree=self.tree, p_of=self.p_of, rescore=self.rescore if self.annotated else None)
-        if sel is None:
-            return None
-        self.iteration += 1
-        t0 = time.time()
-        node = self.tree.nodes[sel.node_id]
-        env = self.envs[node.env_key]
-        restored = self._restore_node(node=node, env=env)
-        if restored is None:
-            return {"iteration": self.iteration, "selected": node.id, "failed": "restore"}
-        t_load = time.time() - t0
-        exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
-        exp.expander = self.expander.name
-        self.expander.start(env=env, iteration=self.iteration, tree=self.tree, node=node, expansion_id=exp.id,
-                            search=self)
-        aborted = getattr(self.expander, "aborted", None)
-        if aborted:
-            # A session that could not restore its node (Android replay): no expansion, the node is set aside.
-            self.tree.expansions.pop()
-            self._at.pop(node.env_key, None)
-            self._unselectable(node=node, flag="replay_diverged", message=f"curiosity session aborted: {aborted}")
-            return {"iteration": self.iteration, "selected": node.id, "failed": "session"}
-        t_session = time.time() - t0 - t_load
-        # a curiosity session can commit several of its episodes, each as its own expansion of the node
-        n_plans = getattr(self.expander, "n_plans", 1)
-        if self.max_expansions is not None:
-            n_plans = max(1, min(n_plans, self.max_expansions - len(self.tree.expansions) + 1))
-        record = self._materialise(node=node, env=env, exp=exp, sel=sel, restored=restored, t0=t0, t_load=t_load,
-                                   t_session=t_session)
-        for plan in range(1, n_plans):
+        # The selection itself (rescoring, for the VLM explorer) is counted with the expansion it chose.
+        with tally() as compute:
+            with part("select"):
+                sel = self.selector.select(tree=self.tree, p_of=self.p_of,
+                                           rescore=self.rescore if self.annotated else None)
+            if sel is None:
+                return None
+            self.iteration += 1
+            node = self.tree.nodes[sel.node_id]
+            env = self.envs[node.env_key]
             t0 = time.time()
-            restored = self._restore_node(node=node, env=env)
+            with part("restore"):
+                restored = self._restore_node(node=node, env=env)
             if restored is None:
-                break
+                return {"iteration": self.iteration, "selected": node.id, "failed": "restore"}
+            t_load = time.time() - t0
             exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
             exp.expander = self.expander.name
-            self.expander.begin_plan(plan=plan)
+            with part("session"):
+                self.expander.start(env=env, iteration=self.iteration, tree=self.tree, node=node, expansion_id=exp.id,
+                                    search=self)
+            aborted = getattr(self.expander, "aborted", None)
+            if aborted:
+                # A session that could not restore its node (Android replay): no expansion, the node is set aside.
+                self.tree.expansions.pop()
+                self._at.pop(node.env_key, None)
+                self._unselectable(node=node, flag="replay_diverged", message=f"curiosity session aborted: {aborted}")
+                return {"iteration": self.iteration, "selected": node.id, "failed": "session"}
+            t_session = time.time() - t0 - t_load
+            # a curiosity session can commit several of its episodes, each as its own expansion of the node
+            n_plans = getattr(self.expander, "n_plans", 1)
+            if self.max_expansions is not None:
+                n_plans = max(1, min(n_plans, self.max_expansions - len(self.tree.expansions) + 1))
             record = self._materialise(node=node, env=env, exp=exp, sel=sel, restored=restored, t0=t0,
-                                       t_load=time.time() - t0, t_session=0.0)
+                                       t_load=t_load, t_session=t_session, compute=compute)
+        for plan in range(1, n_plans):
+            with tally() as compute:
+                t0 = time.time()
+                with part("restore"):
+                    restored = self._restore_node(node=node, env=env)
+                if restored is None:
+                    break
+                exp = self.tree.add_expansion(node_id=node.id, iteration=self.iteration)
+                exp.expander = self.expander.name
+                self.expander.begin_plan(plan=plan)
+                record = self._materialise(node=node, env=env, exp=exp, sel=sel, restored=restored, t0=t0,
+                                           t_load=time.time() - t0, t_session=0.0, compute=compute)
         return record
 
-    def _materialise(self, *, node, env, exp, sel, restored: dict, t0: float, t_load: float, t_session: float) -> dict:
+    def _materialise(self, *, node, env, exp, sel, restored: dict, t0: float, t_load: float, t_session: float,
+                     compute: Tally) -> dict:
         """Run the expander's k_steps from node (env is in its state) into exp, make its nodes, describe and commit
-        it -> the selection record."""
+        it -> the selection record. compute: the expansion's tally; each step also keeps its own
+        (step.extra["compute"]) and the expansion its total (exp.stats["compute"])."""
         obs, info = env.current_obs, {"raw_frame": env.raw_frame}
         prev = StateRecord(obs=obs, info=info, embedding=node.embedding)
         exp.expander_info = self.expander.info()
@@ -279,40 +303,47 @@ class TreeSearch:
         n_valid = n_challenge = 0
         episode_over = False
         for t in range(self.k_steps):
-            action, meta = self.expander.next_action(env=env, obs=obs, info=info)
-            result = env.step(action)
-            obs2, _r, terminated, truncated, info2 = result
-            emb = self.encoder.encode_one(obs=obs2, info=info2)
-            nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=prev.embedding.image)
-            challenge = bool(info2.get("challenge"))
-            if challenge:      # a bot check is not new content: score 0 and keep it out of the archive
-                value, components = 0.0, {}
-                n_challenge += 1
-            else:
-                value, components = self.scorer.score(prev=prev, action=action, next=nxt, archive=self.archive,
-                                                      add=not self.archive_nodes_only)
-            changed = bool(info2.get("changed", True))
-            n_valid += bool(info2.get("valid", True))
-            self.expander.observe(action=action, result=result)
-            step = Step(action=action, frame=EncodedImage.of(frame_for_embedding(obs=obs2, info=info2)),
-                        texts=obs2.get("texts", {}), text_boxes=boxes_as_dicts(obs2.get("text_boxes")),
-                        info=compact_info(info2), value=float(value),
-                        components=dict(components), extra={self.expander.name: meta, "changed": changed})
-            exp.steps.append(step)
-            self.total_steps += 1
-            episode_over = terminated or truncated
-            # a materialised episode (curiosity) ends where it ended, or where its replay diverged
-            stop = checks is not None and (not checks(obs=obs2, info=info2, embedding=emb) or self.expander.done())
-            end = self.closing_node and (t == self.k_steps - 1 or episode_over or stop)
-            if (value >= self.node_threshold and not challenge) or end:
-                child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
-                                        value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
-                step.node_id = child.id
-                if self.archive_nodes_only and not challenge:     # the node's state is now seen
-                    self.scorer.remember(next=nxt, archive=self.archive)
-                exp.children.append(child.id)
-                parent_id, seg_start = child.id, t + 1
-            prev, obs, info = nxt, obs2, info2
+            with tally() as step_compute:
+                with part("decide"):
+                    action, meta = self.expander.next_action(env=env, obs=obs, info=info)
+                with part("env"):
+                    result = env.step(action)
+                obs2, _r, terminated, truncated, info2 = result
+                emb = self._encode(obs=obs2, info=info2)
+                nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=prev.embedding.image)
+                challenge = bool(info2.get("challenge"))
+                if challenge:      # a bot check is not new content: score 0 and keep it out of the archive
+                    value, components = 0.0, {}
+                    n_challenge += 1
+                else:
+                    value, components = self._score(prev=prev, action=action, nxt=nxt)
+                changed = bool(info2.get("changed", True))
+                n_valid += bool(info2.get("valid", True))
+                with part("observe"):     # the VLM explorer's executor memory and done-check
+                    self.expander.observe(action=action, result=result)
+                with part("record"):
+                    step = Step(action=action, frame=EncodedImage.of(frame_for_embedding(obs=obs2, info=info2)),
+                                texts=obs2.get("texts", {}), text_boxes=boxes_as_dicts(obs2.get("text_boxes")),
+                                info=compact_info(info2), value=float(value),
+                                components=dict(components), extra={self.expander.name: meta, "changed": changed})
+                exp.steps.append(step)
+                self.total_steps += 1
+                episode_over = terminated or truncated
+                # a materialised episode (curiosity) ends where it ended, or where its replay diverged
+                stop = checks is not None and (not checks(obs=obs2, info=info2, embedding=emb) or self.expander.done())
+                end = self.closing_node and (t == self.k_steps - 1 or episode_over or stop)
+                if (value >= self.node_threshold and not challenge) or end:
+                    with part("node"):
+                        child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
+                                                value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
+                        step.node_id = child.id
+                        if self.archive_nodes_only and not challenge:     # the node's state is now seen
+                            with gpu_work("archive"):
+                                self.scorer.remember(next=nxt, archive=self.archive)
+                    exp.children.append(child.id)
+                    parent_id, seg_start = child.id, t + 1
+                prev, obs, info = nxt, obs2, info2
+            step.extra["compute"] = step_compute.snapshot()
             if episode_over or stop:
                 break
         exp.expander_info = self.expander.info()
@@ -323,7 +354,9 @@ class TreeSearch:
             self._at[node.env_key] = (parent_id, env)
         t1 = time.time()
         if self.annotated:
-            report_segments(tree=self.tree, describer=self.describer, env_description=env.env_description, exp=exp)
+            with part("describe"):
+                report_segments(tree=self.tree, describer=self.describer, env_description=env.env_description,
+                                exp=exp)
         t_describe = time.time() - t1
         exp.yield_value = float(self.stats.expansion_yield(expansion=exp))
         self.stats.record_yield(tree=self.tree, node_id=node.id, value=exp.yield_value)
@@ -339,6 +372,7 @@ class TreeSearch:
                   "n_nodes": len(self.tree.nodes), "archive": len(self.archive)}
         if self.annotated:
             record["scores"], record["n_discovered"] = sel.scores, self._n_discovered
+        exp.stats["compute"] = compute.snapshot()     # after the record: the selection log keeps only the timings
         self.records.append(record)
         if self.store is not None:
             self.store.commit(search=self, expansion=exp, record=record)
