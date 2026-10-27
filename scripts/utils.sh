@@ -275,6 +275,30 @@ declare -A ANNOTATE_DEFAULTS=(
     ["vllm_port"]="none"
 )
 
+# scripts/slurm/task_coverage.sh: the judge and embedder are this script's defaults (override per run).
+TASK_COVERAGE_ESSENTIALS=("env" "run")
+declare -A TASK_COVERAGE_DEFAULTS=(
+    ["judge_model"]="google/gemma-4-31b-it"
+    ["embedder_model"]="Qwen/Qwen3-Embedding-8B"
+    ["k"]="5"
+    ["vllm_port"]="none"
+)
+
+# scripts/slurm/finetune.sh (the model is always given: never defaulted)
+FINETUNE_ESSENTIALS=("env" "model" "source" "run")
+declare -A FINETUNE_DEFAULTS=(
+    ["extra"]="none"
+)
+
+# scripts/finetune_eval.sh
+FINETUNE_EVAL_ESSENTIALS=("env" "model" "source" "run")
+declare -A FINETUNE_EVAL_DEFAULTS=(
+    ["extra"]="none"
+    ["eval_extra"]="none"
+    ["base_run"]="none"
+    ["after"]="none"
+)
+
 # scripts/slurm/env_run.sh
 ENV_RUN_ESSENTIALS=("env" "cmd")
 declare -A ENV_RUN_DEFAULTS=(
@@ -315,6 +339,7 @@ declare -A EVAL_DEFAULTS=(
     ["ignore_config_violation"]="false"
     ["seed"]="0"
     ["vllm_extra"]="none"
+    ["lora"]="none"
 )
 
 # scripts/slurm/vllm_python.sh

@@ -114,10 +114,14 @@ class Tree:
             cur = self.nodes[cur].parent
         return out
 
-    def path_steps(self, node_id: int) -> list:
-        """Every Step from the root to node_id (the root -> node trajectory)."""
+    def path_steps(self, node_id: int, since: Optional[int] = None) -> list:
+        """Every Step from the root to node_id (the root -> node trajectory); with since, an ancestor of node_id,
+        only those after it."""
+        chain = self.ancestors(node_id)
+        if since is not None:
+            chain = chain[:chain.index(since)]
         steps = []
-        for nid in reversed(self.ancestors(node_id)):
+        for nid in reversed(chain):
             seg = self.nodes[nid].segment
             if seg is not None:
                 exp_id, first, last = seg

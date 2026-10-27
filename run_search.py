@@ -21,6 +21,8 @@ loaded_parameters = load_parameters()
 
 #: Android runs every scene on one emulator, so only one scene env is live at a time and nodes are rebuilt by replay.
 DEFAULT_RESTORE = {"gameboy": "state", "web": "state", "android": "replay"}
+#: Android keeps emulator snapshots of its recent nodes (~3.6 GB each, cusi.envs.android_world) to replay from.
+DEFAULT_STATE_CACHE = {"gameboy": 0, "web": 0, "android": 24}
 PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 #: Per expander: (actions per expansion, node threshold, what one expansion's actions are). Each becomes the flags
 #: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.
@@ -102,6 +104,9 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
               help="How a node is restored (default: replay on Android, saved states elsewhere).")
 @click.option("--replay_similarity", default=0.95, show_default=True,
               help="Replay restores below this similarity to the node mark it diverged.")
+@click.option("--state_cache", default=None, type=int,
+              help="Replay restores: keep saved states of this many recent nodes and replay from the nearest one "
+                   "(default: 24 on Android, 0 elsewhere).")
 @click.option("--seed", default=loaded_parameters["random_seed"], show_default=True)
 @click.option("--verify_restores", default=0, show_default=True,
               help="On resume, first restore up to this many nodes and compare them with what they stored.")
@@ -112,7 +117,7 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
          tau, normalise_p, q_ema, roots_only, expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs,
          rl_commit_episodes, keep_policies,
          max_features, score_top_m, default_score, model_name, model_backend, vllm_base_url,
-         restore, replay_similarity, seed, verify_restores, overwrite, ignore_config_violation,
+         restore, replay_similarity, state_cache, seed, verify_restores, overwrite, ignore_config_violation,
          **kwargs):
     from cusi.search.envs import SceneEnvs
     from cusi.search.search import TreeSearch
@@ -129,6 +134,9 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     if env_name == "android" and restore != "replay":
         raise click.UsageError("Android needs --restore replay: its scenes share one emulator, so a scene's env is "
                                "rebuilt (losing its saved states) whenever another scene is used.")
+    state_cache = DEFAULT_STATE_CACHE[env_name] if state_cache is None else state_cache
+    if state_cache and restore != "replay":
+        raise click.UsageError("--state_cache goes with --restore replay.")
     if (budget_metric is None) != (budget is None):
         raise click.UsageError("--budget_metric and --budget go together.")
     if (expander == "vlm") != bool(model_name):
@@ -150,6 +158,7 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
               "saturation_patience": saturation_patience, "budget_metric": budget_metric, "budget": budget, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
               "q_ema": q_ema, "roots_only": roots_only,
               "expander": expander, "restore": restore, "replay_similarity": replay_similarity,
+              "state_cache": state_cache,
               "seed": seed, **curiosity, **vlm_config,
               **{k: (storage_relative(parameters=parameters, path=v) if k in PATH_KEYS and v else v)
                  for k, v in sconfig.items()}}
@@ -202,7 +211,7 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
                                                 normalise_p=normalise_p, seed=seed),
                         k_steps=k_steps, node_threshold=node_threshold, closing_node=closing_node,
                         archive_nodes_only=archive_nodes_only, **annotators, score_top_m=score_top_m,
-                        restore=restore, replay_similarity=replay_similarity,
+                        restore=restore, replay_similarity=replay_similarity, state_cache=state_cache,
                         store=store, parameters=parameters)
     search.max_expansions = max_expansions
     t0 = time.time()

@@ -5,7 +5,8 @@ The SFT datasets, built from the attempt stage's pickles:
 - failure/: every failed try, including those of tasks that succeeded later.
 
 A row is one model call the agent made, executor or supervisor, in the order made:
-    {episode_id, task_id, task, task_source, scene, node_id, try, role, tag, call_idx, accepted, messages, response}
+    {episode_id, task_id, task, task_source, scene, node_id, try, role, tag, call_idx, accepted, messages, response,
+     image_encoding}
 messages is the call's input as a chat (text, then its images as paths under images/), with practice's guidance cut
 (strip_guidance), so the agent learns to act without it. In success/, executor decisions the env rejected are left
 out (accepted False; failure/ keeps them). Judge and critique calls are not the agent's and are never rows.
@@ -104,7 +105,10 @@ def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, im
         rows.append({"episode_id": episode_id, "task_id": task["task_id"], "task": task["task"],
                      "task_source": task["source"], "scene": task["scene"], "node_id": task["node_id"],
                      "try": entry["try"], "role": role, "tag": tag, "call_idx": call_idx, "accepted": accepted,
-                     "messages": call_messages(call=call, image_paths=image_paths), "response": call.response})
+                     "messages": call_messages(call=call, image_paths=image_paths), "response": call.response,
+                     # how the call sent its images (cusi.finetune.data.as_sent): a single-prompt call as JPEG,
+                     # a chat call as PNG
+                     "image_encoding": "jpeg" if getattr(call, "messages", None) is None else "png"})
     return rows
 
 

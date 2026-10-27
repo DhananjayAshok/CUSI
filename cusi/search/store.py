@@ -22,7 +22,7 @@ COMMIT_FILE = "commit.json"
 ARCHIVE_DIR = "archive"
 ROOTS = "roots"
 #: Config keys that may differ between launches of one run: max_expansions grows to extend a search.
-OPERATIONAL_KEYS = {"max_expansions", "vllm_base_url", "saturation_patience"}
+OPERATIONAL_KEYS = {"max_expansions", "vllm_base_url", "saturation_patience", "state_cache"}
 
 
 def _jsonable(value):

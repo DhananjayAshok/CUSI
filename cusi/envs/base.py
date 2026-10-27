@@ -127,6 +127,10 @@ class TextActionEnv(gym.Env, ABC):
         self._delete_state_impl(state_id=state_id)
         self._saved_state_ids.discard(state_id)
 
+    def has_state(self, *, state_id: str) -> bool:
+        """Whether state_id is still saved on this env (an env that restarts its emulator drops its states)."""
+        return state_id in self._saved_state_ids
+
     def delete_all_states(self) -> None:
         for state_id in list(self._saved_state_ids):
             self.delete_state(state_id=state_id)

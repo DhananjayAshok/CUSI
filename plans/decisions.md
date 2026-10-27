@@ -1308,3 +1308,81 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   Web and Android and was slower on GameBoy; the frozen-embedder heads were no better either. --curiosity_policy,
   --policy_vision_encoder and --policy_text_encoder are gone; the CNN (CNNObserver, CNNPolicy, formerly Pixel*) is the
   only policy, and the curiosity_parity job runs it against GameBoyRL's cleanrl ppo_curiosity (the same CNN).
+
+## 2026-10-26: Task coverage eval (cusi/eval/task_coverage.py)
+
+- Exploration quality as coverage of the benchmark's test tasks by the tasks proposed from an annotated tree. Each
+  test task's k=5 nearest proposed tasks by cosine of Qwen3-Embedding-8B vectors (test tasks as queries with an
+  instruction, proposals as documents; last-token pooling through transformers, no sentence-transformers), each
+  pair scored 1-10 by an LLM judge. Metrics per test task: top1 cos, mean cos@k, judge max and mean@k; aggregates
+  overall and per group (Web site, Android app, GameBoy init state) with coverage@8 (best match is the same task up to
+  a detail) and coverage@5 (a good part of the way there). A judge sanity check on 20 test tasks: a paraphrase of
+  itself (scores 9.85-10) and a random proposal (1.05-2.4).
+- Judge rubric, tuned on the three existing random trees by reading samples per score band: the first anchors (7 =
+  same goal, other target) let Gemma give 7 to the same kind of action on another site ("Uniqlo locations in Chicago"
+  vs "list of Apple Retail Stores") and invent links ("Speak to the aide inside the gym" vs "heal at the Pokémon
+  Center" -> 10). Now: judged in order (same website / app / place, same feature, same goal and target); 8-9 only
+  for every part of A on another value; a different site / app / place caps at 3; B doing only some of a multi-part
+  A, or vaguer than A about its target, caps at 7; "same feature" means the same screen, menu or tool; six examples
+  from invented environments. Residual: about 1 in 10 of the 8-9 band is still generous (e.g. "Speak to Pikachu" vs
+  "Listen to Squirtle's cry" -> 8).
+- Test sets: Web all WebVoyager tasks minus web_excluded_sites (429); GameBoy the 49 pokemon_red tasks; Android one
+  goal per template (instance 0, suite seed 30, as cusi.eval.android runs them).
+- Output next to the proposals: <run>/task_coverage/<embedder>/ (embeddings cached per text, neighbours) and
+  judge_<judge>/ (judgments appended per pair, so reruns and re-annotated trees only judge new pairs).
+- Models: required on the CLI; the Slurm pair's defaults are scripts/utils.sh parameters (TASK_COVERAGE_DEFAULTS).
+- The embedder runs in float16 on Turing GPUs (no bfloat16), so the embed stage can use the RTX 8000s; the judge
+  (Gemma 4) needs Ampere.
+
+## 2026-10-27: Android quick restore (snapshot cache)
+
+- Android searches restored every node by replaying its whole path from the scene's reset (one emulator holds both
+  scenes, so per-node states were lost at every scene switch). Replays cost ~15 s a step: 25-70 min per restore at
+  depth 124-285 steps, 42-52% of search time, and some diverged. The six first saturation runs (sat_{random,vlm}_s0-2)
+  were deleted and restarted after the fix.
+- Now (restore stays "replay"; --state_cache N, default 24 on Android, 0 elsewhere): every new non-root node gets an
+  emulator snapshot kept in an LRU cache of N; a restore loads the node's snapshot, or its nearest cached ancestor's
+  and replays only the rest (from the scene reset only when none is cached), then caches the node. Nothing is written
+  to the run: a resumed job or an emulator restart starts with an empty cache and falls back to replay.
+- Scene switches no longer close the env: SceneEnvs suspends it (connection closed, snapshots kept) and resumes it
+  from its scene snapshot; a scene whose snapshot is gone (the emulator restarted meanwhile) is rebuilt and drops its
+  states. The search's restore skip also checks the env's device_epoch (bumped on resume and recovery).
+- A snapshot is 3.6 GB (4 GB guest RAM, uncompressed) in the emulator's AVD copy under /tmp: save_state refuses below
+  30 GB free there. AndroidPlayEnv save/load failures now raise RuntimeError (the cache drops the entry) instead of
+  ending the run.
+- Measured (live, 12 expansions, cache 3): save ~4.6 s per node, cached restore ~10 s, replay from an ancestor only
+  for the missing segment; the emulator-restart path rebuilt the other scene as intended.
+
+## 2026-10-27: LoRA fine-tuning on practice success rows (cusi/finetune, run_finetune.py)
+
+- Data: the practice dataset's success rows (supervisor and executor calls), one row per model call. Each training
+  sequence is the chat template's generation prompt (Gemma 4's ends in an empty thought channel) + response +
+  `<turn|>`, loss on the response and `<turn|>` only. Checked against the server: for 18 real rows over all 9 call
+  types, vLLM's prompt token ids (sent as the agent sends them) equal ours, image tokens included.
+- Test-time match. Single-prompt calls (AgentVLM.infer: every supervisor call, the GameBoy and Android executors) send
+  images as JPEG at PIL defaults; chat calls (the Web executor's action) as PNG. The practice dataset saved PNG, so
+  training re-encodes as the call sent them (cusi.finetune.data.as_sent); dataset rows now record image_encoding.
+  Template lines of every call type compared over all pokemon_red eval prompts vs all training rows: only content
+  differs, plus the executor's no-change note, which came after the full_gemma-4-31b-it_r0 baseline (2026-10-19): a
+  base-vs-LoRA comparison needs the base model re-evaluated with the current agent.
+- First trainer (rejected): bf16 model split with device_map="auto" (one GPU busy at a time), one row per pass:
+  0.21 rows/s on 4x A6000 (~59 h per epoch of 45k rows).
+- Now FSDP2 (torchrun, one process per GPU), after torchtune / torchtitan: meta-device build, rank 0 reads the
+  checkpoint and broadcasts into the shards (buffers in one keyed broadcast: per-buffer broadcasts deadlocked);
+  every decoder / encoder layer an FSDP unit, bf16 params, fp32 gradient reduction and LoRA weights; non-reentrant
+  activation checkpointing; fused AdamW; sharded DCP checkpoints (resumable), adapter gathered to rank 0 at the end.
+- Loss only at response positions (CompletionLoss: the body, then lm_head and the logit softcap on the ~42 of ~830
+  positions that carry loss, the aim of Liger's fused linear CE / torchtune's chunked CE): HF's full-position logits
+  for an 8k-token micro-batch alone are 3-4 GB, which ran out of memory on an A5000. Checked against HF's own loss (model(..., labels=)) on 16-24 real micro-batches under FSDP: losses equal to <= 4e-8; a LoRA gradient differs by 1.0-1.4% (cosine >= 0.9999), the same as either path run twice (bf16 nondeterminism); 1-4.5 GB less peak memory per GPU at 2k tokens.
+- Batching: a step is rows_per_step rows; within it rows are sorted by length and packed into micro-batches of at most
+  max_batch_tokens padded tokens (a fixed rows-per-micro-batch put 16k tokens on one GPU and ran out of memory);
+  every rank runs as many passes (largest micro-batches split, zero-weight dummy passes as a last resort: none on
+  GameBoy). Loss is the token mean over the step (scaled by world / step tokens, as torchtune). Padding overhead
+  7% (8 GPUs, 8192 tokens), 19% (4 GPUs, 16384).
+- Measured (8x A5000, 32 rows/step, 8192 tokens): 0.7-1.4 rows/s (3.5-6x the first trainer), peak 18.6 GB of 24,
+  no data wait; validation loss 0.443 -> 0.310 in 8 steps. Throughput needs rows_per_step near
+  GPUs x max_batch_tokens / mean length (~850 tokens), else the per-pass weight all-gathers over PCIe dominate.
+- Serving: eval.sh --lora serves the base with the adapter (vLLM --enable-lora); every agent role calls it. On 18
+  rows 16 greedy outputs differ between base and adapter (the adapter is applied). 4x A5000 cannot serve Gemma-4-31B
+  with LoRA (0.03 GB left for KV cache); 2x A6000 or 8x A5000 can.
+- Hyperparameters (rank, alpha, lr, batch, epochs) are left to a sweep.

@@ -2,6 +2,7 @@
 The tree search loop: select a node, restore it, expand it, score the steps against one never-reset archive.
 """
 import time
+from collections import OrderedDict
 from typing import Any, Callable, Optional
 import numpy as np
 from cusi.utils.compute import Tally, gpu_work, part, tally
@@ -33,8 +34,8 @@ class TreeSearch:
     def __init__(self, *, envs, encoder, scorer, archive, expander, stats, selector: EnergySelector,
                  k_steps: int, node_threshold: float, closing_node: bool, archive_nodes_only: bool,
                  features=None, describer=None, decision_scorer=None, score_top_m: int = 8,
-                 restore: str = "state", replay_similarity: float = 0.95, store=None, logger=None,
-                 parameters: dict[str, Any] = None) -> None:
+                 restore: str = "state", replay_similarity: float = 0.95, state_cache: int = 0, store=None,
+                 logger=None, parameters: dict[str, Any] = None) -> None:
         """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features, describer and
         decision_scorer come together (the VLM explorer's search) or not at all: features, a VLMFeatures run on every
         new node; describer, a TransitionDescriber that reports each new node's segment (its parent's screen, then
@@ -42,12 +43,16 @@ class TreeSearch:
         that, at each decision, re-scores the score_top_m candidates with the highest energy (0: all) against their
         scene's discovered set, the scores being P(n). restore: "state" saves and loads a state per node; "replay" saves none and
         rebuilds a node by reset + its root->node actions, accepted when the result's similarity to the node is
-        >= replay_similarity. closing_node: an expansion's last step always becomes a node; without it, only steps
+        >= replay_similarity. state_cache (replay only): keep saved states of up to this many nodes, least recently
+        used evicted, never written to the run (Android: emulator snapshots); a replay then starts from the node's
+        nearest cached ancestor (or the node itself) instead of the scene's reset. closing_node: an expansion's last step always becomes a node; without it, only steps
         reaching node_threshold do, so a fruitless expansion adds none. archive_nodes_only: only states that become
         nodes enter the novelty archive (and text buffer), so novelty is the distance to the nearest node.
         store: a SearchStore that commits the roots and every expansion, and resume() reads back."""
         if restore not in RESTORE_MODES:
             raise ValueError(f"restore must be one of {RESTORE_MODES}, got {restore!r}")
+        if state_cache and restore != "replay":
+            raise ValueError("state_cache goes with restore='replay'")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
         self.expander, self.stats, self.selector = expander, stats, selector
         if len({features is None, describer is None, decision_scorer is None}) > 1:
@@ -58,13 +63,15 @@ class TreeSearch:
         self._n_discovered = None
         self.k_steps, self.node_threshold = k_steps, node_threshold
         self.closing_node, self.archive_nodes_only = closing_node, archive_nodes_only
-        self.restore, self.replay_similarity = restore, replay_similarity
+        self.restore, self.replay_similarity, self.state_cache = restore, replay_similarity, state_cache
         self.store, self.logger, self._parameters = store, logger, parameters
         self.tree = Tree()
         self.iteration = 0
         self.total_steps = 0
         self.records: list = []
-        self._at: dict = {}       # env key -> (node id, env) the env is currently in, so its restore can be skipped
+        # env key -> (node id, env, its device_epoch) the env is currently in, so its restore can be skipped
+        self._at: dict = {}
+        self._cache: OrderedDict = OrderedDict()    # node id -> (env, state id), least recently used first
         self.max_expansions: Optional[int] = None    # caps the expansions one iteration may add (several plans)
         self.roots_compute: dict = {}     # scene -> compute of making its root (cusi.utils.compute)
 
@@ -98,6 +105,8 @@ class TreeSearch:
                                   created_at=self.iteration, replay=self.restore == "replay" and not challenge,
                                   text_boxes=obs.get("text_boxes"))
         node.flags.update(flags)
+        if self.state_cache and not challenge and parent is not None:     # a root is restored by reset()
+            self._cache_put(node_id=node.id, env=env)
         if self.annotated and not challenge:
             f = self.features(env_description=env.env_description, frame=frame, text_boxes=obs.get("text_boxes", []))
             if not f.pop("parsed"):
@@ -118,7 +127,7 @@ class TreeSearch:
                     node = self._make_node(env_key=key, obs=obs, info=info, embedding=emb, value=None, parent=None,
                                            segment=None)
             self.roots_compute[key] = t.snapshot()
-            self._at[key] = (node.id, env)
+            self._mark_at(key=key, node_id=node.id, env=env)
             log_info(f"root {node.id}: scene {key}, features {node.features}, flags {node.flags}",
                      parameters=self._parameters)
         if self.store is not None:
@@ -140,14 +149,62 @@ class TreeSearch:
             self.store.write_flags(node=node)
         log_warn(f"node {node.id}: {message}; marked {flag}", parameters=self._parameters)
 
+    def _mark_at(self, *, key: str, node_id: int, env) -> None:
+        self._at[key] = (node_id, env, getattr(env, "device_epoch", 0))
+
+    def _cache_put(self, *, node_id: int, env) -> None:
+        """Save env's state (it is in node_id's) into the cache, evicting the least recently used beyond its size."""
+        if node_id in self._cache:
+            self._cache.move_to_end(node_id)
+            return
+        try:
+            state_id = env.save_state()
+        except RuntimeError as e:
+            log_warn(f"state cache: saving node {node_id} failed ({e})", parameters=self._parameters)
+            return
+        self._cache[node_id] = (env, state_id)
+        while len(self._cache) > self.state_cache:
+            old_env, old_id = self._cache.popitem(last=False)[1]
+            if old_env.has_state(state_id=old_id):
+                try:
+                    old_env.delete_state(state_id=old_id)
+                except RuntimeError as e:
+                    log_warn(f"state cache: deleting a state failed ({e})", parameters=self._parameters)
+
+    def _cache_load(self, *, node, env) -> tuple:
+        """Load the saved state of node or of its nearest cached ancestor -> (that node's id, or None when there
+        was none and the scene was reset; obs; info)."""
+        for nid in self.tree.ancestors(node.id):
+            entry = self._cache.get(nid)
+            if entry is None:
+                continue
+            cached_env, state_id = entry
+            if cached_env is not env or not env.has_state(state_id=state_id):
+                del self._cache[nid]      # the env was rebuilt, or restarted its emulator
+                continue
+            try:
+                env.load_state(state_id=state_id)
+            except RuntimeError as e:
+                log_warn(f"state cache: loading node {nid} failed ({e})", parameters=self._parameters)
+                del self._cache[nid]
+                env.delete_state(state_id=state_id)
+                continue
+            self._cache.move_to_end(nid)
+            return nid, env.current_obs, {"raw_frame": env.raw_frame}
+        return None, *env.reset()
+
     def _replay(self, *, node, env) -> tuple:
-        """Reset the scene and redo the root->node actions -> (similarity to the node, failure or None)."""
-        obs, info = env.reset()
-        path = self.tree.path_steps(node.id)
+        """Reset the scene, or load the nearest cached state on the way (state_cache), and redo the actions from
+        there to node -> (similarity to the node, failure or None, the node replayed from or None, steps replayed)."""
+        if self.state_cache:
+            start, obs, info = self._cache_load(node=node, env=env)
+        else:
+            start, (obs, info) = None, env.reset()
+        path = self.tree.path_steps(node.id, since=start)
         for i, step in enumerate(path):
             obs, _r, terminated, truncated, info = env.step(step.action)
             if (terminated or truncated) and i < len(path) - 1:
-                return 0.0, f"the episode ended at replay step {i + 1}/{len(path)}"
+                return 0.0, f"the episode ended at replay step {i + 1}/{len(path)}", start, len(path)
         sim = float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info)))
         if sim < self.replay_similarity and hasattr(env, "observe"):
             # Android: the a11y tree can lag the screen for a moment (no text, or the previous screen's): look again.
@@ -155,13 +212,13 @@ class TreeSearch:
             obs, info = env.observe()
             sim = max(sim, float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info))))
         if sim < self.replay_similarity:
-            return sim, f"replay reached similarity {sim:.3f} < {self.replay_similarity}"
-        return sim, None
+            return sim, f"replay reached similarity {sim:.3f} < {self.replay_similarity}", start, len(path)
+        return sim, None, start, len(path)
 
     def _restore_node(self, *, node, env) -> Optional[dict]:
         """Put env in node's state -> restore stats, or None if it could not be (node is then flagged)."""
         at = self._at.get(node.env_key)
-        if at is not None and at[0] == node.id and at[1] is env:
+        if at is not None and at[0] == node.id and at[1] is env and at[2] == getattr(env, "device_epoch", 0):
             return {"restore": "skipped"}
         self._at.pop(node.env_key, None)
         if node.state_id is not None:
@@ -171,11 +228,15 @@ class TreeSearch:
                 self._unselectable(node=node, flag="unrestorable", message=f"load_state failed ({e})")
                 return None
             return {"restore": "state"}
-        sim, failure = self._replay(node=node, env=env)
+        sim, failure, start, n_steps = self._replay(node=node, env=env)
         if failure is not None:
             self._unselectable(node=node, flag="replay_diverged", message=failure)
             return None
-        return {"restore": "replay", "replay_steps": len(self.tree.path_steps(node.id)), "replay_similarity": sim}
+        if self.state_cache:
+            if start == node.id:
+                return {"restore": "cached"}
+            self._cache_put(node_id=node.id, env=env)
+        return {"restore": "replay", "replay_from": start, "replay_steps": n_steps, "replay_similarity": sim}
 
     def verify_restores(self, *, limit: Optional[int] = None) -> dict:
         """Restore each selectable node (up to limit) and compare with what it stored: pixel-exact frames and the
@@ -351,7 +412,7 @@ class TreeSearch:
             # ended, or past its last node (no closing node): the env is in no node's state, so the next restore runs
             self._at.pop(node.env_key, None)
         else:
-            self._at[node.env_key] = (parent_id, env)
+            self._mark_at(key=node.env_key, node_id=parent_id, env=env)
         t1 = time.time()
         if self.annotated:
             with part("describe"):

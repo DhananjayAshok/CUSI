@@ -38,6 +38,11 @@ MSG_NO_STATUS = ("The `status` action is not available: there is no task to fini
 
 TEXT_KEYS = ("ui_elements",)
 
+# A disk + RAM snapshot is ~3.6 GB (4 GB guest RAM), written to the emulator's private AVD copy under /tmp
+# (scripts/android_emulator.sh): save_state refuses once less than this would be left free there.
+SNAPSHOT_DIR = "/tmp"
+SNAPSHOT_MIN_FREE_BYTES = 30 * 2 ** 30
+
 _INDEXED_ACTIONS = ("click", "long_press", "input_text", "scroll")
 _JSON_ACTION_FIELDS = ("action_type", "index", "x", "y", "text", "direction", "goal_status", "app_name")
 
@@ -257,6 +262,8 @@ class AndroidPlayEnv(TextActionEnv):
         self._raw_frame = None
         self._states: dict[str, datetime.datetime] = {}   # saved state_id -> device clock at save
         self.recoveries = 0
+        self._suspended = False
+        self.device_epoch = 0     # bumped whenever something else may have moved the device (resume, recovery)
 
         self._env = connection if connection is not None else self._guarded(fn=self._connect)
         self._task, self._snapshot_clock, raw = self._build_scene_with_retries()
@@ -583,17 +590,21 @@ class AndroidPlayEnv(TextActionEnv):
         return None
 
     # ------------------------------------------------------------ saved states
-    # Emulator snapshots; need --snapshots true and live in that emulator's private AVD copy.
+    # Emulator snapshots; need --snapshots true and live in that emulator's private AVD copy. Failures raise
+    # RuntimeError (a failed load leaves the device anywhere: reset() or another load_state puts it back).
 
     def _state_snapshot_name(self, state_id: str) -> str:
         return f"{self._snapshot_name}_{state_id}"
 
     def _save_state_impl(self, *, state_id: str) -> None:
+        free = shutil.disk_usage(SNAPSHOT_DIR).free
+        if free < SNAPSHOT_MIN_FREE_BYTES:
+            raise RuntimeError(f"only {free / 2 ** 30:.0f} GB free in {SNAPSHOT_DIR}")
         name = self._state_snapshot_name(state_id)
         try:
             self._states[state_id] = self._guarded(fn=lambda: self._save_snapshot(name))
-        except (EnvStalled, RuntimeError) as e:
-            log_error(f"Could not save Android state {state_id}: {e}", parameters=self._parameters)
+        except EnvStalled as e:
+            raise RuntimeError(f"Could not save Android state {state_id}: {e}") from e
 
     def _load_state_impl(self, *, state_id: str) -> dict:
         env, name, clock = self._env, self._state_snapshot_name(state_id), self._states[state_id]
@@ -602,11 +613,11 @@ class AndroidPlayEnv(TextActionEnv):
             self._load_snapshot(env, name, clock)
             return self._observe_raw(env)
 
+        self._at_initial_state = False
         try:
             raw = self._guarded(fn=load)
-        except (EnvStalled, RuntimeError) as e:
-            log_error(f"Could not load Android state {state_id}: {e}", parameters=self._parameters)
-        self._at_initial_state = False
+        except EnvStalled as e:
+            raise RuntimeError(f"Could not load Android state {state_id}: {e}") from e
         self._steps = 0
         self._ui_count = raw[1][1]
         return self._obs(raw=raw)
@@ -614,8 +625,40 @@ class AndroidPlayEnv(TextActionEnv):
     def _delete_state_impl(self, *, state_id: str) -> None:
         out = self._adb("emu", "avd", "snapshot", "delete", self._state_snapshot_name(state_id), timeout=120)
         if "OK" not in out:
-            log_error(f"Could not delete Android state {state_id}: {out!r}", parameters=self._parameters)
+            log_warn(f"Could not delete Android state {state_id}: {out!r}", parameters=self._parameters)
         del self._states[state_id]
+
+    # One emulator holds several scenes' envs (cusi.search.envs.SceneEnvs): the scene not in use is suspended, its
+    # connection closed but its snapshots kept, and resumed from its scene snapshot.
+
+    def suspend(self) -> None:
+        """Close the connection, keeping the scene's and the saved states' snapshots on the emulator."""
+        try:
+            self._env.close()
+        except Exception as e:
+            log_warn(f"AndroidPlayEnv.suspend: {e}", parameters=self._parameters)
+        self._suspended = True
+
+    def resume(self) -> None:
+        """Reconnect and return to the scene's initial state. If its snapshot is gone (the emulator was restarted
+        meanwhile), the scene is rebuilt and the saved states are dropped."""
+        self._env = self._guarded(fn=self._connect)
+        self._suspended = False
+        self.device_epoch += 1
+        env, clock = self._env, self._snapshot_clock
+        try:
+            raw = self._guarded(fn=lambda: self._restore(env, self._task, clock))
+        except (EnvStalled, RuntimeError) as e:
+            log_warn(f"resuming {self.task_name} from its snapshot failed ({str(e)[:200]}); rebuilding the scene"
+                     f" and dropping {len(self._states)} saved state(s)", parameters=self._parameters)
+            self._states.clear()
+            self._saved_state_ids.clear()
+            self._task, self._snapshot_clock, raw = self._build_scene_with_retries()
+        self._at_initial_state = True
+        self._episode_over = False
+        self._steps = 0
+        self._ui_count = raw[1][1]
+        self.current_obs = self._obs(raw=raw)
 
     def close(self, *, close_connection: bool = True) -> None:
         try:
@@ -625,7 +668,7 @@ class AndroidPlayEnv(TextActionEnv):
             self._saved_state_ids.clear()
             if self.reset_mode == "snapshot":
                 self._adb("emu", "avd", "snapshot", "delete", self._snapshot_name, timeout=120)
-            if close_connection:
+            if close_connection and not self._suspended:
                 self._env.close()
         except Exception as e:
             log_warn(f"AndroidPlayEnv.close: {e}", parameters=self._parameters)
@@ -660,6 +703,7 @@ class AndroidPlayEnv(TextActionEnv):
         log_warn(f"AndroidPlayEnv stalled ({why}); restarting the emulator and rebuilding the scene",
                  parameters=self._parameters)
         self.recoveries += 1
+        self.device_epoch += 1
         if self._states:
             # The restarted emulator runs on a freshly staged AVD copy: saved snapshots are gone.
             log_warn(f"Emulator restart drops {len(self._states)} saved state(s)", parameters=self._parameters)

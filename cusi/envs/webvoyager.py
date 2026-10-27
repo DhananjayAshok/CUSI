@@ -382,7 +382,15 @@ class WebVoyagerPlayEnv(TextActionEnv):
                     break
                 log_warn(f"labelling failed ({reason}); retrying", parameters=self._parameters)
                 time.sleep(1)
-        png = self._driver.get_screenshot_as_png()
+        for attempt in range(3):
+            # A navigation that starts mid-screenshot aborts it ("aborted by navigation"): wait for the page and retry.
+            try:
+                png = self._driver.get_screenshot_as_png()
+                break
+            except self._wv.WebDriverException:
+                if attempt == 2:
+                    raise
+                time.sleep(2)
         try:
             for rect in rects:
                 self._driver.execute_script("arguments[0].remove()", rect)

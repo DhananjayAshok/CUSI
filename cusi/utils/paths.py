@@ -140,6 +140,11 @@ def elements_file(*, parameters: dict, env: str, run_names: str) -> str:
 
 # --------------------------------------------------------------------------- search
 
+def finetune_run(*, parameters: dict, env: str, source: str, run: str) -> str:
+    """A LoRA fine-tune (cusi.finetune) on the practice dataset of the search run source; its adapter is <dir>/adapter."""
+    return os.path.join(parameters["model_dir"], "finetune", env, source, run)
+
+
 def search_root(*, parameters: dict, env: str) -> str:
     return os.path.join(_storage(parameters), "search", env)
 

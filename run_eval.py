@@ -2,6 +2,7 @@
 Test-set evaluation through cusi.envs in test mode.
 
     python run_eval.py <gameboy|android|web> --model_name <served name> --run_name dev
+    python run_eval.py task_coverage --env <env> --run <annotated search run> ...   (cusi.eval.task_coverage)
 """
 import click
 from cusi.utils.parameter_handling import load_parameters
@@ -11,7 +12,8 @@ loaded_parameters = load_parameters()
 
 class LazyGroup(click.Group):
     """Imports each benchmark only when run (GameBoyRL's and WebVoyager's `utils` modules clash)."""
-    COMMANDS = {"gameboy": "cusi.eval.gameboy", "android": "cusi.eval.android", "web": "cusi.eval.web"}
+    COMMANDS = {"gameboy": "cusi.eval.gameboy", "android": "cusi.eval.android", "web": "cusi.eval.web",
+                "task_coverage": "cusi.eval.task_coverage"}
 
     def list_commands(self, ctx):
         return sorted(self.COMMANDS)

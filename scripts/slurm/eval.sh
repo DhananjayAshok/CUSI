@@ -16,6 +16,9 @@
 #   bash scripts/slurm/eval.sh --env <env> ... [--overwrite <value>] [--ignore_config_violation <value>]
 #   (--tasks may name a file of task ids, one per line)
 #   bash scripts/slurm/eval.sh --env <env> ... [--vllm_extra "<more vllm serve flags>"]   # e.g. "--dtype half" on pre-Ampere GPUs
+#   bash scripts/slurm/eval.sh --env <env> --model <base model> --run <run> --lora <adapter dir>
+#       # vLLM serves the base with the LoRA adapter (run_finetune.py's <dir>/adapter) as "<base short>-lora-<finetune
+#       # run>", and every agent role (executor, supervisor) calls that name
 #
 # A run may only be resumed with the config it started with. --overwrite deletes the run dir (and its
 # <run>_s<i> shards) first; --ignore_config_violation resumes anyway.
@@ -41,6 +44,15 @@ if [[ "$PORT" == "none" ]]; then
     PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 400 ))
 fi
 URL="http://127.0.0.1:$PORT/v1/"
+AGENT_MODEL="$MODEL"
+LORA_FLAGS=""
+if [[ "${ARGS["lora"]}" != "none" ]]; then
+    LORA="${ARGS["lora"]%/}"
+    [[ -f "$LORA/adapter_config.json" ]] || { echo "No LoRA adapter at $LORA"; exit 1; }
+    AGENT_MODEL="${MODEL##*/}-lora-$(basename "$(dirname "$LORA")")"
+    RANK=$(python -c "import json, sys; print(json.load(open(sys.argv[1]))['r'])" "$LORA/adapter_config.json")
+    LORA_FLAGS="--enable-lora --max-loras 1 --max-lora-rank $RANK --lora-modules $AGENT_MODEL=$LORA"
+fi
 RUN_DIR=$(python -m cusi.utils.paths eval_run --env "$ENV_NAME" --run "$RUN")
 if [[ "${ARGS["overwrite"]}" == "true" && "${ARGS["judge_only"]}" != "true" ]]; then
     rm -rf "${RUN_DIR%/}" "${RUN_DIR%/}"_s[0-9]*
@@ -50,15 +62,15 @@ GPU_NAMES=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none} ($GPU_NAMES)  env: $ENV_NAME  model: $MODEL  port: $PORT  -> $RUN_DIR"
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 
-serve() {   # serve <model>; prints the start-up seconds
+serve() {   # serve <model> [more vllm serve flags]; prints the start-up seconds
     local t0=$(date +%s)
-    local extra="--no-enable-prefix-caching"
+    local extra="--no-enable-prefix-caching${2:+ $2}"
     [[ "${ARGS["vllm_extra"]}" != "none" ]] && extra+=" ${ARGS["vllm_extra"]}"
     bash scripts/serve_vllm.sh --model "$1" --port "$PORT" --extra "$extra" >&2 || return 1
     echo $(( $(date +%s) - t0 ))
 }
 
-FLAGS=(--model_name "$MODEL" --model_backend vllm --vllm_base_url "$URL" --run_name "$RUN")
+FLAGS=(--model_name "$AGENT_MODEL" --model_backend vllm --vllm_base_url "$URL" --run_name "$RUN")
 [[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)
 [[ "${ARGS["tasks"]}" != "none" ]] && FLAGS+=(--tasks "${ARGS["tasks"]}")
 [[ "${ARGS["seed"]}" != "0" ]] && FLAGS+=(--seed "${ARGS["seed"]}")
@@ -75,7 +87,7 @@ esac
 
 STARTUP=0; AGENT=0; JUDGE_STARTUP=0; JUDGE=0; STATUS=0
 if [[ "${ARGS["judge_only"]}" != "true" ]]; then
-    STARTUP=$(serve "$MODEL") || exit 1
+    STARTUP=$(serve "$MODEL" "$LORA_FLAGS") || exit 1
     t0=$(date +%s)
     case "$ENV_NAME" in
         gameboy)
@@ -125,7 +137,7 @@ fi
 python - "$RUN_DIR/timing.jsonl" <<EOF
 import json, sys, time
 row = {"job": "$JOB", "node": "$(hostname)", "gpus": "${CUDA_VISIBLE_DEVICES:-none}", "gpu_names": "$GPU_NAMES",
-       "env": "$ENV_NAME", "model": "$MODEL", "workers": "${ARGS["workers"]}",
+       "env": "$ENV_NAME", "model": "$MODEL", "agent_model": "$AGENT_MODEL", "lora": "${ARGS["lora"]}", "workers": "${ARGS["workers"]}",
        "n_emulators": "${ARGS["n_emulators"]}", "judge_model": "${ARGS["judge_model"]}", "vllm_startup_seconds": $STARTUP,
        "agent_seconds": $AGENT, "judge_vllm_startup_seconds": $JUDGE_STARTUP, "judge_seconds": $JUDGE,
        "exit_status": $STATUS, "finished": time.strftime("%Y-%m-%d %H:%M:%S")}
