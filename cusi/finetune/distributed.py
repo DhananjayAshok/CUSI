@@ -43,25 +43,58 @@ def all_sum(values: list, device) -> list:
     return t.tolist()
 
 
+LOSS_CHUNK = 256      # labelled positions per logits chunk: 256 x 262k vocab x 4 B = 268 MB
+
+
 class CompletionLoss(nn.Module):
     """The summed cross-entropy of a batch's labelled tokens. As Gemma4ForConditionalGeneration.forward (the body,
-    then lm_head and the final logit softcap) but projecting only the positions whose next token has a label."""
+    then lm_head and the final logit softcap) but projecting only the positions whose next token has a label, in
+    chunks of LOSS_CHUNK positions whose logits are recomputed in backward (torchtune's chunked cross-entropy), so the
+    logits' memory does not grow with the response tokens of a micro-batch."""
 
     def __init__(self, *, model) -> None:
         super().__init__()
         self.model = model         # the PeftModel
 
+    def _chunk_loss(self, hidden: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        base = self.model.get_base_model()
+        logits = base.lm_head(hidden)
+        cap = base.config.get_text_config().final_logit_softcapping
+        if cap is not None:
+            logits = torch.tanh(logits / cap) * cap
+        return F.cross_entropy(logits.float(), targets, reduction="sum")
+
     def forward(self, batch: dict) -> torch.Tensor:
+        from torch.utils.checkpoint import checkpoint
         base = self.model.get_base_model()
         labels = batch["labels"]
         hidden = base.model(**batch, use_cache=False, return_dict=True).last_hidden_state
         targets = labels[:, 1:]
         keep = targets != IGNORE_INDEX
-        logits = base.lm_head(hidden[:, :-1][keep])
-        cap = base.config.get_text_config().final_logit_softcapping
-        if cap is not None:
-            logits = torch.tanh(logits / cap) * cap
-        return F.cross_entropy(logits.float(), targets[keep], reduction="sum")
+        hidden, targets = hidden[:, :-1][keep], targets[keep]
+        total = hidden.new_zeros((), dtype=torch.float32)
+        for h, t in zip(hidden.split(LOSS_CHUNK), targets.split(LOSS_CHUNK)):
+            total = total + checkpoint(self._chunk_loss, h, t, use_reentrant=False)
+        return total
+
+
+def _vision_position_embeddings(self, pixel_position_ids: torch.Tensor, padding_positions: torch.Tensor):
+    """Gemma4VisionPatchEmbedder._position_embeddings as a table lookup. HF multiplies a one-hot int64 tensor
+    (images x 2520 patches x 2 x 10240, ~394 MiB per image) by the table, so a micro-batch of 20+ images ran out of
+    memory; selecting the rows gives bitwise the same result."""
+    positions = pixel_position_ids.clamp(min=0)
+    table = self.position_embedding_table
+    embeddings = table[0][positions[..., 0]] + table[1][positions[..., 1]]
+    return torch.where(padding_positions.unsqueeze(-1), 0.0, embeddings)
+
+
+def patch_model_classes() -> None:
+    """Memory fixes to HF model code, applied before the model is built (equal outputs)."""
+    try:
+        from transformers.models.gemma4.modeling_gemma4 import Gemma4VisionPatchEmbedder
+    except ImportError:
+        return
+    Gemma4VisionPatchEmbedder._position_embeddings = _vision_position_embeddings
 
 
 def build(*, model_name: str, lora_config, rank: int, device, activation_checkpointing: bool,
@@ -71,6 +104,7 @@ def build(*, model_name: str, lora_config, rank: int, device, activation_checkpo
     from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
     from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
     from transformers import AutoConfig, AutoModelForImageTextToText
+    patch_model_classes()
     config = AutoConfig.from_pretrained(model_name)
     full_sd, full_buffers = None, None
     if rank == 0:
@@ -93,7 +127,10 @@ def build(*, model_name: str, lora_config, rank: int, device, activation_checkpo
         if compile_layers:
             m.compile()
         fully_shard(m, mp_policy=mp)
-    fully_shard(wrapper, mp_policy=mp, reshard_after_forward=False)   # backward starts right after the root forward
+    # The root (embeddings, tied lm_head: ~2.8 GB gathered) reshards after forward too: one more gather per pass,
+    # but ~2.4 GB more room for the backward pass (on A5000s a ~3.7k-token row's backward asked for 1.7 GB more, the
+    # size of a 32-head L x L attention matrix in fp32)
+    fully_shard(wrapper, mp_policy=mp)
     wrapper.to_empty(device=device)
     base = model.get_base_model()
     if getattr(base, "_tied_weights_keys", None) and base.lm_head.weight is not base.get_input_embeddings().weight:

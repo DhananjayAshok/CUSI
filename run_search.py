@@ -15,14 +15,13 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.paths import search_run, storage_relative
 from cusi.utils.run_dir import run_options
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.search.restore import DEFAULT_STATE_CACHE
 from cusi.state import build_archive, build_encoder, build_scorer_from_config, state_config, state_options
 
 loaded_parameters = load_parameters()
 
 #: Android runs every scene on one emulator, so only one scene env is live at a time and nodes are rebuilt by replay.
 DEFAULT_RESTORE = {"gameboy": "state", "web": "state", "android": "replay"}
-#: Android keeps emulator snapshots of its recent nodes (~3.6 GB each, cusi.envs.android_world) to replay from.
-DEFAULT_STATE_CACHE = {"gameboy": 0, "web": 0, "android": 24}
 PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 #: Per expander: (actions per expansion, node threshold, what one expansion's actions are). Each becomes the flags
 #: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.

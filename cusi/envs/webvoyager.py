@@ -520,7 +520,12 @@ class WebVoyagerPlayEnv(TextActionEnv):
                                       step=self._steps, scene_id=self.scene_id, url=self._url, out_of_bounds=left)
                 return self._obs(), 0.0, False, truncated, info
         except (self._wv.WebDriverException, WebDriverHang) as e:
-            if not (isinstance(e, WebDriverHang) or self._wv._is_browser_dead(e)):
+            # A navigation that aborts a command can leave the tab detached ("not attached to an active page",
+            # "inspected target navigated or closed"), and a hung renderer times out every command: either way every
+            # retry fails, so restart Chrome as for a crash
+            detached = any(s in str(e).lower() for s in ("aborted by navigation",
+                                                         "timed out receiving message from renderer"))
+            if not (isinstance(e, WebDriverHang) or self._wv._is_browser_dead(e) or detached):
                 raise
             if self.mode == "test":
                 # Evaluation retries a crashed task from scratch: end this episode.

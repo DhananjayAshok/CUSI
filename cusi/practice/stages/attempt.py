@@ -13,6 +13,7 @@ results.csv has one row per task. A task with a pickle is done; rerunning contin
 """
 import os
 import pickle
+import time
 import pandas as pd
 from cusi.agents.agent import AGENT_VERSION, merged_leg
 from cusi.eval.supervision import supervisor_state
@@ -79,6 +80,7 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
         with tally() as task_compute:
             for n_try in range(1, max_tries + 1):
                 with tally() as try_compute:
+                    t_restore = time.time()
                     try:
                         with part("restore"):
                             obs, info = start(env, task)
@@ -86,6 +88,7 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
                         record["restore_error"] = str(e)
                         log_warn(f"attempt [{task['task_id']}]: {e}", parameters=parameters)
                         break
+                    restore_seconds = time.time() - t_restore
                     with part("agent"):
                         _, result = agent.run(task=task["task"], obs=obs, info=info, max_steps=spec.max_steps,
                                               guidance=hint or None)
@@ -99,7 +102,8 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
                     record["tries"].append(entry)
                     log_info(f"attempt [{task['task_id']}] try {n_try}: "
                              f"{'success' if verdict['success'] else 'failure'} ({leg.termination_reason}, "
-                             f"{len(leg.env_steps)} steps) | {task['task']}", parameters=parameters)
+                             f"{len(leg.env_steps)} steps, restore {restore_seconds:.0f}s) | {task['task']}",
+                             parameters=parameters)
                     if not verdict["success"] and n_try < max_tries:
                         with part("critique"):
                             hint = derive_critique_hint(report=leg, vlm=vlm, domain=spec.domain, previous_hint=hint,
@@ -132,6 +136,6 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
     pd.DataFrame(rows).to_csv(paths.results, index=False)
     n_ok = sum(r["success"] for r in rows)
     log_info(f"attempt: {n_ok}/{len(rows)} tasks succeeded ({sum(r['n_tries'] > 1 and r['success'] for r in rows)} "
-             f"after a hint) -> {paths.root}", parameters=parameters)
+             f"after a hint) -> {paths.root}; restores {restorer.stats}", parameters=parameters)
     if failures:
         log_warn("attempt: some tasks raised; rerun to retry them.", parameters=parameters)

@@ -2,17 +2,23 @@
 A finished search run's nodes restored in a fresh env of their scene (practice starts tasks from them). GameBoy and
 Web nodes import the state the search exported (states/); Android nodes, which have none, replay the root -> node
 actions from the scene's reset and are checked against the node's stored embedding with the run's own encoder, as the
-search checks its replays.
+search checks its replays. With state_cache, a replayed node's state is saved on its env and later restores of it (a
+node's other tasks and tries) load it, and of its descendants replay only from it, as the search's state cache does.
 """
 import json
 import os
 import threading
 import time
 import weakref
+from collections import OrderedDict
 from typing import Optional
 import torch
 from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
 from cusi.utils.compute import gpu_work
+from cusi.utils.log_handling import log_warn
+
+#: Android keeps emulator snapshots of its recent nodes (~3.6 GB each, cusi.envs.android_world) to replay from.
+DEFAULT_STATE_CACHE = {"gameboy": 0, "web": 0, "android": 24}
 
 
 class RestoreFailed(RuntimeError):
@@ -20,10 +26,11 @@ class RestoreFailed(RuntimeError):
 
 
 class NodeRestorer:
-    """Shared by worker threads, each restoring into its own env."""
+    """Shared by worker threads, each restoring into its own env. state_cache: saved states kept per env (replayed
+    nodes only), least recently used evicted."""
 
-    def __init__(self, *, directory: str, parameters: dict) -> None:
-        self.directory, self._parameters = directory, parameters
+    def __init__(self, *, directory: str, parameters: dict, state_cache: int = 0) -> None:
+        self.directory, self._parameters, self.state_cache = directory, parameters, state_cache
         self.nodes = node_rows(directory=directory)
         self._actions = {e["id"]: [s["action"] for s in e["steps"]]
                          for e in read_rows(os.path.join(directory, EXPANSIONS_FILE))}
@@ -32,12 +39,14 @@ class NodeRestorer:
         self.config = config.get("config", config)
         self._encoder = None
         self._imported = weakref.WeakKeyDictionary()     # env -> {node id: its state id on that env}
+        self._cache = weakref.WeakKeyDictionary()        # env -> OrderedDict(node id -> state id), LRU first
+        self.stats = {"cached": 0, "replay": 0, "replay_from_cache": 0}
         self._lock = threading.Lock()
 
-    def path_actions(self, *, node_id: int) -> list:
-        """The root -> node actions, oldest first."""
+    def path_actions(self, *, node_id: int, since: Optional[int] = None) -> list:
+        """The root -> node actions, oldest first; with since (an ancestor of node_id), only those after it."""
         chain, nid = [], node_id
-        while nid is not None:
+        while nid is not None and nid != since:
             chain.append(nid)
             nid = self.nodes[nid]["parent"]
         actions = []
@@ -66,9 +75,59 @@ class NodeRestorer:
             return env.current_obs, {"raw_frame": env.raw_frame}
         return self._replay(env=env, node_id=node_id)
 
+    def _cache_of(self, *, env) -> OrderedDict:
+        with self._lock:
+            return self._cache.setdefault(env, OrderedDict())
+
+    def _cache_put(self, *, env, node_id: int) -> None:
+        """Save env's state (it is in node_id's), evicting the least recently used beyond state_cache."""
+        cache = self._cache_of(env=env)
+        try:
+            cache[node_id] = env.save_state()
+        except RuntimeError as e:
+            log_warn(f"restore state cache: saving node {node_id} failed ({e})", parameters=self._parameters)
+            return
+        while len(cache) > self.state_cache:
+            old_id = cache.popitem(last=False)[1]
+            if env.has_state(state_id=old_id):
+                try:
+                    env.delete_state(state_id=old_id)
+                except RuntimeError as e:
+                    log_warn(f"restore state cache: deleting a state failed ({e})", parameters=self._parameters)
+
+    def _cache_load(self, *, env, node_id: int) -> tuple:
+        """Load the saved state of node_id or of its nearest cached ancestor -> (that node's id, or None when there
+        was none and the scene was reset; obs; info)."""
+        cache = self._cache_of(env=env)
+        nid = node_id
+        while nid is not None:
+            state_id = cache.get(nid)
+            if state_id is not None:
+                if not env.has_state(state_id=state_id):
+                    del cache[nid]      # the env restarted its emulator
+                else:
+                    try:
+                        env.load_state(state_id=state_id)
+                        cache.move_to_end(nid)
+                        return nid, env.current_obs, {"raw_frame": env.raw_frame}
+                    except RuntimeError as e:
+                        log_warn(f"restore state cache: loading node {nid} failed ({e})", parameters=self._parameters)
+                        del cache[nid]
+                        if env.has_state(state_id=state_id):
+                            env.delete_state(state_id=state_id)
+            nid = self.nodes[nid]["parent"]
+        return None, *env.reset()
+
     def _replay(self, *, env, node_id: int) -> tuple:
-        obs, info = env.reset()
-        path = self.path_actions(node_id=node_id)
+        if self.state_cache:
+            start, obs, info = self._cache_load(env=env, node_id=node_id)
+            if start == node_id:
+                self.stats["cached"] += 1
+                return obs, info
+        else:
+            start, (obs, info) = None, env.reset()
+        self.stats["replay_from_cache" if start is not None else "replay"] += 1
+        path = self.path_actions(node_id=node_id, since=start)
         for i, action in enumerate(path):
             obs, _r, terminated, truncated, info = env.step(action)
             if (terminated or truncated) and i < len(path) - 1:
@@ -82,6 +141,8 @@ class NodeRestorer:
             sim = max(sim, self._similarity(node_id=node_id, obs=obs, info=info))
         if sim < threshold:
             raise RestoreFailed(f"node {node_id}: replay reached similarity {sim:.3f} < {threshold}")
+        if self.state_cache:
+            self._cache_put(env=env, node_id=node_id)
         return obs, info
 
     def _similarity(self, *, node_id: int, obs: dict, info: dict) -> float:

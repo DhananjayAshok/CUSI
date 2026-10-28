@@ -10,6 +10,7 @@ from cusi.utils.parameter_handling import load_parameters, compute_secondary_par
 from cusi.utils.log_handling import log_info
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS, EnvPool
 from cusi.utils.paths import PracticePaths, search_run
+from cusi.search.restore import DEFAULT_STATE_CACHE
 from cusi.agents.vlm import AgentVLM
 
 loaded_parameters = load_parameters()
@@ -24,8 +25,12 @@ loaded_parameters = load_parameters()
 @click.option("--random_seed", default=loaded_parameters["random_seed"])
 @click.option("--vllm_port", default=loaded_parameters["vllm_port"], help="Port of the vLLM server to use.")
 @click.option("--source", required=True, help="An annotated search run of this env (cusi.search.annotate).")
+@click.option("--state_cache", default=None, type=int,
+              help="Replay restores: keep saved states of this many recent nodes and replay from the nearest one "
+                   "(default: 24 on Android, 0 elsewhere).")
 @click.pass_context
-def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, random_seed, vllm_port, source):
+def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, random_seed, vllm_port, source,
+         state_cache):
     loaded_parameters["random_seed"] = random_seed
     loaded_parameters["vllm_port"] = vllm_port
     compute_secondary_parameters(loaded_parameters)
@@ -34,6 +39,7 @@ def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, ra
         "parameters": loaded_parameters, "spec": spec, "overwrite": overwrite, "max_new_tokens": max_new_tokens,
         "paths": PracticePaths(parameters=loaded_parameters, env_name=env_name, model_name=model_name, source=source),
         "source": source, "env_name": env_name,
+        "state_cache": DEFAULT_STATE_CACHE[env_name] if state_cache is None else state_cache,
         "vlm": AgentVLM(model_name=model_name, model_backend=model_backend, parameters=loaded_parameters),
     }
     log_info(f"run_practice: env={env_name} model={model_name} source={source} -> {ctx.obj['paths'].root}",
@@ -55,7 +61,8 @@ def do_attempt(obj, max_tries, lookback, max_tasks):
     from cusi.practice.stages.attempt import attempt
     from cusi.search.restore import NodeRestorer
     restorer = NodeRestorer(directory=search_run(parameters=obj["parameters"], env=obj["env_name"],
-                                                 run=obj["source"]), parameters=obj["parameters"])
+                                                 run=obj["source"]), parameters=obj["parameters"],
+                            state_cache=obj["state_cache"])
     attempt(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], restorer=restorer,
             max_tries=max_tries, lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"], max_tasks=max_tasks,
             parameters=obj["parameters"])

@@ -1386,3 +1386,45 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   rows 16 greedy outputs differ between base and adapter (the adapter is applied). 4x A5000 cannot serve Gemma-4-31B
   with LoRA (0.03 GB left for KV cache); 2x A6000 or 8x A5000 can.
 - Hyperparameters (rank, alpha, lr, batch, epochs) are left to a sweep.
+
+## 2026-10-28: LoRA memory fixes, the GameBoy sweep, the final run
+
+- Memory on 8x A5000 (24 GB), found by the sweep's out-of-memory crashes:
+  - Gemma4VisionPatchEmbedder builds its position embeddings as a one-hot (images x 2520 x 2 x 10240 int64,
+    ~394 MiB per image) times the table: 10 GiB for a validation micro-batch. Patched to a row lookup
+    (patch_model_classes; bitwise equal on CPU).
+  - The CompletionLoss logits are computed in chunks of 256 positions, recomputed in backward (torchtune's chunked
+    CE). This alone did not fix the next crash (the same 1.71 GiB allocation in backward).
+  - The root FSDP unit (embeddings, tied lm_head) now reshards after forward: ~2.4 GB more room in backward, one
+    more all-gather per pass. Together with --max_length 3072 (drops 0.7% of rows) this ran the sweep without a crash.
+    The 1.71 GiB allocation matches a 32-head L x L fp32 attention matrix at ~3.7k tokens (an unchunked attention
+    path; not checked which kernel is selected).
+  - Rule of thumb on A5000: ~10 GB fixed + ~2.5 GB per 1k tokens of micro-batch, so max_batch_tokens 4096 (8192 ran
+    out of memory). Peak 17.9 GB at 4096.
+- Sweep (gameboy, tree_random_v1, 8000 rows, 125 steps of 64 rows, alpha = 2r, ~2 h each on 8x A5000, ~1.1 rows/s);
+  final validation loss (untrained 0.414):
+
+  | rank \ lr | 5e-5  | 1e-4  | 2e-4  |
+  |-----------|-------|-------|-------|
+  | 16        | 0.271 | 0.277 | 0.293 |
+  | 64        | 0.288 | 0.304 | 0.345 |
+
+  Lower lr and the lower rank win throughout; the best is at the grid's edge, so a lower lr was not ruled out.
+- Final run: final_r16_lr5e-5 on all 45k success rows (698 steps), evaluated with the adapter (eval run
+  lora_final_r16_lr5e-5) against the base model re-evaluated with the current agent (base_gemma-4-31b-it).
+
+## 2026-10-28: Practice restores from a snapshot cache; Web Chrome restarts
+
+- Android practice replayed every task's node from the scene reset for every try (~30-35 min per restore at depth;
+  ~33 min per task, ~66 h left for 112 tasks). NodeRestorer now takes state_cache (run_practice.py --state_cache,
+  default 24 on Android, 0 elsewhere; DEFAULT_STATE_CACHE moved to cusi/search/restore.py): a replayed node's
+  emulator snapshot is kept per env (LRU), the node's other tasks and tries load it, and descendants replay only from
+  their nearest cached ancestor. Measured on the live job: first restore of a node 2055 s, then 15-54 s.
+- Web searches: a navigation that aborts a WebDriver command can leave the tab detached ("not attached to an active
+  page", "inspected target navigated or closed"), and a hung renderer times out every command ("timed out receiving
+  message from renderer"); the screenshot / labelling retries then all fail and the search crashed (sat_random_s0
+  three times; resumes crashed on the same node). These now restart Chrome on the current URL, as for a dead browser.
+  A page that hangs the renderer again after each restart costs ~13 min a restart (one expansion took 61 min with 4).
+- Android searches peak at their 64 GB memory limit (all six; likely the snapshot files in page cache, charged to the
+  job), and two emulators died with connection refused and failed reconnects (consistent with the OOM killer; kernel
+  logs not checked). Their pending follow-up jobs were raised to 128 GB; the Android practice jobs run with 128 GB.
