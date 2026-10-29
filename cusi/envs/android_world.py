@@ -150,6 +150,11 @@ class EnvStalled(RuntimeError):
     """A reset/step did not return within call_timeout (the emulator hung)."""
 
 
+class EnvDied(EnvStalled):
+    """A call failed and the emulator process is gone (it has been seen to exit mid-run without a word in its log);
+    handled as a stall: restart it and rebuild the scene."""
+
+
 class AndroidEmulator:
     """One headless emulator (scripts/android_emulator.sh) that an AndroidPlayEnv can restart when it hangs."""
 
@@ -177,10 +182,23 @@ class AndroidEmulator:
     def stop(self) -> None:
         self._run(action="stop", timeout=300)
 
+    def alive(self) -> bool:
+        """Whether the emulator process is running (it has been seen to exit mid-run without a word in its log)."""
+        try:
+            with open(self._pid_file) as f:
+                os.kill(int(f.read().strip()), 0)
+        except (OSError, ValueError):
+            return False
+        return True
+
     def kill_hard(self) -> None:
         """SIGKILL the emulator: a hung emulator also hangs `adb emu kill`."""
         if not os.path.exists(self._pid_file):
             return
+        log = os.path.join(os.path.dirname(self._pid_file), "emulator.log")
+        if os.path.exists(log):
+            with open(log, "a") as f:
+                f.write(f"CUSI: restart (SIGKILL) requested {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         with open(self._pid_file) as f:
             pid = int(f.read().strip())
         try:
@@ -480,13 +498,17 @@ class AndroidPlayEnv(TextActionEnv):
 
     def observe(self) -> tuple:
         """Re-observe the screen (stabilized) without acting, as M3A does at each step start."""
-        env = self._env
-        raw = self._guarded(fn=lambda: self._observe_raw(env))
+        env, extra = self._env, {}
+        try:
+            raw = self._guarded(fn=lambda: self._observe_raw(env))
+        except EnvStalled as e:
+            raw = self._recover(why=f"observe: {e}")
+            extra["env_recovered"] = str(e)
         self._ui_count = raw[1][1]
         obs = self._obs(raw=raw)
         self.current_obs = obs
         return obs, self.make_info(valid=True, error=None, parsed_action=None, step=self._steps,
-                                   scene_id=self.scene_id, raw_frame=raw[2])
+                                   scene_id=self.scene_id, raw_frame=raw[2], **extra)
 
     # ---------------------------------------------------------------- gym API
 
@@ -541,7 +563,7 @@ class AndroidPlayEnv(TextActionEnv):
                     error = self._guarded(fn=lambda: self._execute(env, ja))
                 raw = self._guarded(fn=lambda: self._observe_raw(env, stabilize=self.stabilize_after_action))
         except EnvStalled as e:
-            # The scene was rebuilt, so this episode cannot continue: truncate it.
+            # The emulator hung or died and the scene was rebuilt, so this episode cannot continue: truncate it.
             raw = self._recover(why=f"step: {e}")
             self._steps += 1
             self._ui_count = raw[1][1]
@@ -642,12 +664,14 @@ class AndroidPlayEnv(TextActionEnv):
     def resume(self) -> None:
         """Reconnect and return to the scene's initial state. If its snapshot is gone (the emulator was restarted
         meanwhile), the scene is rebuilt and the saved states are dropped."""
-        self._env = self._guarded(fn=self._connect)
         self._suspended = False
         self.device_epoch += 1
-        env, clock = self._env, self._snapshot_clock
         try:
+            self._env = self._guarded(fn=self._connect)
+            env, clock = self._env, self._snapshot_clock
             raw = self._guarded(fn=lambda: self._restore(env, self._task, clock))
+        except EnvDied as e:
+            raw = self._recover(why=f"resume: {e}")
         except (EnvStalled, RuntimeError) as e:
             log_warn(f"resuming {self.task_name} from its snapshot failed ({str(e)[:200]}); rebuilding the scene"
                      f" and dropping {len(self._states)} saved state(s)", parameters=self._parameters)
@@ -678,7 +702,11 @@ class AndroidPlayEnv(TextActionEnv):
     def _guarded(self, *, fn: Callable[[], Any]) -> Any:
         """Run fn on a thread, raising EnvStalled after call_timeout (gRPC calls block signals)."""
         if not self.call_timeout:
-            return fn()
+            try:
+                return fn()
+            except Exception as e:
+                self._raise_if_died(error=e)
+                raise
         box: dict = {}
 
         def run():
@@ -693,8 +721,17 @@ class AndroidPlayEnv(TextActionEnv):
         if worker.is_alive():
             raise EnvStalled(f"call did not return within {self.call_timeout:.0f}s")
         if "error" in box:
+            self._raise_if_died(error=box["error"])
             raise box["error"]
         return box.get("result")
+
+    def _raise_if_died(self, *, error: BaseException) -> None:
+        if not isinstance(error, EnvStalled) and self._emulator_died():
+            first = str(error).splitlines()[0][:200] if str(error) else type(error).__name__
+            raise EnvDied(f"the emulator process is gone ({type(error).__name__}: {first})") from error
+
+    def _emulator_died(self) -> bool:
+        return self._emulator is not None and not self._emulator.alive()
 
     def _recover(self, *, why: str):
         """Restart a hung emulator and rebuild the scene; returns its observation."""

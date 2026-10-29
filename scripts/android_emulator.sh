@@ -106,9 +106,21 @@ function emulator_start() {
         fi
     fi
     adb start-server > /dev/null
-    echo "Starting: emulator ${args[*]} (log: $RUN_DIR/emulator.log)"
-    ANDROID_AVD_HOME="$avd_home" nohup emulator "${args[@]}" > "$RUN_DIR/emulator.log" 2>&1 &
-    echo $! > "$RUN_DIR/emulator.pid"
+    # One log per start (emulator.log links the latest), so a restart keeps the log of the emulator it replaces, and
+    # a wrapper appends how the emulator ended (exit status or signal): an emulator that dies mid-run otherwise logs
+    # nothing about why. emulator.pid holds the emulator's own pid.
+    local log="$RUN_DIR/emulator_$(date +%m%d_%H%M%S).log"
+    ln -sfn "$log" "$RUN_DIR/emulator.log"
+    rm -f "$RUN_DIR/emulator.pid"
+    echo "Starting: emulator ${args[*]} (log: $log)"
+    ANDROID_AVD_HOME="$avd_home" CUSI_EMU_LOG="$log" CUSI_EMU_PID="$RUN_DIR/emulator.pid" nohup bash -c '
+        emulator "$@" &
+        pid=$!
+        echo "$pid" > "$CUSI_EMU_PID"
+        wait "$pid"; s=$?
+        if (( s > 128 )); then how="killed by signal $((s - 128))"; else how="exit status $s"; fi
+        echo "CUSI: emulator pid $pid ended $(date "+%F %T"): $how" >> "$CUSI_EMU_LOG"' _ "${args[@]}" >> "$log" 2>&1 &
+    for _ in $(seq 30); do [[ -s "$RUN_DIR/emulator.pid" ]] && break; sleep 1; done
 
     local start=$SECONDS
     while true; do
@@ -131,10 +143,21 @@ function emulator_start() {
     echo "Booted $SERIAL in $((SECONDS - start))s"
 }
 
+# keep_logs: copy this node's emulator logs into the job's log directory (results_dir/logs/emulator/<job>_<node>/),
+# where they outlive the node's /tmp, then drop them from /tmp.
+function keep_logs() {
+    local logs=("$RUN_DIR"/emulator_*.log)
+    [[ -e "${logs[0]}" ]] || return 0
+    local dest="$results_dir/logs/emulator/${SLURM_JOB_ID:-local}_$(hostname -s)"
+    mkdir -p "$dest" && cp "${logs[@]}" "$dest/" && rm -f "${logs[@]}" "$RUN_DIR/emulator.log"
+    echo "Emulator logs -> $dest"
+}
+
 function emulator_stop() {
     local pid_file="$RUN_DIR/emulator.pid"
     local pid=""
     [[ -f "$pid_file" ]] && pid=$(cat "$pid_file")
+    [[ -e "$RUN_DIR/emulator.log" ]] && echo "CUSI: stop requested $(date "+%F %T")" >> "$RUN_DIR/emulator.log"
     # Power Android off properly first: it persists some state (app-ops, runtime
     # permissions) lazily, and `emu kill` alone skips that, so a writable AVD
     # can lose changes made just before stopping.
@@ -159,6 +182,7 @@ function emulator_stop() {
         rm -f "$pid_file"
     fi
     rm -rf "$STAGE_DIR"   # a --snapshots emulator's private AVD copy, if any
+    keep_logs || true
     echo "Stopped $SERIAL"
 }
 

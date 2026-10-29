@@ -195,7 +195,20 @@ class TreeSearch:
 
     def _replay(self, *, node, env) -> tuple:
         """Reset the scene, or load the nearest cached state on the way (state_cache), and redo the actions from
-        there to node -> (similarity to the node, failure or None, the node replayed from or None, steps replayed)."""
+        there to node -> (similarity to the node, failure or None, the node replayed from or None, steps replayed).
+        A replay the env had to recover from (its emulator hung or died) starts over once, rather than counting as a
+        divergence."""
+        for attempt in range(2):
+            outcome = self._replay_once(node=node, env=env)
+            if outcome is not None:
+                return outcome
+            if attempt == 0:
+                log_warn(f"node {node.id}: env recovered during its replay; replaying again",
+                         parameters=self._parameters)
+        return 0.0, "the env had to recover twice during the replay", None, 0
+
+    def _replay_once(self, *, node, env) -> Optional[tuple]:
+        """One _replay attempt; None when the env recovered (its scene was rebuilt) on the way."""
         if self.state_cache:
             start, obs, info = self._cache_load(node=node, env=env)
         else:
@@ -203,6 +216,8 @@ class TreeSearch:
         path = self.tree.path_steps(node.id, since=start)
         for i, step in enumerate(path):
             obs, _r, terminated, truncated, info = env.step(step.action)
+            if info.get("env_recovered"):
+                return None
             if (terminated or truncated) and i < len(path) - 1:
                 return 0.0, f"the episode ended at replay step {i + 1}/{len(path)}", start, len(path)
         sim = float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info)))
@@ -210,6 +225,8 @@ class TreeSearch:
             # Android: the a11y tree can lag the screen for a moment (no text, or the previous screen's): look again.
             time.sleep(2.0)
             obs, info = env.observe()
+            if info.get("env_recovered"):
+                return None
             sim = max(sim, float(self.encoder.similarity(a=node.embedding, b=self._encode(obs=obs, info=info))))
         if sim < self.replay_similarity:
             return sim, f"replay reached similarity {sim:.3f} < {self.replay_similarity}", start, len(path)
@@ -370,6 +387,13 @@ class TreeSearch:
                 with part("env"):
                     result = env.step(action)
                 obs2, _r, terminated, truncated, info2 = result
+                if info2.get("env_recovered"):
+                    # The emulator hung or died and the scene was rebuilt: obs2 is the scene's start, not where the
+                    # action led, so the step is not recorded and the expansion ends with what it reached so far.
+                    log_warn(f"expansion {exp.id}: env recovered at step {t + 1} ({info2['env_recovered'][:120]}); "
+                             f"ending the expansion", parameters=self._parameters)
+                    episode_over = True     # the env is in no node's state: the next restore must not be skipped
+                    break
                 emb = self._encode(obs=obs2, info=info2)
                 nxt = StateRecord(obs=obs2, info=info2, embedding=emb, prev_image=prev.embedding.image)
                 challenge = bool(info2.get("challenge"))

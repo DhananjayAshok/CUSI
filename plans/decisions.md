@@ -1468,3 +1468,29 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   raised 128 GB limit, and every Android job's peak equals its limit, crashing or not (file cache from the 3.6 GB
   snapshots counts toward it; /tmp on the compute nodes is local xfs, not RAM), and no log shows an OOM kill. Cause
   unknown.
+
+## 2026-10-29: Android emulator deaths recovered; emulator logs kept; restore cache 64; snapshot storage measured
+
+- Emulator deaths (each ended a search job when it hit outside a restore): on lg07 the emulator's own log stops at
+  the death with no error, netsim logs the emulator's connection dropping the same millisecond, the kernel log
+  (covering the time) has no OOM kill or segfault, the emulator's crash database no new report, and no other job of
+  ours shared the node. Cause still unknown.
+- Now any guarded emulator call that fails with the emulator process gone raises EnvDied (an EnvStalled), so every
+  stall handler recovers (restart the emulator, rebuild the scene): reset, step, observe, save/load, and resume on a
+  scene switch (a first fix in step alone failed its live test: the kill landed in resume). A recovered step ends
+  the expansion unrecorded (its frame is the scene's start, not the action's result) and forces the next restore; a
+  replay that hit a recovery starts over once instead of flagging the node. Live test (5 expansions, emulator
+  SIGKILLed after iteration 1 and 3): recovered both times (resume, reset), all 5 expansions done.
+- scripts/android_emulator.sh: one log per start (emulator.log links the latest), a wrapper appends how the emulator
+  ended (exit status or signal), our stops and restarts append a marker first (the log is opened for append: the
+  emulator's own writes overwrote markers appended to a truncate-opened log), and stop copies the logs to
+  results/logs/emulator/<job>_<node>/. A death with no marker before its end line was not ours.
+- Replay divergence is independent of recovery: 287320 had 20 nodes flagged before its first recovery, 287333 33 in
+  one job; Android replays diverge throughout.
+- Restore cache: at 24 the random searches hit 21-50% (trees of 124-150 nodes) and a miss replayed 60-110 steps
+  (12-33 min, up to 734 steps); VLM runs hit 61-67%, misses replaying 6-19 steps. Default now 64 (~230 GB). /tmp is
+  426-456 GB on the nodes checked except lg06 (70 GB, saves already refused there at 24): pending Android jobs
+  exclude lg06. Correction: /tmp was first checked on the login node only.
+- Snapshot storage, measured on real snapshots: ram.bin 1.7-2.1 GB (3.8 GB just after a boot); zstd -1 alone 1.2-3x;
+  zstd --patch-from the scene's base snapshot 536-638 MB (8-9 s to encode, 2.5 s to decode, byte-identical); from a
+  node saved 24 s earlier, 15 MB. The NAS has 55 TB free (shared, no per-user quota found).

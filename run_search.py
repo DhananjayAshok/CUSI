@@ -105,7 +105,7 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
               help="Replay restores below this similarity to the node mark it diverged.")
 @click.option("--state_cache", default=None, type=int,
               help="Replay restores: keep saved states of this many recent nodes and replay from the nearest one "
-                   "(default: 24 on Android, 0 elsewhere).")
+                   "(default: 64 on Android, 0 elsewhere).")
 @click.option("--seed", default=loaded_parameters["random_seed"], show_default=True)
 @click.option("--verify_restores", default=0, show_default=True,
               help="On resume, first restore up to this many nodes and compare them with what they stored.")

@@ -27,7 +27,7 @@ loaded_parameters = load_parameters()
 @click.option("--source", required=True, help="An annotated search run of this env (cusi.search.annotate).")
 @click.option("--state_cache", default=None, type=int,
               help="Replay restores: keep saved states of this many recent nodes and replay from the nearest one "
-                   "(default: 24 on Android, 0 elsewhere).")
+                   "(default: 64 on Android, 0 elsewhere).")
 @click.pass_context
 def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, random_seed, vllm_port, source,
          state_cache):

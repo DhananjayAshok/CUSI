@@ -17,8 +17,10 @@ from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
 from cusi.utils.compute import gpu_work
 from cusi.utils.log_handling import log_warn
 
-#: Android keeps emulator snapshots of its recent nodes (~3.6 GB each, cusi.envs.android_world) to replay from.
-DEFAULT_STATE_CACHE = {"gameboy": 0, "web": 0, "android": 24}
+#: Android keeps emulator snapshots of its recent nodes (~3.6 GB each, cusi.envs.android_world) to replay from. At 24
+#: the random searches' trees (124-150 nodes, 100-step expansions) hit 21-50% and a miss replayed 60-110 steps
+#: (12-33 min); 64 (~230 GB) fits the nodes' 426-456 GB /tmp, and save_state refuses below 30 GB free.
+DEFAULT_STATE_CACHE = {"gameboy": 0, "web": 0, "android": 64}
 
 
 class RestoreFailed(RuntimeError):
