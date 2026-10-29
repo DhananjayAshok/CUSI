@@ -213,18 +213,22 @@ def parse_judgment(text: str) -> tuple:
     return score, " ".join(r.group(1).split()) if r else ""
 
 
-def judge_pairs(*, vlm, env_description: str, pairs: list, max_new_tokens: int, batch_size: int) -> list:
-    """[(test text, proposed text)] -> [{"score", "reason", "raw"}], in batches (one call per batch)."""
+def judge_prompts(*, vlm, prompts: list, max_new_tokens: int, batch_size: int) -> list:
+    """Judge prompts ('Reason: ... Score: N' replies) -> [{"score", "reason", "raw"}], in batches (one call each)."""
     out = []
-    for i in range(0, len(pairs), batch_size):
-        chunk = pairs[i:i + batch_size]
-        prompts = [JUDGE_PROMPT.format(env_description=env_description, test=a, proposed=b) for a, b in chunk]
-        outputs = vlm.infer(texts=prompts, max_new_tokens=max_new_tokens, temperature=0.0)["output"]
+    for i in range(0, len(prompts), batch_size):
+        outputs = vlm.infer(texts=prompts[i:i + batch_size], max_new_tokens=max_new_tokens, temperature=0.0)["output"]
         for raw in outputs:
             raw = str(raw[0] if isinstance(raw, list) else raw)
             score, reason = parse_judgment(raw)
             out.append({"score": score, "reason": reason, "raw": raw})
     return out
+
+
+def judge_pairs(*, vlm, env_description: str, pairs: list, max_new_tokens: int, batch_size: int) -> list:
+    """[(test text, proposed text)] -> [{"score", "reason", "raw"}]."""
+    prompts = [JUDGE_PROMPT.format(env_description=env_description, test=a, proposed=b) for a, b in pairs]
+    return judge_prompts(vlm=vlm, prompts=prompts, max_new_tokens=max_new_tokens, batch_size=batch_size)
 
 
 # --------------------------------------------------------------------------- stages

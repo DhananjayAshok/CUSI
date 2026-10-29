@@ -11,7 +11,7 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
-from cusi.eval.supervision import model, supervisor_extra, supervisor_state
+from cusi.eval.supervision import DECODING, model, supervisor_extra, supervisor_state
 from cusi.eval.options import seed_option, task_list
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
@@ -134,7 +134,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
     run = EvalRun(directory=out_dir, config={
         "env": ENV_NAME, "agent": AGENT_VERSION, "model_name": model_name, "model_backend": model_backend,
         "tasks": tasks, "n_task_combinations": n_task_combinations, "task_random_seed": task_random_seed,
-        "shard": shard, "seed": seed,
+        "shard": shard, "seed": seed, "decoding": DECODING,
         **({} if wait_after_action_seconds == 2.0 else {"wait_after_action_seconds": wait_after_action_seconds})},
         overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     os.makedirs(eval_trajectories(run_dir=out_dir), exist_ok=True)

@@ -11,7 +11,7 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
-from cusi.eval.supervision import model, run_pool, supervisor_extra, supervisor_state
+from cusi.eval.supervision import DECODING, model, run_pool, supervisor_extra, supervisor_state
 from cusi.eval.options import seed_option, task_list
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
@@ -113,7 +113,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
     """GameBoy benchmark through GameBoyPlayEnv test mode, with the final GameBoy agent."""
     tasks = task_list(tasks=tasks)
     config = dict(env="gameboy", agent=AGENT_VERSION, model_name=model_name, model_backend=model_backend, game=game,
-                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed)
+                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=DECODING)
     out_dir = eval_run(parameters=parameters, env="gameboy", run=run_name)
     run = EvalRun(directory=out_dir, config=config, overwrite=overwrite,
                   ignore_config_violation=ignore_config_violation)

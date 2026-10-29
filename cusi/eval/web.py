@@ -18,7 +18,7 @@ from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, storage_relative, web_source_task_file, web_task_dir
-from cusi.eval.supervision import run_pool, supervisor_extra, supervisor_state
+from cusi.eval.supervision import DECODING, run_pool, supervisor_extra, supervisor_state
 from cusi.eval.options import seed_option, task_list
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
@@ -219,7 +219,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
     rows = load_tasks(task_file=task_file, tasks=task_list(tasks=tasks))
     log_info(f"[web eval] {len(rows)} tasks from {task_file}", parameters=parameters)
     run_dir = eval_run(parameters=parameters, env="web", run=run_name)
-    run = EvalRun(directory=run_dir, config={"env": "web", "agent": AGENT_VERSION, "model_name": model_name,
+    run = EvalRun(directory=run_dir, config={"env": "web", "agent": AGENT_VERSION, "decoding": DECODING,
+                                             "model_name": model_name,
                                              "model_backend": model_backend,
                                              "judge_model_name": judge_model_name,
                                              "task_file": storage_relative(parameters=parameters, path=task_file),

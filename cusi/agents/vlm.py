@@ -53,15 +53,17 @@ class AgentVLM:
     """The pipeline's model, for single-turn prompts and chats; every call is recorded (cusi.utils.compute)."""
 
     def __init__(self, *, model_name: str, model_backend: str = "vllm", vllm_base_url: Optional[str] = None,
-                 parameters: dict[str, Any] = None) -> None:
+                 parameters: dict[str, Any] = None, greedy: bool = False) -> None:
+        """greedy: every call at temperature 0, whatever the caller asks (test-set evals)."""
         self._parameters = load_parameters(parameters)
-        self.model_name = model_name
+        self.model_name, self.greedy = model_name, greedy
         self._model = build_model(model_name=model_name, model_backend=model_backend,
                                   vllm_base_url=vllm_base_url, parameters=self._parameters)
 
     def infer(self, *, texts: Union[str, list], max_new_tokens: int, images=None,
               temperature: Optional[float] = None) -> dict:
         """One prompt with a flat image list, or a list of prompts with a list of image lists."""
+        temperature = 0.0 if self.greedy else temperature
         images = _convert(images)
         if images is not None and len(images) == 0:
             images = None
@@ -79,6 +81,7 @@ class AgentVLM:
     def chat(self, *, messages: list, images: list, max_new_tokens: int,
              temperature: Optional[float] = None) -> dict:
         """`messages` in the neutral format of CallRecord.messages."""
+        temperature = 0.0 if self.greedy else temperature
         t0 = time.perf_counter()
         out = self._model.infer_messages(messages=to_openai_messages(messages=messages, images=images),
                                          max_new_tokens=max_new_tokens, temperature=temperature)

@@ -7,11 +7,16 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Callable, Optional
 from cusi.agents.supervisors.report import jsonable
 
+#: Test-set evals decode greedily (every supervisor, executor and judge call at temperature 0), so a run is repeatable
+#: and two models compare without sampling noise; recorded in each eval run's config.
+DECODING = "greedy"
+
 
 @functools.lru_cache(maxsize=None)
 def _vlm(model_name: str, model_backend: str, vllm_base_url: Optional[str]):
     from cusi.agents.vlm import AgentVLM
-    return AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
+    return AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
+                    greedy=DECODING == "greedy")
 
 
 def model(*, model_name: str, model_backend: str, vllm_base_url: Optional[str]):

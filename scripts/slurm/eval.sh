@@ -9,6 +9,7 @@
 #
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> \
 #       [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--seed <n>] [--vllm_port <value>]
+#   bash scripts/slurm/eval.sh --env gameboy ... [--game <value>]   # a GameBoyWorlds game other than pokemon_red
 #   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
 #   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
 #   bash scripts/slurm/eval.sh --env android ... [--android_wait <seconds>]   # sleep after each action (default 2)
@@ -77,6 +78,7 @@ FLAGS=(--model_name "$AGENT_MODEL" --model_backend vllm --vllm_base_url "$URL" -
 case "$ENV_NAME" in
     gameboy)
         FLAGS+=(--workers "${ARGS["workers"]}")
+        [[ "${ARGS["game"]}" != "none" ]] && FLAGS+=(--game "${ARGS["game"]}")
         [[ "${ARGS["n_tasks"]}" != "none" ]] && FLAGS+=(--n_tasks "${ARGS["n_tasks"]}") ;;
     web)
         FLAGS+=(--workers "${ARGS["workers"]}" --task_file "${ARGS["task_file"]}") ;;

@@ -284,6 +284,15 @@ declare -A TASK_COVERAGE_DEFAULTS=(
     ["vllm_port"]="none"
 )
 
+# scripts/slurm/task_diversity.sh
+TASK_DIVERSITY_ESSENTIALS=("env" "run")
+declare -A TASK_DIVERSITY_DEFAULTS=(
+    ["judge_model"]="google/gemma-4-31b-it"
+    ["embedder_model"]="Qwen/Qwen3-Embedding-8B"
+    ["k"]="5"
+    ["vllm_port"]="none"
+)
+
 # scripts/slurm/finetune.sh (the model is always given: never defaulted)
 FINETUNE_ESSENTIALS=("env" "model" "source" "run")
 declare -A FINETUNE_DEFAULTS=(
@@ -340,6 +349,7 @@ declare -A EVAL_DEFAULTS=(
     ["seed"]="0"
     ["vllm_extra"]="none"
     ["lora"]="none"
+    ["game"]="none"
 )
 
 # scripts/slurm/vllm_python.sh

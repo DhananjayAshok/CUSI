@@ -1426,5 +1426,45 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   three times; resumes crashed on the same node). These now restart Chrome on the current URL, as for a dead browser.
   A page that hangs the renderer again after each restart costs ~13 min a restart (one expansion took 61 min with 4).
 - Android searches peak at their 64 GB memory limit (all six; likely the snapshot files in page cache, charged to the
-  job), and two emulators died with connection refused and failed reconnects (consistent with the OOM killer; kernel
-  logs not checked). Their pending follow-up jobs were raised to 128 GB; the Android practice jobs run with 128 GB.
+  job), and two emulators died with connection refused and failed reconnects. Their pending follow-up jobs were raised
+  to 128 GB, taking the memory limit as the cause; wrong, see 2026-10-29.
+
+## 2026-10-29: Task diversity eval; greedy test evals; Red results; Android emulator deaths
+
+- Task diversity (cusi/eval/task_diversity.py, Slurm pair task_diversity.sh): how many distinct functionalities a
+  tree's proposed tasks exercise (three near-identical tasks count once, three different ones three times), compared
+  within an env only. Tasks are embedded (Qwen3-Embedding-8B, as documents on both sides); each task's 5 nearest by
+  cosine are judged 1-10 by Gemma-4-31B for the same functionality whatever the values; while all of a task's judged
+  neighbours score >= 8, its next 5 are judged too (up to 40). functions@t = a greedy maximal set of tasks no two of
+  which were judged >= t; also the Vendi score of the cosine kernel (no judge) and rarefaction (both at fixed task
+  counts, random subsets). Judging every pair was ruled out: ~74M pairs on a 12k-task Web tree (~120 days at the
+  judge's ~7 pairs/s on 2x A6000); the neighbour pairs are ~4-5 x n.
+- Tried first and rejected: connected groups over pairs >= 8 chained similar tasks (walk north ~ walk to the building
+  ~ walk to the edge) into one group of 657 of 823 GameBoy tasks, and the count fell as tasks were added. With the 5
+  nearest only, 45% of GameBoy tasks had all 5 judged the same functionality, leaving their other near-duplicates
+  counted as distinct (309 -> 268 once deeper neighbours were judged). On Web the deeper rounds added 9k pairs to 48k.
+- Judge checks: rewordings 10, the same feature on other values 9 ("Withdraw a healing item" / "Withdraw a POTION"),
+  overlapping screens 6, another feature 3; paraphrases 10 on every run, random pairs 1.95-3.6 (one of 20 Web random
+  pairs >= 8).
+- GameBoy (6 saturation runs), at 200 tasks: functions@8 random 100.5 / 114.5 / 110.3, VLM 114.2 / 101.3 / 90.6;
+  Vendi random 14.9, VLM 15.9 (means). No difference beyond seed spread, as with task coverage (coverage@8 random
+  37%, VLM 38%). Web random_s1: 12196 tasks, functions@8 6718, 195 of 200 at fixed 200; 2h23 on 2x A6000.
+- Test-set evals decode greedily (cusi.eval.supervision.DECODING; the eval client forces temperature 0 on every
+  supervisor, executor and judge call; recorded as "decoding" in each eval run's config). Before, the GameBoy
+  executor sampled at T=1 (top_k 64, top_p 0.95) and the supervisor at the model's defaults, and the Web executor at
+  T=1. Practice and exploration still sample. eval.sh takes --game for GameBoyWorlds games other than pokemon_red.
+- GameBoy pokemon_red, 49 tasks, adapter final_r16_lr5e-5 (all 45k success rows, val loss 0.278) vs the base, same
+  agent: greedy 19 vs 15 (6 adapter-only, 2 base-only, exact McNemar p = 0.29); sampled 21 vs 16 (7 vs 2, p = 0.18).
+  Greedy and sampled runs agree on 43 (adapter) and 44 (base) of 49 tasks: the 49 tasks, not decoding, limit the
+  comparison. Gains are on battles, items and moves (an Ultra Ball, a not very effective attack, teaching Toxic,
+  catching Pidgey) and long tasks the base ran out of steps on; only 2 of the 7 sampled gains had a near-identical
+  practice task (judge >= 8). Losses: "Pick up the item" both times. The Red -> Crystal transfer (50 pokemon_crystal
+  tasks, no Crystal practice) is pending: adapter 18/50.
+- Android practice (tree_random_v3) with the restore cache: 115 of 239 tasks succeeded, 78% of the 148 whose node
+  restored; 91 tasks lost to replays below 0.95 similarity (38%). Dataset: 3260 success train rows.
+- Android search emulator deaths (4 in ~2 days over 6 runs, each recovered by the next chained job from the saved
+  tree): the emulator stops answering (connection refused / device not found) during a restore or mid-step; a death
+  in a restore is recovered by restarting the emulator, one mid-step ends the job. Not memory: the third came at the
+  raised 128 GB limit, and every Android job's peak equals its limit, crashing or not (file cache from the 3.6 GB
+  snapshots counts toward it; /tmp on the compute nodes is local xfs, not RAM), and no log shows an OOM kill. Cause
+  unknown.
