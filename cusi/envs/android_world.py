@@ -146,6 +146,15 @@ def canonical_action(*, action: json_action.JSONAction) -> dict:
     return {k: getattr(action, k) for k in _JSON_ACTION_FIELDS if getattr(action, k, None) is not None}
 
 
+MSG_OFF_APP = "That action left {app} for another app ({package}), so it was undone. Stay in {app}."
+#: System screens any app's flows go through (dialogs and the share sheet, permission prompts, the keyboard, the file
+#: and photo pickers, the notification shade): never out of a scene's scope.
+SYSTEM_PACKAGES = frozenset({"android", "com.android.systemui", "com.android.intentresolver",
+                             "com.google.android.permissioncontroller", "com.android.permissioncontroller",
+                             "com.google.android.inputmethod.latin", "com.google.android.documentsui",
+                             "com.google.android.providers.media.module", "com.android.providers.media"})
+
+
 class EnvStalled(RuntimeError):
     """A reset/step did not return within call_timeout (the emulator hung)."""
 
@@ -248,11 +257,16 @@ class AndroidPlayEnv(TextActionEnv):
         call_timeout: Optional[float] = 600.0,
         probe_success: bool = False,
         start_app: Optional[str] = None,
+        app_label: Optional[str] = None,
+        scope: Optional[dict] = None,
         connection: Optional[interface.AsyncEnv] = None,
         stabilize_after_action: bool = True,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """emulator enables hang recovery; probe_success is for logging only, never show it to the policy."""
+        """emulator enables hang recovery; probe_success is for logging only, never show it to the policy. scope
+        ({"packages": [...]}, with start_app) keeps a free_play episode in its app: a step that leaves for a package
+        outside it and SYSTEM_PACKAGES is undone and invalid; app_label names the app in that message. Test mode is
+        never scoped (tasks start on the home screen and some use two apps)."""
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
             log_error(f"reset_mode must be 'snapshot' or 'reinit', got {reset_mode!r}", parameters=self._parameters)
@@ -273,6 +287,9 @@ class AndroidPlayEnv(TextActionEnv):
         self.call_timeout = call_timeout
         self.probe_success = probe_success
         self.start_app = start_app
+        self.app_label = app_label or start_app
+        self._scope = frozenset(scope["packages"]) if scope and mode == "free_play" and start_app else None
+        self.scoped_app = self.app_label if self._scope is not None else None   # the explorer's "Do not leave" names it
         self.stabilize_after_action = stabilize_after_action
         if start_app:
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
@@ -562,6 +579,11 @@ class AndroidPlayEnv(TextActionEnv):
                 if ja is not None:
                     error = self._guarded(fn=lambda: self._execute(env, ja))
                 raw = self._guarded(fn=lambda: self._observe_raw(env, stabilize=self.stabilize_after_action))
+                left = self._guarded(fn=lambda: self._left_app(env)) if ja is not None and error is None else None
+                if left is not None:
+                    raw = self._guarded(fn=lambda: self._return_to_app(env))
+                    error = MSG_OFF_APP.format(app=self.app_label, package=left)
+                    extra["out_of_bounds"] = left
         except EnvStalled as e:
             # The emulator hung or died and the scene was rebuilt, so this episode cannot continue: truncate it.
             raw = self._recover(why=f"step: {e}")
@@ -585,10 +607,14 @@ class AndroidPlayEnv(TextActionEnv):
         return self._obs(raw=raw), reward, terminated, truncated, info
 
     def sample_action(self, *, rng=None) -> str:
-        """A random tap, scroll, back or home; never open_app/input_text/status."""
+        """A random tap, scroll, back or home; never open_app/input_text/status. In a scoped scene, never home (it
+        leaves the app, to be undone)."""
         rng = self.np_random if rng is None else rng
-        kind = rng.choice(["click", "scroll_element", "scroll", "navigate_back", "navigate_home"],
-                          p=[4 / 9, 1 / 9, 2 / 9, 1 / 9, 1 / 9])
+        if self._scope is not None:
+            kind = rng.choice(["click", "scroll_element", "scroll", "navigate_back"], p=[4 / 8, 1 / 8, 2 / 8, 1 / 8])
+        else:
+            kind = rng.choice(["click", "scroll_element", "scroll", "navigate_back", "navigate_home"],
+                              p=[4 / 9, 1 / 9, 2 / 9, 1 / 9, 1 / 9])
         direction = str(rng.choice(["up", "down", "left", "right"]))
         if kind in ("click", "scroll_element") and self._ui_count > 0:
             index = int(rng.integers(self._ui_count))
@@ -598,6 +624,27 @@ class AndroidPlayEnv(TextActionEnv):
         if kind in ("click", "scroll_element", "scroll"):
             return json.dumps({"action_type": "scroll", "direction": direction})
         return json.dumps({"action_type": str(kind)})
+
+    def _foreground_package(self, env: interface.AsyncEnv) -> Optional[str]:
+        activity = adb_utils.get_current_activity(env.controller)[0]
+        return adb_utils.extract_package_name(activity) if activity else None
+
+    def _left_app(self, env: interface.AsyncEnv) -> Optional[str]:
+        """The foreground package, if the scene is scoped and it is outside the scope (None: still in the app)."""
+        if self._scope is None:
+            return None
+        package = self._foreground_package(env)
+        return package if package and package not in self._scope and package not in SYSTEM_PACKAGES else None
+
+    def _return_to_app(self, env: interface.AsyncEnv):
+        """Undo a step that left the app: Back (keeps the app's state, e.g. a share flow that opened another app),
+        else reopen the app; the observation after."""
+        env.execute_action(json_action.JSONAction(action_type="navigate_back"))
+        time.sleep(self.wait_after_action_seconds)
+        if self._left_app(env) is not None:
+            env.execute_action(json_action.JSONAction(action_type="open_app", app_name=self.start_app))
+            time.sleep(3.0)
+        return self._observe_raw(env, stabilize=True)
 
     def _execute(self, env: interface.AsyncEnv, ja: json_action.JSONAction) -> Optional[str]:
         try:

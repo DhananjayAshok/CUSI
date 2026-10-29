@@ -78,10 +78,12 @@ class ExecutorExpander:
         self.discovered = search.discovered(env_key=node.env_key)
         self.objectives: list = []
         self._t, self._error, self._pending = 0, None, None
-        site = urlparse(env.start_url).netloc if getattr(env, "start_url", None) else None
+        site = getattr(env, "site_name", None) or (urlparse(env.start_url).netloc if getattr(env, "start_url", None)
+                                                   else None)
+        app = getattr(env, "scoped_app", None)
         before = expansion_id if expansion_id is not None else len(tree.expansions)
         self.hint = explore_hint(tree=tree, node_id=node.id, before_expansion=before, discovered=self.discovered,
-                                 site=site)
+                                 site=site, app=app)
         self.executor = Agent(env_name=self.env_name, env=env, vlm=self.vlm,
                               parameters=self._parameters).make_executor()
         self.executor.begin(task=self._objective(features=node.features), hint=self.hint, max_steps=search.k_steps,

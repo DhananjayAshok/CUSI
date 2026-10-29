@@ -12,6 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
+from urllib.parse import urlparse
 import time
 import zlib
 from typing import Any, Optional
@@ -39,6 +40,7 @@ MSG_NO_LABELS = ("No element on this page has a numerical label, so Click and Ty
                  "Use Scroll, GoBack or Wait.")
 MSG_OUT_OF_BOUNDS = ("That action left the website for a browser page ({url}), so it was undone. "
                      "Stay on the website.")
+MSG_OFF_SITE = "That action left {site} for another website ({url}), so it was undone. Stay on {site}."
 #: Browser-internal pages (the new-tab page after GoBack from the first page, settings, ...) are out of bounds:
 #: no element on them can be labelled, and they are not website content.
 OUT_OF_BOUNDS_PREFIXES = ("chrome://", "chrome-untrusted://", "chrome-search://")
@@ -65,6 +67,15 @@ CHALLENGE_MAX_TEXT = 1500
 # [title, first 3000 chars of the body text, whether a bot-check widget/iframe is in the DOM]
 # Removes the set-of-mark overlays WebVoyager's get_web_element_rect appends to <body> (fixed, dashed outline,
 # max z-index, no pointer events).
+#: Each labelled element's link target (its own href, or its enclosing link's), or null.
+_ELEMENT_HREFS_JS = """
+return arguments[0].map(function (e) {
+    try {
+        var a = (e.tagName === 'A' || e.tagName === 'AREA') ? e : (e.closest ? e.closest('a[href]') : null);
+        return a && a.href ? a.href : null;
+    } catch (err) { return null; }
+});
+"""
 _CLEAR_LABELS_JS = """
 for (const el of Array.from(document.body ? document.body.children : [])) {
   const st = el.style;
@@ -137,6 +148,21 @@ def elements_text(*, web_eles_text: str, n_labels: int) -> str:
 
 def out_of_bounds(*, url: Optional[str]) -> bool:
     return bool(url) and url.startswith(OUT_OF_BOUNDS_PREFIXES)
+
+
+def in_scope(*, url: Optional[str], scope: Optional[dict]) -> bool:
+    """Whether url is on a scene's website: scope {"hosts": [domain, ...], "path": optional prefix} admits each
+    domain and its subdomains (support.apple.com for apple.com), and with "path" only URLs under it (Google Flights and
+    Google Maps share www.google.com). No scope, no url, or a non-web URL (about:, data:) counts as in scope."""
+    if scope is None or not url:
+        return True
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https"):
+        return True
+    host = (parts.hostname or "").lower()
+    if not any(host == h or host.endswith("." + h) for h in scope["hosts"]):
+        return False
+    return not scope.get("path") or parts.path.startswith(scope["path"])
 
 
 def load_webvoyager(*, project_root: str):
@@ -260,9 +286,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
         chrome_binary: Optional[str] = None,
         chromedriver: Optional[str] = None,
         work_dir: Optional[str] = None,
+        scope: Optional[dict] = None,
+        site: Optional[str] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
-        """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS)."""
+        """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS). scope (see
+        in_scope) keeps a free_play episode on its website: a step that lands elsewhere is undone and invalid; site
+        names it in that message. Test mode is never scoped (a few benchmark tasks need another site)."""
         self._parameters = load_parameters(parameters)
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
         self._wv.FAST_WAITS = fast_waits
@@ -292,6 +322,10 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._text_boxes = []
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
+        self._scope = scope if mode == "free_play" else None
+        self._site = site or urlparse(self.start_url).hostname
+        self.site_name = self._site if self._scope is not None else None   # the explorer's "Do not leave" names it
+        self._ele_off_site: list = []        # per labelled element: a link off the scope's website
         self._js_coverage = False
         self._js_seen: set = set()      # hashes of every (script, function) this env's browsers have run
         self._states: dict[str, dict] = {}   # saved state_id -> browser state
@@ -403,6 +437,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
         except self._wv.WebDriverException:
             self._raw_frame = frame
         self._web_eles = web_eles
+        self._ele_off_site = []
+        if self._scope is not None and web_eles:
+            try:
+                hrefs = self._driver.execute_script(_ELEMENT_HREFS_JS, web_eles)
+                self._ele_off_site = [bool(h) and not in_scope(url=h, scope=self._scope) for h in hrefs]
+            except self._wv.WebDriverException:
+                pass
         try:
             dpr, rows = self._driver.execute_script(TEXT_BOXES_JS, web_eles, MAX_BOX_CHARS)
             h, w = self._raw_frame.shape[:2]
@@ -433,10 +474,13 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 "elements": elements_text(web_eles_text=web_eles_text, n_labels=len(self._web_eles))}
 
     def sample_action(self, *, rng=None) -> str:
-        """Click a labelled element or scroll the window; never actions that leave the scene or need content."""
+        """Click a labelled element or scroll the window; never actions that leave the scene or need content. With a
+        scope, links to other websites are not clicked (they would only be undone)."""
         rng = self.np_random if rng is None else rng
-        if self._web_eles and rng.random() < 0.75:
-            return f"Thought: random action.\nAction: Click [{int(rng.integers(len(self._web_eles)))}]"
+        clickable = [i for i in range(len(self._web_eles))
+                     if not (i < len(self._ele_off_site) and self._ele_off_site[i])]
+        if clickable and rng.random() < 0.75:
+            return f"Thought: random action.\nAction: Click [{int(clickable[int(rng.integers(len(clickable)))])}]"
         return f"Thought: random action.\nAction: Scroll [WINDOW]; [{rng.choice(['up', 'down'])}]"
 
     def _on_pdf(self, pdf_path: str) -> str:
@@ -510,14 +554,14 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 info = self.make_info(valid=False, error=fail_obs, parsed_action=parsed, step=self._steps,
                                       scene_id=self.scene_id, stale=True, **extra)
                 return self._obs(), 0.0, False, truncated, info
+            self._close_other_tabs()
             self._observe()
-            if out_of_bounds(url=self._url) and not out_of_bounds(url=prev_url):
+            error = self._left_message(url=self._url) if self._left_message(url=prev_url) is None else None
+            if error is not None:
                 left = self._url
-                self._driver.get(prev_url)
-                self._wait_for_stable_layout()
-                self._observe()
-                info = self.make_info(valid=False, error=MSG_OUT_OF_BOUNDS.format(url=left), parsed_action=parsed,
-                                      step=self._steps, scene_id=self.scene_id, url=self._url, out_of_bounds=left)
+                self._return_to(url=prev_url)
+                info = self.make_info(valid=False, error=error, parsed_action=parsed, step=self._steps,
+                                      scene_id=self.scene_id, url=self._url, out_of_bounds=left)
                 return self._obs(), 0.0, False, truncated, info
         except (self._wv.WebDriverException, WebDriverHang) as e:
             # A navigation that aborts a command can leave the tab detached ("not attached to an active page",
@@ -539,6 +583,43 @@ class WebVoyagerPlayEnv(TextActionEnv):
         info = self.make_info(valid=True, error=None, parsed_action=parsed, step=self._steps,
                               scene_id=self.scene_id, url=self._url, **extra)
         return self._obs(), 0.0, False, truncated, info
+
+    def _left_message(self, *, url: Optional[str]) -> Optional[str]:
+        """The error for a step that landed on url, if url is a browser page or (scoped) another website."""
+        if out_of_bounds(url=url):
+            return MSG_OUT_OF_BOUNDS.format(url=url)
+        if not in_scope(url=url, scope=self._scope):
+            return MSG_OFF_SITE.format(site=self._site, url=url)
+        return None
+
+    def _return_to(self, *, url: str) -> None:
+        """Undo a step that left the website: browser Back keeps the page's state (form inputs, a map's view); if Back
+        does not land on the website (a redirect chain), load url."""
+        try:
+            self._driver.back()
+            self._wait_for_stable_layout()
+            back_url = self._driver.current_url
+        except self._wv.WebDriverException:
+            back_url = None
+        if self._left_message(url=back_url) is not None:
+            self._driver.get(url)
+            self._wait_for_stable_layout()
+        self._observe()
+
+    def _close_other_tabs(self) -> None:
+        """Keep one tab: clicks open links in place (run.py sets target=_self), but a page's script can still open
+        another window, which no observation would show."""
+        try:
+            handles = self._driver.window_handles
+            if len(handles) > 1:
+                keep = self._driver.current_window_handle
+                for h in handles:
+                    if h != keep:
+                        self._driver.switch_to.window(h)
+                        self._driver.close()
+                self._driver.switch_to.window(keep)
+        except self._wv.WebDriverException:
+            pass
 
     # ------------------------------------------------------------ saved states
     # A saved state is URL, cookies, origin storage and scroll; in-page state and other tabs are not restored.

@@ -1494,3 +1494,29 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
 - Snapshot storage, measured on real snapshots: ram.bin 1.7-2.1 GB (3.8 GB just after a boot); zstd -1 alone 1.2-3x;
   zstd --patch-from the scene's base snapshot 536-638 MB (8-9 s to encode, 2.5 s to decode, byte-identical); from a
   node saved 24 s earlier, 15 MB. The NAS has 55 TB free (shared, no per-user quota found).
+
+## 2026-10-29: Scenes kept on their website / app; scenes match the test sets; Android and Web exploration rerun
+
+- Web exploration left its two scenes (arxiv, github): 86-95% of every saturation tree was off-site (Google policies,
+  EU sites, Apple, Facebook help, sign-in flows), through footers and social links; the env only blocked chrome://
+  pages and the VLM hint's "stay on site" was not enforced. Off-site the web never runs out, so no Web run saturated
+  (random still 4-6 new nodes per expansion at the end, longest fruitless streak 2 of the 10 needed; VLM 4 of 50).
+  Android likewise: 13-26% of random and 46-50% of VLM nodes were in the scene apps (Chrome, Google search, Play
+  services, the launcher otherwise; random's navigate_home and taps on the launcher).
+- Scenes now follow the test sets. Web: one per WebVoyager test site (10; scope = the site's domain and subdomains,
+  path-scoped for Google Flights /travel/flights and Google Maps /maps under www.google.com). The 429 tasks start on
+  their site and essentially stay there (subdomains: support.apple.com, blog.arxiv.org, ...; one Hugging Face task
+  needs GitHub). Android: one per test app (20; seeded by one of the app's templates, started in the app); scope = the
+  app's package, the apps it is paired with in the test set's multi-app templates (10 of 116 use two apps), shared
+  system screens, and Settings' screens from other packages; Dialer and Clipper have no scene.
+- Enforcement in free_play only (exploration, practice; test evals unscoped): after each step the env checks the URL
+  / foreground package; a step that left is undone (Web: browser Back, else reload; Android: Back, else reopen the
+  app) and returned invalid ("That action left X for another ..."). Random never picks off-site links (their hrefs,
+  read in one call per page) or Android's home. The VLM explorer's hint says "Do not leave {site}" / "{app}".
+- Checked: in_scope on 20 hand cases; on the old trees the scope would have kept 4.8% (random) / 13.2% (VLM) of nodes;
+  Web random on apple/arxiv/google_maps, 9 expansions: 0 off-site nodes, 0 bounces; all 20 Android scenes build in
+  their app (49-109 s) and a Home step is undone in each.
+- Runs record "scoped": true; resumed runs without it keep unscoped scenes (specs.scene_for), practice follows its
+  source tree's setting.
+- All Android and Web exploration (saturation runs, tree_random_v1-v3, pipe_test) and the practice built on them
+  were deleted, to rerun with the new scenes (GameBoy kept).

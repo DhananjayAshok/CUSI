@@ -5,6 +5,8 @@ node restored).
 
     python run_practice.py --env gameboy --model_name <served name> --source <annotated search run> all
 """
+import json
+import os
 import click
 from cusi.utils.parameter_handling import load_parameters, compute_secondary_parameters
 from cusi.utils.log_handling import log_info
@@ -48,7 +50,12 @@ def main(ctx, env_name, model_name, model_backend, max_new_tokens, overwrite, ra
 
 def _pool(obj) -> EnvPool:
     if "pool" not in obj:
-        obj["pool"] = EnvPool(spec=obj["spec"], parameters=obj["parameters"])
+        # As the source tree's search: scenes kept on their website or app only if it kept them (run_search).
+        with open(os.path.join(search_run(parameters=obj["parameters"], env=obj["env_name"], run=obj["source"]),
+                               "config.json")) as f:
+            config = json.load(f)
+        scoped = bool(config.get("config", config).get("scoped", False))
+        obj["pool"] = EnvPool(spec=obj["spec"], parameters=obj["parameters"], scoped=scoped)
     return obj["pool"]
 
 

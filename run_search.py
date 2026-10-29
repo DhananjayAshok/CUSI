@@ -14,7 +14,7 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.paths import search_run, storage_relative
 from cusi.utils.run_dir import run_options
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.agents.specs import ENV_NAMES, ENV_SPECS, scene_for
 from cusi.search.restore import DEFAULT_STATE_CACHE
 from cusi.state import build_archive, build_encoder, build_scorer_from_config, state_config, state_options
 
@@ -162,6 +162,16 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
               **{k: (storage_relative(parameters=parameters, path=v) if k in PATH_KEYS and v else v)
                  for k, v in sconfig.items()}}
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
+    # Scenes are kept on their website or app (specs.scene_for) in new runs; a resumed run from before keeps none.
+    stored_path = os.path.join(directory, "config.json")
+    if os.path.exists(stored_path) and not overwrite:
+        with open(stored_path) as f:
+            stored = json.load(f)
+        scoped = bool(stored.get("config", stored).get("scoped", False))
+    else:
+        scoped = True
+    if scoped:
+        config["scoped"] = True
     store = SearchStore(directory=directory, config=config, overwrite=overwrite,
                         ignore_config_violation=ignore_config_violation)
     from cusi.envs.action_vocab import ActionVocab
@@ -172,7 +182,7 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     scorer = build_scorer_from_config(config=sconfig, env_name=env_name, encoder=encoder)
     stats = TreeStats(q_ema=q_ema)
     def make(*, scene):
-        return spec.make_env(scene=spec.scenes[scene], worker=0, parameters=parameters)
+        return spec.make_env(scene=scene_for(scene=spec.scenes[scene], scoped=scoped), worker=0, parameters=parameters)
     annotators = {}
     if expander == "vlm":
         from cusi.agents.vlm import AgentVLM
