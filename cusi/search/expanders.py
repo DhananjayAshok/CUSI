@@ -3,6 +3,8 @@ Exploration policies that expand a node through the env's text actions: random, 
 pursuing objectives. An expander's observe() gets each env.step result; info["changed"] says whether the step changed
 the screen.
 """
+import json
+import re
 from typing import Optional
 from urllib.parse import urlparse
 import numpy as np
@@ -137,3 +139,140 @@ class ExecutorExpander:
         self._error = recorded.error
         if recorded.step is not None and not (result[2] or result[3]) and self.executor.done_check(step=recorded.step):
             self._next_objective(obs=result[0], info=result[4], how="done_check")
+
+
+#: The typing explorer's task: the fields it may still type into (their index and label).
+TYPING_TASK = ("Type into one of these text fields to find out what it leads to, with text this {where} would act on: "
+               "{fields}. {actions}")
+TYPING_ACTIONS = {"web": "Use only Type (it presses Enter after typing) and Scroll.",
+                  "android": "Use only input_text, keyboard_enter (to submit what you typed), scroll, and "
+                             '{"action_type": "hide_keyboard"} (to close the keyboard).'}
+MSG_FIELD_CAPPED = ("That field has been typed into enough already, so the action was not performed. Type into one of "
+                    "these instead: {fields}.")
+_WEB_TYPE_RE = re.compile(r"Type\s*\[\s*(\d+)\s*\]\s*[;,]?\s*\[?(.*)", re.IGNORECASE | re.DOTALL)
+
+
+def field_list(*, fields: list) -> str:
+    """Fields as the executor is told them: [index] "label"."""
+    return "; ".join(f'[{f["index"]}] "{f["label"]}"' if f["label"] else f'[{f["index"]}]' for f in fields) or "(none)"
+
+
+def field_key(*, field: dict) -> str:
+    """A text field's identity across screens: the same search box on every results page is one field. Web: page
+    host, tag, type, name, placeholder, aria-label, label text, form action (not the page path, nor the element id,
+    which some sites generate per page load). Android: package, resource name, class, hint, content description."""
+    sig = field.get("signature") or {}
+    keys = (("host", "tag", "type", "name", "placeholder", "aria_label", "label", "form_action") if "host" in sig
+            else ("package", "resource_name", "class_name", "hint_text", "content_description"))
+    return json.dumps([sig.get(k) or "" for k in keys])
+
+
+class TypingExpander(ExecutorExpander):
+    """VLM exploration by typing only (the env runs in action_mode "typing": Web Type and Scroll; Android input_text,
+    keyboard_enter, scroll, hide_keyboard). It expands only nodes with a text field (node.typable, recorded by every
+    expander) whose identity (field_key) has been typed into fewer than field_cap times in the scene; the executor's
+    task lists those fields. Each typing step records the field it typed into (step extra typed_field). With no such
+    node left, the search stops ("no typable field left")."""
+
+    name = "vlm_typing"
+
+    @property
+    def exhausted_reason(self) -> str:
+        """Why no node was left to expand: no open field anywhere, or open fields only on nodes that cannot be restored
+        (Android replays that diverged)."""
+        tree = self.search.tree if getattr(self, "search", None) is not None else None
+        if tree is not None and any(not n.restorable and self.open_fields(fields=n.typable, search=self.search,
+                                                                          env_key=n.env_key) for n in tree.nodes):
+            return "no restorable node with a typable field left"
+        return "no typable field left"
+
+    def __init__(self, *, env_name: str, vlm, seed: int = 0, field_cap: int = 10, parameters: dict) -> None:
+        super().__init__(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
+        self.field_cap = field_cap
+        self._counts: dict = {}           # env_key -> {field key: times typed into}
+        self._counted = None              # (expansions, steps of the last) the counts were made at
+
+    def typed_counts(self, *, search, env_key: str) -> dict:
+        """How often each field identity of the scene has been typed into: every recorded typing step of the tree,
+        the expansion in progress included (recounted whenever a step has been added)."""
+        expansions = search.tree.expansions
+        at = (len(expansions), len(expansions[-1].steps) if expansions else 0)
+        if at != self._counted:
+            counts: dict = {}
+            for e in expansions:
+                for s in e.steps:
+                    key = (s.extra.get(self.name) or {}).get("typed_field")
+                    if key is not None:
+                        scene = search.tree.nodes[e.node_id].env_key
+                        counts.setdefault(scene, {})[key] = counts.get(scene, {}).get(key, 0) + 1
+            self._counts, self._counted = counts, at
+        return self._counts.get(env_key, {})
+
+    def open_fields(self, *, fields: Optional[list], search, env_key: str) -> list:
+        counts = self.typed_counts(search=search, env_key=env_key)
+        return [f for f in (fields or []) if counts.get(field_key(field=f), 0) < self.field_cap]
+
+    def eligible(self, *, node, search) -> bool:
+        return bool(self.open_fields(fields=node.typable, search=search, env_key=node.env_key))
+
+    def start(self, *, env, iteration: int, tree, node, expansion_id: Optional[int] = None, search) -> None:
+        self._done, self._env_key = False, node.env_key
+        super().start(env=env, iteration=iteration, tree=tree, node=node, expansion_id=expansion_id, search=search)
+
+    def _objective(self, *, features: Optional[list]) -> str:
+        """The task: type into one of the current screen's open fields (the features are not used)."""
+        fields = self.open_fields(fields=self.env.typable_fields(), search=self.search, env_key=self._env_key)
+        if not fields:
+            self._done = True
+        where = getattr(self.env, "site_name", None) or getattr(self.env, "scoped_app", None) or "screen"
+        self.objectives.append({"fields": [f["index"] for f in fields], "step": self._t, "done": None})
+        return TYPING_TASK.format(where=where, fields=field_list(fields=fields), actions=TYPING_ACTIONS[self.env_name])
+
+    def _next_objective(self, *, obs: dict, info: dict, how: str) -> None:
+        self.objectives[-1].update(done=how, done_step=self._t)
+        self.executor.retask(task=self._objective(features=None))
+
+    def done(self) -> bool:
+        return self._done
+
+    def after_step(self, *, obs: dict, info: dict, embedding) -> bool:
+        """The walk goes on while the screen has a field to type into (else done() ends it)."""
+        if not self.open_fields(fields=self.env.typable_fields(), search=self.search, env_key=self._env_key):
+            self._done = True
+        return True
+
+    def _typed_field(self, *, action_text: str) -> tuple:
+        """(field key, typed text) of a typing action on the current screen, or (None, None)."""
+        index, text = None, None
+        if self.env_name == "web":
+            m = _WEB_TYPE_RE.search(action_text.splitlines()[-1] if action_text else "")
+            if m:
+                index, text = int(m.group(1)), m.group(2).strip().strip("[]")
+        else:
+            try:
+                start = action_text.index("{")
+                action = json.loads(action_text[start:action_text.rindex("}") + 1])
+                if action.get("action_type") == "input_text":
+                    index, text = action.get("index"), action.get("text")
+            except (ValueError, json.JSONDecodeError):
+                pass
+        if index is None:
+            return None, None
+        field = next((f for f in self.env.typable_fields() if f["index"] == int(index)), None)
+        return (field_key(field=field), text) if field is not None else (None, text)
+
+    def next_action(self, *, env, obs: dict, info: dict) -> tuple:
+        """A typing action into a field at the cap is not performed: the executor is told which fields are open
+        (and with none open, the walk ends after this step)."""
+        action, meta = super().next_action(env=env, obs=obs, info=info)
+        if action:
+            key, text = self._typed_field(action_text=action)
+            if key is not None:
+                if self.typed_counts(search=self.search, env_key=self._env_key).get(key, 0) >= self.field_cap:
+                    fields = self.open_fields(fields=env.typable_fields(), search=self.search, env_key=self._env_key)
+                    self._pending, self._error = None, MSG_FIELD_CAPPED.format(fields=field_list(fields=fields))
+                    if not fields:
+                        self._done = True
+                    return NO_ACTION, {**meta, "decision": "capped field", "capped_field": key}
+                meta = {**meta, "typed_field": key, "typed_text": text}
+        return action, meta

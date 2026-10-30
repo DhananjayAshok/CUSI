@@ -4,16 +4,18 @@
 # extends it.
 #
 # GPUs: the search process needs one only for a cnn / siglip image embedder, the world_model novelty scorer or the
-# curiosity expander's policy; it then takes the first visible GPU. With --expander vlm, vLLM serves --model on the
-# other visible GPUs (on the only one if just one is visible), or on all of them when the search needs none. GameBoy runs on the node; Web and
-# Android in the CUSI container (Android starts one emulator, which needs /dev/kvm).
+# curiosity expander's policy; it then takes the first visible GPU. With --expander vlm or vlm_typing, vLLM serves
+# --model on the other visible GPUs (on the only one if just one is visible), or on all of them when the search needs
+# none. GameBoy runs on the node; Web and Android in the CUSI container (Android starts one emulator, which needs
+# /dev/kvm).
 #
 #   bash scripts/slurm/search.sh --env <env> --run <run> --max_expansions <max_expansions> \
 #       --image_embedder <image_embedder> --text_embedder <text_embedder> --novelty_scorer <novelty_scorer> \
 #       [--expander <value>] [--model <value>] [--vllm_port <value>] \
 #       [--extra <value>] [--overwrite <value>] [--ignore_config_violation <value>]
 #
-# --extra passes further run_search.py flags verbatim, e.g. --extra "--random_steps 20 --scenes viridian".
+# --extra passes further run_search.py flags verbatim, e.g.
+#   --extra "--random_steps 20 --scenes location_viridian_city_starting_charmander".
 # --overwrite deletes the run dir first; --ignore_config_violation resumes a run despite a changed config.
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
@@ -24,10 +26,10 @@ parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV_NAME="${ARGS["env"]}"
 MODEL="${ARGS["model"]}"
-IS_VLM=false; [[ "${ARGS["expander"]}" == "vlm" ]] && IS_VLM=true
+IS_VLM=false; [[ "${ARGS["expander"]}" == "vlm" || "${ARGS["expander"]}" == "vlm_typing" ]] && IS_VLM=true
 HAS_MODEL=false; [[ "$MODEL" != "none" ]] && HAS_MODEL=true
 if [[ "$IS_VLM" != "$HAS_MODEL" ]]; then
-    echo "Error: --model goes with --expander vlm, and only with it."; exit 1
+    echo "Error: --model goes with --expander vlm or vlm_typing, and only with them."; exit 1
 fi
 JOB="${SLURM_JOB_ID:-local$$}"
 PORT="${ARGS["vllm_port"]}"

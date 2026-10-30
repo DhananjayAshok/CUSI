@@ -55,6 +55,9 @@ class TreeSearch:
             raise ValueError("state_cache goes with restore='replay'")
         self.envs, self.encoder, self.scorer, self.archive = envs, encoder, scorer, archive
         self.expander, self.stats, self.selector = expander, stats, selector
+        # An expander may expand only some nodes (eligible(node, search)): the selector draws among those
+        eligible = getattr(expander, "eligible", None)
+        self.selector.eligible = None if eligible is None else (lambda node: eligible(node=node, search=self))
         if len({features is None, describer is None, decision_scorer is None}) > 1:
             raise ValueError("features, describer and decision_scorer come together or not at all")
         self.features, self.describer, self.decision_scorer = features, describer, decision_scorer
@@ -105,6 +108,9 @@ class TreeSearch:
                                   created_at=self.iteration, replay=self.restore == "replay" and not challenge,
                                   text_boxes=obs.get("text_boxes"))
         node.flags.update(flags)
+        typable_fields = getattr(env, "typable_fields", None)
+        if typable_fields is not None:
+            node.typable = typable_fields()
         if self.state_cache and not challenge and parent is not None:     # a root is restored by reset()
             self._cache_put(node_id=node.id, env=env)
         if self.annotated and not challenge:
@@ -417,7 +423,8 @@ class TreeSearch:
                 # a materialised episode (curiosity) ends where it ended, or where its replay diverged
                 stop = checks is not None and (not checks(obs=obs2, info=info2, embedding=emb) or self.expander.done())
                 end = self.closing_node and (t == self.k_steps - 1 or episode_over or stop)
-                if (value >= self.node_threshold and not challenge) or end:
+                # no_node: a screen the env could not save as it is (Web: typed, not submitted)
+                if (value >= self.node_threshold and not challenge and not info2.get("no_node")) or end:
                     with part("node"):
                         child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
                                                 value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
@@ -478,4 +485,5 @@ class TreeSearch:
             if reason is not None:
                 return reason
             if self.iterate() is None:
-                return "no restorable node"
+                # An expander that limits which nodes it expands (the typing explorer) says why none is left
+                return getattr(self.expander, "exhausted_reason", None) or "no restorable node"

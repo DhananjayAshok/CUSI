@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from typing import Optional
+import click
 import torch
 from cusi.agents.frames import FrameRef, FrameStore
 from cusi.search.tree import Step
@@ -64,6 +65,42 @@ def node_rows(*, directory: str) -> dict:
     return nodes
 
 
+#: Written once per name (frames, embeddings, saved states, curiosity policies): hard-linked into a fork. Everything
+#: else a resume may rewrite in place (the jsonl logs, the archive) is copied.
+WRITE_ONCE_DIRS = ("frames", "embeddings", "states", "policies", "curiosity")
+#: A run's own outputs, not carried into a fork.
+NOT_FORKED = ("config.json", "summary.json", "viewer", "task_coverage", "task_diversity")
+
+
+def fork_run(*, source: str, target: str) -> None:
+    """Start the run directory target as source's tree (run_search --from_run): logs and archive copied, write-once
+    files hard-linked, so source is never changed and no frame or state is duplicated on disk."""
+    if os.path.exists(target) and os.listdir(target):
+        raise click.UsageError(f"{target} already exists: pick a new run name to fork into")
+    os.makedirs(target, exist_ok=True)
+    for name in os.listdir(source):
+        src, dst = os.path.join(source, name), os.path.join(target, name)
+        if name in NOT_FORKED:
+            continue
+        if name in WRITE_ONCE_DIRS and os.path.isdir(src):
+            os.makedirs(dst)
+            for f in os.listdir(src):
+                os.link(os.path.join(src, f), os.path.join(dst, f))
+        elif os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+
+def committed_expansions(*, directory: str) -> int:
+    """Expansions in the run's last committed archive (what a fork of it starts with)."""
+    path = os.path.join(directory, ARCHIVE_DIR, COMMIT_FILE)
+    if not os.path.exists(path):
+        raise click.UsageError(f"{directory} has no committed search to fork")
+    with open(path) as f:
+        return json.load(f)["n_expansions"]
+
+
 class SearchStore:
     def __init__(self, *, directory: str, config: Optional[dict] = None, overwrite: bool = False,
                  ignore_config_violation: bool = False) -> None:
@@ -105,7 +142,7 @@ class SearchStore:
                          "text_boxes": n.text_boxes,
                          "value": n.value, "segment": n.segment, "features": n.features, "features_raw": n.features_raw,
                          "description": n.description, "discovered": n.discovered,
-                         "window_descriptions": n.window_descriptions,
+                         "window_descriptions": n.window_descriptions, "typable": n.typable,
                          "flags": n.flags, "created_at": n.created_at, "replay": n.replay})
         self._append(name=NODES_FILE, rows=rows)
         if expansion is not None:
@@ -219,6 +256,7 @@ class SearchStore:
             node.features, node.features_raw = row["features"], row["features_raw"]
             node.description, node.discovered = row.get("description"), row.get("discovered")
             node.window_descriptions = row.get("window_descriptions")
+            node.typable = row.get("typable")
             node.flags = dict(row["flags"])
             if row["state"] is not None:
                 state_files[node.id] = row["state"]

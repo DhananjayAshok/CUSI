@@ -37,8 +37,11 @@ class EnergySelector:
         """Draw from a stream fixed by (seed, iteration), so a resumed search selects as it would have."""
         self.rng = np.random.default_rng([self.seed, iteration])
 
+    eligible: Optional[Callable] = None     # set by the search when its expander expands only some nodes
+
     def candidates(self, *, tree: Tree) -> list:
-        return [n for n in (tree.roots if self.roots_only else tree.nodes) if n.restorable]
+        return [n for n in (tree.roots if self.roots_only else tree.nodes)
+                if n.restorable and (self.eligible is None or self.eligible(n))]
 
     def energies(self, *, nodes: list, p: np.ndarray) -> tuple:
         n_total = float(self.stats.n_total())

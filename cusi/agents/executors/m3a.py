@@ -231,7 +231,10 @@ class M3AExecutor(Executor):
             return Decision(invalid="bad format", error=MSG_BAD_FORMAT)
         parsed = agent_utils.extract_json(action)
         try:
-            json_action.JSONAction(**parsed)        # M3A's validity test
+            # M3A's validity test, except for actions the env adds (typing mode's hide_keyboard)
+            if not (isinstance(parsed, dict)
+                    and parsed.get("action_type") in getattr(self.env, "extra_action_types", ())):
+                json_action.JSONAction(**parsed)
         except Exception:
             self._summaries.append(MSG_BAD_ACTION)
             return Decision(invalid="unparseable action", error=MSG_BAD_ACTION)

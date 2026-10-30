@@ -11,6 +11,20 @@ ENV_NAMES = ("gameboy", "android", "web")
 GAMEBOY_GAME = "pokemon_red"
 
 
+#: The start states of GameBoyWorlds' pokemon_red benchmark tasks (gameboy_worlds.utils.get_benchmark_tasks), in
+#: benchmark order: exploration starts where the test tasks do.
+GAMEBOY_TEST_STATES = (
+    "location_viridian_city_starting_charmander", "location_mt_moon_complete", "location_bills_house_complete",
+    "location_viridian_forest_starting_charmander", "location_cinnabar_island_complete",
+    "trainer_brock_starting_charmander", "trainer_lass_starting_charmander", "encounter_pidgey_starting_charmander",
+    "encounter_pikachu_starting_charmander", "location_pewter_city_starting_charmander",
+    "location_pewter_pokemart_starting_charmander", "complete_encounter_seaking", "in_bike_store",
+    "in_badge_info_man_house", "in_cerulean_map_house", "battle_blue_cerulean_bridge", "location_cinnabar_mansion",
+    "location_cinnabar_facing_water", "location_cinnabar_mart", "location_ghost_tower", "outside_name_rater",
+    "letter_house", "outside_elite_four", "close_to_pond", "border_stop", "pokemon_fan_house", "in_silf_co",
+    "outside_robbed_house", "outside_daycare", "near_saffron_sign", "inside_seafoam_islands", "test_cinnabar_monk",
+    "inside_saffron_pokemon_center", "next_to_sign", "battle_pidgey", "in_fuschia_gym", "in_viridian_gym",
+    "bridge_water", "in_game_house", "pidgeotto_fight")
 #: AndroidWorld's apps (android_world.env.adb_utils._PATTERN_TO_ACTIVITY), by the short names the scenes use.
 ANDROID_PACKAGES = {"markor": "net.gsantner.markor", "settings": "com.android.settings",
                     "broccoli": "com.flauschcode.broccoli", "expense": "com.arduia.expense",
@@ -83,8 +97,8 @@ def _agent_factory(env_name: str) -> Callable:
 ENV_SPECS = {
     "gameboy": EnvSpec(
         name="gameboy", domain=gameboy_domain(game=GAMEBOY_GAME),
-        scenes={"viridian": Scene("viridian", {"init_state": "location_viridian_city_starting_charmander"}),
-                "pewter": Scene("pewter", {"init_state": "location_pewter_city_starting_charmander"})},
+        # One scene per start state of the test set (GameBoyWorlds' pokemon_red benchmark: 49 tasks, 40 states).
+        scenes={state: Scene(state, {"init_state": state}) for state in GAMEBOY_TEST_STATES},
         max_steps=50, max_workers=8, make_env=_gameboy_env, make_agent=_agent_factory("gameboy"),
         env_description=f"the GameBoy game {GAMEBOY_GAME}"),
     # AndroidWorld budgets 10 steps per unit of task complexity.

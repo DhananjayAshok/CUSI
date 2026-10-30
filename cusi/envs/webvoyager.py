@@ -41,6 +41,8 @@ MSG_NO_LABELS = ("No element on this page has a numerical label, so Click and Ty
 MSG_OUT_OF_BOUNDS = ("That action left the website for a browser page ({url}), so it was undone. "
                      "Stay on the website.")
 MSG_OFF_SITE = "That action left {site} for another website ({url}), so it was undone. Stay on {site}."
+#: Typing mode (the typing explorer): only Type (which also presses Enter) and Scroll.
+MSG_TYPING_ONLY = "Only Type and Scroll are available here. No action was performed."
 #: Browser-internal pages (the new-tab page after GoBack from the first page, settings, ...) are out of bounds:
 #: no element on them can be labelled, and they are not website content.
 OUT_OF_BOUNDS_PREFIXES = ("chrome://", "chrome-untrusted://", "chrome-search://")
@@ -67,6 +69,29 @@ CHALLENGE_MAX_TEXT = 1500
 # [title, first 3000 chars of the body text, whether a bot-check widget/iframe is in the DOM]
 # Removes the set-of-mark overlays WebVoyager's get_web_element_rect appends to <body> (fixed, dashed outline,
 # max z-index, no pointer events).
+#: Each labelled element, if text can be typed into it (an enabled, writable <input> of a text type, <textarea> or
+#: contenteditable), its identifying attributes, else null.
+_FIELD_ATTRS_JS = """
+var TEXT = ['', 'text', 'search', 'email', 'tel', 'password', 'url', 'number'];
+return arguments[0].map(function (e) {
+    try {
+        var tag = e.tagName.toLowerCase(), type = (e.getAttribute('type') || '').toLowerCase();
+        var ok = tag === 'textarea' || (tag === 'input' && TEXT.indexOf(type) >= 0) || e.isContentEditable;
+        if (!ok || e.disabled || e.readOnly) return null;
+        var label = '';
+        if (e.labels && e.labels.length) label = e.labels[0].innerText;
+        else if (e.getAttribute('aria-labelledby')) {
+            var l = document.getElementById(e.getAttribute('aria-labelledby')); if (l) label = l.innerText;
+        }
+        var g = function (a) { return e.getAttribute(a) || ''; };
+        return {tag: tag, type: type, id: g('id'), name: g('name'), placeholder: g('placeholder'),
+                aria_label: g('aria-label'), title: g('title'), autocomplete: g('autocomplete'), role: g('role'),
+                label: (label || '').trim().slice(0, 80),
+                form_action: e.form ? (e.form.getAttribute('action') || '') : '',
+                value: (e.value || e.innerText || '').slice(0, 80)};
+    } catch (err) { return null; }
+});
+"""
 #: Each labelled element's link target (its own href, or its enclosing link's), or null.
 _ELEMENT_HREFS_JS = """
 return arguments[0].map(function (e) {
@@ -288,11 +313,14 @@ class WebVoyagerPlayEnv(TextActionEnv):
         work_dir: Optional[str] = None,
         scope: Optional[dict] = None,
         site: Optional[str] = None,
+        action_mode: str = "all",
         parameters: dict[str, Any] = None,
     ) -> None:
         """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS). scope (see
         in_scope) keeps a free_play episode on its website: a step that lands elsewhere is undone and invalid; site
-        names it in that message. Test mode is never scoped (a few benchmark tasks need another site)."""
+        names it in that message. Test mode is never scoped (a few benchmark tasks need another site). action_mode
+        "typing" accepts only Type and Scroll. A Type that leaves the page's URL unchanged (typed, not submitted to a
+        new page) sets info["no_node"]: a saved state (URL, cookies, storage, scroll) would not hold what was typed."""
         self._parameters = load_parameters(parameters)
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
         self._wv.FAST_WAITS = fast_waits
@@ -323,6 +351,9 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
         self._scope = scope if mode == "free_play" else None
+        if action_mode not in ("all", "typing"):
+            log_error(f"action_mode must be 'all' or 'typing', got {action_mode!r}", parameters=self._parameters)
+        self.action_mode = action_mode
         self._site = site or urlparse(self.start_url).hostname
         self.site_name = self._site if self._scope is not None else None   # the explorer's "Do not leave" names it
         self._ele_off_site: list = []        # per labelled element: a link off the scope's website
@@ -387,11 +418,19 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 pass
             self._driver = None
 
-    def _open(self, *, url: str) -> np.ndarray:
-        """Fresh browser on url; returns the first frame."""
-        self._new_browser()
-        self._wv.open_start_page(self._driver, url)
-        return self._observe()[0]
+    def _open(self, *, url: str, attempts: int = 3) -> np.ndarray:
+        """Fresh browser on url; returns the first frame. A heavy page on a busy node can time out its first screenshot
+        (Apple's start page did, twice, with three searches' 30 browsers on one node): retried in a new browser."""
+        for attempt in range(1, attempts + 1):
+            try:
+                self._new_browser()
+                self._wv.open_start_page(self._driver, url)
+                return self._observe()[0]
+            except (self._wv.WebDriverException, WebDriverHang) as e:
+                if attempt == attempts:
+                    raise
+                log_warn(f"opening {url} failed ({type(e).__name__}: {str(e)[:120]}); retry {attempt}/{attempts - 1} "
+                         f"in a new browser", parameters=self._parameters)
 
     def _observe(self):
         """Set-of-mark screenshot and element text as run.py builds them, plus the unlabelled raw frame."""
@@ -473,6 +512,27 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 "actions": self.actions_text, "goal": self._goal,
                 "elements": elements_text(web_eles_text=web_eles_text, n_labels=len(self._web_eles))}
 
+    def typable_fields(self) -> list:
+        """The labelled elements text can be typed into on the current page (Type [index]), each {"index", "kind",
+        "label", "value", "signature"}: signature holds what may identify the field across pages (page host and path,
+        tag, type, id, name, placeholder, aria-label, label text, autocomplete, role, form action)."""
+        if not self._web_eles:
+            return []
+        try:
+            rows = self._driver.execute_script(_FIELD_ATTRS_JS, self._web_eles)
+        except self._wv.WebDriverException:
+            return []
+        page = urlparse(self._url or "")
+        fields = []
+        for i, r in enumerate(rows or []):
+            if not r:
+                continue
+            value = r.pop("value")
+            label = next((r[k] for k in ("label", "aria_label", "placeholder", "title", "name", "id") if r[k]), "")
+            fields.append({"index": i, "kind": f"{r['tag']}:{r['type']}" if r["type"] else r["tag"], "label": label,
+                           "value": value, "signature": {"host": page.hostname, "path": page.path, **r}})
+        return fields
+
     def sample_action(self, *, rng=None) -> str:
         """Click a labelled element or scroll the window; never actions that leave the scene or need content. With a
         scope, links to other websites are not clicked (they would only be undone)."""
@@ -530,6 +590,11 @@ class WebVoyagerPlayEnv(TextActionEnv):
                                   scene_id=self.scene_id, stale=True)
             return self._obs(), 0.0, False, truncated, info
 
+        if self.action_mode == "typing" and action_key not in ("type", "scroll"):
+            info = self.make_info(valid=False, error=MSG_TYPING_ONLY, parsed_action=parsed, step=self._steps,
+                                  scene_id=self.scene_id, stale=True)
+            return self._obs(), 0.0, False, truncated, info
+
         if action_key == "answer":
             if self.mode == "test":
                 info = self.make_info(valid=True, error=None, parsed_action=parsed, step=self._steps,
@@ -580,6 +645,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self.browser_restarts += 1
             self._open(url=self._url)
             extra["browser_restarted"] = True
+        if action_key == "type" and self._url == prev_url:
+            extra["no_node"] = "typed but not submitted to a new page"
         info = self.make_info(valid=True, error=None, parsed_action=parsed, step=self._steps,
                               scene_id=self.scene_id, url=self._url, **extra)
         return self._obs(), 0.0, False, truncated, info

@@ -7,6 +7,7 @@ storage/search/<env>/<run_name>; rerunning the same command resumes it, and a la
 """
 import json
 import os
+import shutil
 import time
 import click
 from cusi.utils.compute import BUDGET_METRICS, budget_value
@@ -14,8 +15,9 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.paths import search_run, storage_relative
 from cusi.utils.run_dir import run_options
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS, scene_for
+from cusi.agents.specs import ENV_NAMES, ENV_SPECS, Scene, scene_for
 from cusi.search.restore import DEFAULT_STATE_CACHE
+from cusi.search.store import committed_expansions, fork_run
 from cusi.state import build_archive, build_encoder, build_scorer_from_config, state_config, state_options
 
 loaded_parameters = load_parameters()
@@ -27,6 +29,7 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 #: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.
 EXPANDER_DEFAULTS = {"random": (100, 0.2, "actions per expansion (one walk)"),
                      "vlm": (20, 0.1, "actions per expansion"),
+                     "vlm_typing": (20, 0.1, "actions per expansion"),
                      "curiosity": (10, 0.1, "PPO episode length, so the most actions a committed episode adds")}
 
 
@@ -39,8 +42,9 @@ def expander_options(command):
     return command
 
 
-def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=None, budget=None):
-    expansions = search.tree.expansions
+def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=None, budget=None, first: int = 0):
+    """first: expansions the run started with (a fork's source tree), which none of the limits count."""
+    expansions = search.tree.expansions[first:]
     if len(expansions) >= max_expansions:
         return "max_expansions"
     if budget_metric is not None:
@@ -79,7 +83,14 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
               help="Normalise P over the candidates (a PUCT prior) in the exploration bonus.")
 @click.option("--q_ema", default=0.3, show_default=True, help="Weight of the newest yield in Q.")
 @click.option("--roots_only", is_flag=True, help="Expand only the scene roots (OS-Genesis / AutoPlay style).")
-@click.option("--expander", default="random", show_default=True, type=click.Choice(["random", "vlm", "curiosity"]))
+@click.option("--expander", default="random", show_default=True,
+              type=click.Choice(["random", "vlm", "vlm_typing", "curiosity"]),
+              help="vlm_typing: the VLM explorer typing only, from nodes with a text field (Web, Android).")
+@click.option("--typing_field_cap", default=10, show_default=True,
+              help="vlm_typing: typing attempts per text field identity (expanders.field_key) per scene.")
+@click.option("--from_run", default=None,
+              help="Start this run from another run's tree (of any expander), into this run's own directory "
+                   "(store.fork_run: the source is not changed). The run's limits count only its own expansions.")
 @click.option("--reward_buffer", default="global", show_default=True, type=click.Choice(["global", "local"]),
               help="Curiosity: reward against the run's archive (global) or only the start node (local).")
 @click.option("--rl_total_steps", default=100_000, show_default=True, help="Curiosity: env steps per session.")
@@ -113,7 +124,8 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @run_options
 def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, budget_metric, budget,
          saturation_patience, c_puct,
-         tau, normalise_p, q_ema, roots_only, expander, reward_buffer, rl_total_steps, rl_max_minutes, rl_num_envs,
+         tau, normalise_p, q_ema, roots_only, expander, typing_field_cap, from_run, reward_buffer, rl_total_steps,
+         rl_max_minutes, rl_num_envs,
          rl_commit_episodes, keep_policies,
          max_features, score_top_m, default_score, model_name, model_backend, vllm_base_url,
          restore, replay_similarity, state_cache, seed, verify_restores, overwrite, ignore_config_violation,
@@ -125,7 +137,37 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     from cusi.search.store import SearchStore
     parameters = loaded_parameters
     spec = ENV_SPECS[env_name]
-    scene_names = [s.strip() for s in scenes.split(",")] if scenes else list(spec.scenes)
+    directory = search_run(parameters=parameters, env=env_name, run=run_name)
+    stored_path = os.path.join(directory, "config.json")
+    stored = None
+    if os.path.exists(stored_path) and not overwrite:
+        with open(stored_path) as f:
+            stored = json.load(f)
+        stored = stored.get("config", stored)
+    if expander == "vlm_typing" and env_name == "gameboy":
+        raise click.UsageError("--expander vlm_typing needs an env with typing (web, android).")
+    if (expander in ("vlm", "vlm_typing")) != bool(model_name):
+        raise click.UsageError("--model_name goes with --expander vlm or vlm_typing, and only with them.")
+    source_config, first = None, 0
+    if from_run is not None:
+        source_dir = search_run(parameters=parameters, env=env_name, run=from_run)
+        with open(os.path.join(source_dir, "config.json")) as f:
+            source_config = json.load(f)
+        source_config = source_config.get("config", source_config)
+        if stored is None:
+            first = committed_expansions(directory=source_dir)
+            if overwrite and os.path.exists(directory):
+                shutil.rmtree(directory)
+            fork_run(source=source_dir, target=directory)
+            overwrite = False          # the fork is this run's start: SearchStore must not clear it
+        else:
+            first = stored.get("from_expansions", 0)
+    if scenes:
+        scene_names = [s.strip() for s in scenes.split(",")]
+    elif source_config is not None:
+        scene_names = list(source_config["scenes"])       # a fork goes on with its source's scenes
+    else:
+        scene_names = list(spec.scenes)
     unknown = [s for s in scene_names if s not in spec.scenes]
     if unknown:
         raise click.UsageError(f"Unknown scenes {unknown}; {env_name} has {list(spec.scenes)}")
@@ -138,8 +180,6 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
         raise click.UsageError("--state_cache goes with --restore replay.")
     if (budget_metric is None) != (budget is None):
         raise click.UsageError("--budget_metric and --budget go together.")
-    if (expander == "vlm") != bool(model_name):
-        raise click.UsageError("--model_name goes with --expander vlm, and only with it.")
     if expander == "curiosity" and rl_num_envs > 1 and restore == "replay":
         raise click.UsageError("parallel curiosity copies (--rl_num_envs > 1) need saved node states.")
     per_expander = {name: (kwargs.pop(f"{name}_steps"), kwargs.pop(f"{name}_node_threshold"))
@@ -151,23 +191,24 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
                  "keep_policies": keep_policies} if expander == "curiosity" else {}
     vlm_config = {"model_name": model_name, "model_backend": model_backend, "vllm_base_url": vllm_base_url,
                   "max_features": max_features, "score_top_m": score_top_m,
-                  "default_score": default_score} if expander == "vlm" else {}
+                  "default_score": default_score} if expander in ("vlm", "vlm_typing") else {}
+    typing_config = {"typing_field_cap": typing_field_cap} if expander == "vlm_typing" else {}
+    fork_config = {"from_run": from_run, "from_expansions": first} if from_run is not None else {}
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
               "saturation_patience": saturation_patience, "budget_metric": budget_metric, "budget": budget, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
               "q_ema": q_ema, "roots_only": roots_only,
               "expander": expander, "restore": restore, "replay_similarity": replay_similarity,
               "state_cache": state_cache,
-              "seed": seed, **curiosity, **vlm_config,
+              "seed": seed, **curiosity, **vlm_config, **typing_config, **fork_config,
               **{k: (storage_relative(parameters=parameters, path=v) if k in PATH_KEYS and v else v)
                  for k, v in sconfig.items()}}
-    directory = search_run(parameters=parameters, env=env_name, run=run_name)
-    # Scenes are kept on their website or app (specs.scene_for) in new runs; a resumed run from before keeps none.
-    stored_path = os.path.join(directory, "config.json")
-    if os.path.exists(stored_path) and not overwrite:
-        with open(stored_path) as f:
-            stored = json.load(f)
-        scoped = bool(stored.get("config", stored).get("scoped", False))
+    # Scenes are kept on their website or app (specs.scene_for) in new runs; a resumed run from before keeps none, and
+    # a fork keeps its source's.
+    if stored is not None:
+        scoped = bool(stored.get("scoped", False))
+    elif source_config is not None:
+        scoped = bool(source_config.get("scoped", False))
     else:
         scoped = True
     if scoped:
@@ -182,9 +223,12 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     scorer = build_scorer_from_config(config=sconfig, env_name=env_name, encoder=encoder)
     stats = TreeStats(q_ema=q_ema)
     def make(*, scene):
-        return spec.make_env(scene=scene_for(scene=spec.scenes[scene], scoped=scoped), worker=0, parameters=parameters)
+        s = scene_for(scene=spec.scenes[scene], scoped=scoped)
+        if expander == "vlm_typing":
+            s = Scene(s.name, {**s.kwargs, "action_mode": "typing"})
+        return spec.make_env(scene=s, worker=0, parameters=parameters)
     annotators = {}
-    if expander == "vlm":
+    if expander in ("vlm", "vlm_typing"):
         from cusi.agents.vlm import AgentVLM
         from cusi.search.describe import TransitionDescriber
         from cusi.search.expanders import ExecutorExpander
@@ -192,7 +236,12 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
         from cusi.search.scoring import VLMScorer
         vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
                        parameters=parameters)
-        explorer = ExecutorExpander(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
+        if expander == "vlm_typing":
+            from cusi.search.expanders import TypingExpander
+            explorer = TypingExpander(env_name=env_name, vlm=vlm, seed=seed, field_cap=typing_field_cap,
+                                      parameters=parameters)
+        else:
+            explorer = ExecutorExpander(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
         annotators = {"features": VLMFeatures(vlm=vlm, max_features=max_features),
                       "describer": TransitionDescriber(vlm=vlm, parameters=parameters),
                       "decision_scorer": VLMScorer(vlm=vlm, default_score=default_score)}
@@ -230,7 +279,7 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
             verified = search.verify_restores(limit=verify_restores)
         reason = search.run(stop=lambda s: stop_reason(search=s, max_expansions=max_expansions,
                                                        saturation_patience=saturation_patience,
-                                                       budget_metric=budget_metric, budget=budget))
+                                                       budget_metric=budget_metric, budget=budget, first=first))
     finally:
         envs.close()
         if hasattr(explorer, "close"):

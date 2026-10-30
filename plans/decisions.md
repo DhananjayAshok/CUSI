@@ -1520,3 +1520,42 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   source tree's setting.
 - All Android and Web exploration (saturation runs, tree_random_v1-v3, pipe_test) and the practice built on them
   were deleted, to rerun with the new scenes (GameBoy kept).
+
+## 2026-10-30: Typing exploration (vlm_typing), forked runs, typable fields; GameBoy scenes = Red test states; reruns
+
+- Every node records its text fields (node.typable, env.typable_fields): Web labelled <input> of a text type,
+  <textarea>, contenteditable; Android is_editable elements; each with index, label, value and a signature of what may
+  identify it across screens (Web: host, path, tag, type, id, name, placeholder, aria-label, label, autocomplete, role,
+  form action; Android: package, resource name, class, hint, content description, tooltip). Live: Google Flights 4,
+  Wolfram|Alpha 1, GitHub 1 (sign-up email), Apple 0 (search is a button), arXiv 0 at 1024 px (hidden), Booking 0
+  under its pop-up; Android SMS search (resource id), other start screens none.
+- run_search --from_run <run>: the run starts as another run's tree in its own directory (store.fork_run: jsonl logs
+  and archive copied, frames/embeddings/states hard-linked; the source is never changed); config records from_run and
+  from_expansions, and max_expansions, saturation and budgets count only the run's own expansions. An orchestrator
+  interleaves expanders (random -> typing -> random) by forking each phase from the previous.
+- --expander vlm_typing: the VLM executor with the env in action_mode "typing" (Web: Type, which presses Enter, and
+  Scroll; Android: input_text, keyboard_enter, scroll, and hide_keyboard = Back while the keyboard is shown; anything
+  else is invalid). It expands only nodes with a field whose identity (expanders.field_key: Web host, tag, type, name,
+  placeholder, aria-label, label, form action, not the per-load id nor the page path; Android package, resource,
+  class, hint, description) has been typed into fewer than --typing_field_cap (10) times in the scene; a typing action
+  into a capped field is not performed; the run stops when no node has an open field. Web: a Type that leaves the URL
+  unchanged makes no node (info no_node: a saved state would not hold the typed text).
+- First test failures: the cap only gated selection and the count skipped the expansion in progress (Wolfram|Alpha's
+  box typed 69 times at cap 2); scripts/slurm/search.sh only accepted --model with --expander vlm; the M3A executor
+  rejected hide_keyboard while parsing. After the fixes (cap 2): Web each of 9 fields typed exactly twice, forks
+  hard-linked, random forked again from the typing run. Android: forked nodes mostly failed to replay in the new job
+  (7 of 10 replay_diverged), so typing there is limited to restorable nodes (reported as "no restorable node with a
+  typable field left").
+- Web env construction retries opening a scene in a new browser (Apple's start page timed out its first screenshot
+  twice with 30 browsers on one node).
+- Android emulator deaths, now explained by the per-start logs: the emulator segfaults (killed by signal 11, no
+  marker of ours before it), 4 times in 14 h in one search; each was recovered. That search then ended when switching
+  scenes after a restart: connecting failed (adb `shell whoami` exit 1, the emulator running but not yet ready), which
+  was not taken as a death; a failed connection on resume is now handled as one (restart and rebuild).
+- GameBoy scenes are now the 40 start states of the pokemon_red benchmark (49 tasks); the 2-scene GameBoy trees,
+  practice and fine-tunes were moved to storage/archive/gameboy_2scenes_2026-10-30.
+- Reruns, all scoped: random and VLM, 3 seeds each, for Web (10 scenes), Android (20), GameBoy (40); 20 steps per
+  expansion for both expanders, saturation after 50 fruitless expansions, node threshold 0.5 (Web, Android) / 0.1
+  (GameBoy), 69 h each (Web and GameBoy as 3 x 23 h chains; Android as one long-lg job per seed, one Android job per
+  node, CPU-only random without --exclusive). GameBoy random saturated at 4600 / 6300 / 7198 nodes (7.5k-21.6k
+  expansions, 1-4 h), against 250-355 nodes from the 2 old scenes.

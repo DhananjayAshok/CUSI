@@ -147,6 +147,10 @@ def canonical_action(*, action: json_action.JSONAction) -> dict:
 
 
 MSG_OFF_APP = "That action left {app} for another app ({package}), so it was undone. Stay in {app}."
+#: Typing mode (the typing explorer): only what typing into a field needs.
+TYPING_ACTIONS = ("input_text", "keyboard_enter", "scroll", "hide_keyboard")
+MSG_TYPING_ONLY = ("Only typing actions are available: input_text, keyboard_enter (to submit), scroll, and "
+                   '{"action_type": "hide_keyboard"} (to close the keyboard). No action was performed.')
 #: System screens any app's flows go through (dialogs and the share sheet, permission prompts, the keyboard, the file
 #: and photo pickers, the notification shade): never out of a scene's scope.
 SYSTEM_PACKAGES = frozenset({"android", "com.android.systemui", "com.android.intentresolver",
@@ -259,6 +263,7 @@ class AndroidPlayEnv(TextActionEnv):
         start_app: Optional[str] = None,
         app_label: Optional[str] = None,
         scope: Optional[dict] = None,
+        action_mode: str = "all",
         connection: Optional[interface.AsyncEnv] = None,
         stabilize_after_action: bool = True,
         parameters: dict[str, Any] = None,
@@ -266,7 +271,8 @@ class AndroidPlayEnv(TextActionEnv):
         """emulator enables hang recovery; probe_success is for logging only, never show it to the policy. scope
         ({"packages": [...]}, with start_app) keeps a free_play episode in its app: a step that leaves for a package
         outside it and SYSTEM_PACKAGES is undone and invalid; app_label names the app in that message. Test mode is
-        never scoped (tasks start on the home screen and some use two apps)."""
+        never scoped (tasks start on the home screen and some use two apps). action_mode "typing" accepts only
+        TYPING_ACTIONS (hide_keyboard is this env's: Back while the keyboard is shown)."""
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
             log_error(f"reset_mode must be 'snapshot' or 'reinit', got {reset_mode!r}", parameters=self._parameters)
@@ -288,6 +294,10 @@ class AndroidPlayEnv(TextActionEnv):
         self.probe_success = probe_success
         self.start_app = start_app
         self.app_label = app_label or start_app
+        if action_mode not in ("all", "typing"):
+            log_error(f"action_mode must be 'all' or 'typing', got {action_mode!r}", parameters=self._parameters)
+        self.action_mode = action_mode
+        self.extra_action_types = ("hide_keyboard",) if action_mode == "typing" else ()   # the executor accepts it
         self._scope = frozenset(scope["packages"]) if scope and mode == "free_play" and start_app else None
         self.scoped_app = self.app_label if self._scope is not None else None   # the explorer's "Do not leave" names it
         self.stabilize_after_action = stabilize_after_action
@@ -295,6 +305,7 @@ class AndroidPlayEnv(TextActionEnv):
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
         self._raw_frame = None
+        self._ui_elements: list = []      # the last observation's UI elements (its action indices)
         self._states: dict[str, datetime.datetime] = {}   # saved state_id -> device clock at save
         self.recoveries = 0
         self._suspended = False
@@ -474,6 +485,7 @@ class AndroidPlayEnv(TextActionEnv):
     def _observe_raw(self, env: interface.AsyncEnv, stabilize: bool = True):
         """M3A's view of the screen -> (frame, (ui_elements_text, ui_count), unlabelled pixels, text boxes)."""
         state = env.get_state(wait_to_stabilize=stabilize)
+        self._ui_elements = state.ui_elements
         size = env.logical_screen_size
         raw_pixels = state.pixels.copy().astype(np.uint8)
         frame = state.pixels.copy()
@@ -553,7 +565,12 @@ class AndroidPlayEnv(TextActionEnv):
     def _step_impl(self, action: str):
         self._at_initial_state = False
         parsed, error = parse_action(text=action)
-        ja = None
+        ja, hide = None, False      # hide: typing mode's hide_keyboard (this env's action, not an M3A JSONAction)
+        if parsed is not None and self.action_mode == "typing":
+            if parsed["action_type"] not in TYPING_ACTIONS:
+                parsed, error = None, MSG_TYPING_ONLY
+            elif parsed["action_type"] == "hide_keyboard":
+                parsed, hide = None, True
         if parsed is not None:
             try:
                 ja = json_action.JSONAction(**parsed)
@@ -578,8 +595,11 @@ class AndroidPlayEnv(TextActionEnv):
             else:
                 if ja is not None:
                     error = self._guarded(fn=lambda: self._execute(env, ja))
+                elif hide:
+                    self._guarded(fn=self._hide_keyboard)
+                acted = (ja is not None or hide) and error is None
                 raw = self._guarded(fn=lambda: self._observe_raw(env, stabilize=self.stabilize_after_action))
-                left = self._guarded(fn=lambda: self._left_app(env)) if ja is not None and error is None else None
+                left = self._guarded(fn=lambda: self._left_app(env)) if acted else None
                 if left is not None:
                     raw = self._guarded(fn=lambda: self._return_to_app(env))
                     error = MSG_OFF_APP.format(app=self.app_label, package=left)
@@ -600,9 +620,10 @@ class AndroidPlayEnv(TextActionEnv):
         truncated = (not terminated) and self.max_steps is not None and self._steps >= self.max_steps
         if self.mode == "free_play" and self.probe_success:
             extra["probe_success"] = float(self._guarded(fn=lambda: task.is_successful(env)))
-        valid = ja is not None and error is None
-        info = self.make_info(valid=valid, error=error,
-                              parsed_action=canonical_action(action=ja) if ja is not None else None,
+        valid = (ja is not None or hide) and error is None
+        parsed_action = canonical_action(action=ja) if ja is not None else ({"action_type": "hide_keyboard"} if hide
+                                                                               else None)
+        info = self.make_info(valid=valid, error=error, parsed_action=parsed_action,
                               step=self._steps, scene_id=self.scene_id, raw_frame=raw[2], **extra)
         return self._obs(raw=raw), reward, terminated, truncated, info
 
@@ -624,6 +645,29 @@ class AndroidPlayEnv(TextActionEnv):
         if kind in ("click", "scroll_element", "scroll"):
             return json.dumps({"action_type": "scroll", "direction": direction})
         return json.dumps({"action_type": str(kind)})
+
+    def _hide_keyboard(self) -> None:
+        """Typing mode's hide_keyboard: Back if the keyboard is shown (it then only closes the keyboard), else nothing."""
+        if "mInputShown=true" in self._adb("shell", "dumpsys", "input_method", timeout=10):
+            self._adb("shell", "input", "keyevent", "4", timeout=10)
+            time.sleep(1.0)
+
+    def typable_fields(self) -> list:
+        """The UI elements text can be typed into on the current screen (input_text with their index), each {"index",
+        "kind", "label", "value", "signature"}: signature holds what may identify the field across screens (package,
+        resource id, class, hint, content description, tooltip)."""
+        fields = []
+        for i, ui in enumerate(self._ui_elements):
+            if not ui.is_editable or ui.is_enabled is False:
+                continue
+            sig = {"package": ui.package_name, "resource_name": ui.resource_name or ui.resource_id,
+                   "class_name": ui.class_name, "hint_text": ui.hint_text,
+                   "content_description": ui.content_description, "tooltip": ui.tooltip}
+            label = next((v for v in (ui.hint_text, ui.content_description, ui.tooltip,
+                                      (sig["resource_name"] or "").split("/")[-1]) if v), "")
+            fields.append({"index": i, "kind": (ui.class_name or "").split(".")[-1], "label": label,
+                           "value": (ui.text or "")[:80], "signature": sig})
+        return fields
 
     def _foreground_package(self, env: interface.AsyncEnv) -> Optional[str]:
         activity = adb_utils.get_current_activity(env.controller)[0]
@@ -714,7 +758,14 @@ class AndroidPlayEnv(TextActionEnv):
         self._suspended = False
         self.device_epoch += 1
         try:
-            self._env = self._guarded(fn=self._connect)
+            try:
+                self._env = self._guarded(fn=self._connect)
+            except Exception as e:
+                # A connection that fails although the emulator runs (adb not ready yet after a restart: `shell
+                # whoami` exit 1 ended a 9 h search) is handled as a stall: restart it and rebuild the scene
+                if isinstance(e, EnvStalled) or self._emulator is None:
+                    raise
+                raise EnvDied(f"connecting failed ({type(e).__name__}: {str(e).splitlines()[0][:150]})") from e
             env, clock = self._env, self._snapshot_clock
             raw = self._guarded(fn=lambda: self._restore(env, self._task, clock))
         except EnvDied as e:

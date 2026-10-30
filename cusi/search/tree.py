@@ -53,6 +53,7 @@ class Node:
     features_raw: Optional[str] = None
     description: Optional[str] = None      # what its segment (parent -> it) did (TransitionDescriber); None on roots
     discovered: Optional[list] = None      # the features its segment surfaced
+    typable: Optional[list] = None         # its screen's text fields (env.typable_fields); None: the env cannot type
     window_descriptions: Optional[list] = None   # per-window descriptions of the segment
     flags: dict = field(default_factory=dict)   # UNSELECTABLE_FLAGS, features_parse_failed
     created_at: int = 0                    # iteration that created it (0: roots)
