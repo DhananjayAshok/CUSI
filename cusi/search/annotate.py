@@ -29,6 +29,13 @@ from cusi.utils.paths import search_run
 ANNOTATIONS_FILE = "annotations.json"
 
 
+def unannotated(*, nodes: dict) -> list:
+    """Ids of the nodes annotate_run would still annotate (it skips challenge pages)."""
+    return [nid for nid, n in nodes.items() if not (n.get("flags") or {}).get("challenge_page") and (
+        n.get("features") is None or n.get("node_notes_raw") is None
+        or (n["parent"] is not None and (n.get("description") is None or n.get("edge_notes_raw") is None)))]
+
+
 def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_features: int,
                  parameters: dict[str, Any]) -> dict:
     from cusi.search.describe import TransitionDescriber

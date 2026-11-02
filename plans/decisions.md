@@ -1559,3 +1559,62 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   (GameBoy), 69 h each (Web and GameBoy as 3 x 23 h chains; Android as one long-lg job per seed, one Android job per
   node, CPU-only random without --exclusive). GameBoy random saturated at 4600 / 6300 / 7198 nodes (7.5k-21.6k
   expansions, 1-4 h), against 250-355 nodes from the 2 old scenes.
+
+## 2026-10-31: Web/Android reruns launched with --max_expansions 1000 (failure, fixed)
+
+- The 2026-10-30 reruns were meant to stop only on saturation (patience 50) or the 69 h cap, but Web and Android were
+  submitted with --max_expansions 1000 (GameBoy got 100000). All three Web random trees stopped at exactly 1000
+  expansions, unsaturated (1895 / 1344 / 1824 nodes), after 17-24 h of their 69 h.
+- Fix: max_expansions is an operational key, so the runs resume with a larger value. Web random s0-s2 resubmitted as
+  chains with --max_expansions 100000 for the rest of their 69 h; the pending Web VLM and Android random s0 segments
+  were replaced the same way. The running Android single jobs keep 1000, which they cannot reach (~8 expansions/h).
+- A first resubmission failed in seconds: --extra was passed unquoted, so search.sh saw its flags as stray arguments.
+  --extra must be one quoted string.
+- Editing scripts/slurm/search.sh while jobs run it (the 2026-10-30 tidy) makes those jobs end with "syntax error:
+  unexpected end of file" after run_search returns: bash reads the script as it goes. The search itself finished
+  (summary.json written) but sacct shows FAILED. Don't edit a job script under running jobs.
+- Android random s2 (289240) died after 20 h inside recovery: a snapshot load's UI tree never caught up, _recover
+  restarted the emulator, and rebuilding the scene on the fresh emulator failed ("Could not get a11y tree": its
+  accessibility service was not up yet). _recover now restarts up to RECOVER_ATTEMPTS = 3 times before giving up.
+  Resumed as 289550 on lg01 for the remaining 49 h (the other running Android jobs still have the one-attempt code).
+
+## 2026-11-01: Practice on the 40-scene GameBoy random trees: a seeded 750-task sample per tree
+
+- The saturated trees give 14.6k / 20.1k / 22.9k practice tasks. Measured on the first ~70 per tree: ~160 Gemma-31B
+  calls per task (1.9 tries x up to 50 steps x supervisor + executor, plus judge and critique), 149k prompt tokens,
+  18 min median wall; one 2-A6000 vLLM server with 8 workers does ~15 tasks/h (prefill-bound, ~1.2k prompt tok/s,
+  ~8 requests running, none waiting). A full pass would take 700-950 h per tree.
+- --max_tasks takes the first tasks in node (discovery) order, biased toward shallow nodes, so it is not a sample.
+  New: run_practice --sample_tasks N --sample_seed S attempts the first N of a seeded shuffle; samples are nested
+  (raising N extends one), and a resume with a different seed (or sampling on/off) is refused. On s0, 750-1500 cover
+  39-40 of the 40 scenes in proportion.
+- Launched with --sample_tasks 750 --sample_seed 0 on sat_random_s0-s2 (~50 h each, 3 segments). The node-order
+  attempts (~70 per tree) were deleted. My first estimate (1,500 in ~2 days) used an early progress-bar rate and was
+  off by 2x.
+- 2026-11-01: Android VLM s1 (289242) died the same way after 50.7 h (pre-fix code); resumed as 289699 on lg19 for
+  the remaining 18.3 h with the retrying _recover.
+
+## 2026-11-02: Cluster maintenance 2026-11-03 16:00 -> 11-04 04:00 UTC (all eclairlg nodes)
+
+- Slurm starts no job whose time limit overlaps the window, so the queued 23 h segments would wait until Nov 4.
+  Practice third segments shortened to fit (s0 8 h, s1 5.5 h, s2 5 h: each tree needs ~4-5 h more at ~15 tasks/h)
+  with a 23 h backstop segment after the window (290134-290136); ann-web-random_s0 shortened to 12 h. Annotation,
+  diversity and practice all resume where they stop, so a job killed at the window loses nothing.
+
+## 2026-10-31: sync_data sets for trees, practice and fine-tunes; packed dirs; only finished runs pushed
+
+- Sets: evals (eval/<env>/<run>[_s<i>]), trees (search/<env>/<run>, incl. annotations, task_coverage,
+  task_diversity; viewer/ skipped unless --with_viewer), practice (practice/<env>/<model>/tree/<run>) and practice-ft
+  (models/finetune/<env>/<run>; checkpoint/ skipped unless --with_checkpoints). No archive set. Push and pull are dry
+  runs unless --no_dry_run.
+- The Hub caps files per repo (~100k) and per folder (~10k): a 40-scene GameBoy tree is ~50k files and one practice
+  dataset ~112k. Each set's many-file dirs go up as one uncompressed tar each (trees: the WRITE_ONCE_DIRS; practice:
+  episodes, dataset; evals: episodes, trajectories and WebVoyager's task*/ dirs), rebuilt per push with fixed
+  metadata and order so an unchanged dir uploads nothing new, and unpacked (tarfile filter="data") on pull. Round
+  trip checked byte-identical on real trees, evals and practice runs.
+- Only finished runs are pushed (skipped, or an error when named): trees need summary.json newer than
+  expansions.jsonl and any started annotation / task_coverage / task_diversity finished; evals need every task of
+  their config summarised, none failed to run, and every Android shard; practice needs dataset/, fine-tunes adapter/;
+  and nothing may have been modified in the last 30 min. Unannotated trees may be pushed.
+- Open: trees stopped by their Slurm time limit have no summary.json, so the gate refuses them; and pushing a run
+  already on the Hub as loose files leaves those files behind.

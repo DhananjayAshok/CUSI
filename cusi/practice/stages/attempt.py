@@ -11,8 +11,10 @@ Each task's tries are saved as one pickle (episodes/<task_id>.pkl), the input of
                 "critique_calls"}]}
 results.csv has one row per task. A task with a pickle is done; rerunning continues with the rest.
 """
+import json
 import os
 import pickle
+import random
 import time
 import pandas as pd
 from cusi.agents.agent import AGENT_VERSION, merged_leg
@@ -54,15 +56,32 @@ def compute_columns(compute) -> dict:
 
 
 def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, max_tries: int, lookback: int,
-            judge_max_new_tokens: int, max_tasks, parameters: dict) -> None:
-    """restorer: the annotated search run's NodeRestorer. max_tasks: the first this many (None: all)."""
+            judge_max_new_tokens: int, max_tasks, sample_tasks, sample_seed: int, parameters: dict) -> None:
+    """restorer: the annotated search run's NodeRestorer. sample_tasks: the first this many of a seeded (sample_seed)
+    shuffle of the tasks, so a larger sample_tasks extends a smaller one (None: all). max_tasks: then the first this
+    many (None: all)."""
     tasks = tree_tasks(restorer=restorer, parameters=parameters)
+    if sample_tasks is not None:
+        order = list(range(len(tasks)))
+        random.Random(sample_seed).shuffle(order)
+        keep = set(order[:sample_tasks])
+        tasks = [t for i, t in enumerate(tasks) if i in keep]
     tasks = tasks[:max_tasks] if max_tasks is not None else tasks
     os.makedirs(paths.episodes_dir, exist_ok=True)
+    config_path = os.path.join(paths.root, "config.json")
+    sampling = {"sample_tasks": sample_tasks, "sample_seed": sample_seed if sample_tasks is not None else None}
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            before = json.load(f)
+        # Only the seed (and sampling at all) must match: a different sample_tasks grows or shrinks the same order.
+        if (before.get("sample_tasks") is None) != (sample_tasks is None) or \
+                before.get("sample_seed") != sampling["sample_seed"]:
+            log_error(f"{paths.root} was attempted with {({k: before.get(k) for k in sampling})}, not {sampling}: "
+                      f"its episodes would mix two task sets", parameters=parameters)
     atomic_json({"env": spec.name, "model_name": vlm.model_name, "agent": AGENT_VERSION, "max_tries": max_tries,
                  "max_steps": spec.max_steps, "lookback": lookback,
-                 "tree": restorer.directory},
-                os.path.join(paths.root, "config.json"))
+                 "tree": restorer.directory, **sampling},
+                config_path)
     done = {t["task_id"] for t in tasks if os.path.exists(os.path.join(paths.episodes_dir, f"{t['task_id']}.pkl"))}
     jobs = [t for t in tasks if t["task_id"] not in done]
     # Grouped by scene: a worker switching scene rebuilds its env.

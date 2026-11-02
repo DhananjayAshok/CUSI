@@ -42,6 +42,8 @@ TEXT_KEYS = ("ui_elements",)
 # (scripts/android_emulator.sh): save_state refuses once less than this would be left free there.
 SNAPSHOT_DIR = "/tmp"
 SNAPSHOT_MIN_FREE_BYTES = 30 * 2 ** 30
+#: Emulator restarts _recover tries before giving up (a fresh emulator's a11y service is sometimes not up).
+RECOVER_ATTEMPTS = 3
 
 _INDEXED_ACTIONS = ("click", "long_press", "input_text", "scroll")
 _JSON_ACTION_FIELDS = ("action_type", "index", "x", "y", "text", "direction", "goal_status", "app_name")
@@ -844,8 +846,15 @@ class AndroidPlayEnv(TextActionEnv):
             log_warn(f"Emulator restart drops {len(self._states)} saved state(s)", parameters=self._parameters)
             self._states.clear()
             self._saved_state_ids.clear()
-        self._emulator.restart()
-        self._env = self._guarded(fn=self._connect)
-        env = self._env
-        self._task, self._snapshot_clock, raw = self._guarded(fn=lambda: self._build_scene(env))
-        return raw
+        for attempt in range(1, RECOVER_ATTEMPTS + 1):
+            self._emulator.restart()
+            try:
+                self._env = self._guarded(fn=self._connect)
+                env = self._env
+                self._task, self._snapshot_clock, raw = self._guarded(fn=lambda: self._build_scene(env))
+                return raw
+            except (EnvStalled, RuntimeError) as e:
+                if attempt == RECOVER_ATTEMPTS:
+                    raise
+                log_warn(f"AndroidPlayEnv: rebuilding the scene after restart {attempt}/{RECOVER_ATTEMPTS} failed "
+                         f"({type(e).__name__}: {str(e)[:200]}); restarting again", parameters=self._parameters)

@@ -64,7 +64,7 @@ def _close(obj) -> None:
         obj["pool"].close()
 
 
-def do_attempt(obj, max_tries, lookback, max_tasks):
+def do_attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed):
     from cusi.practice.stages.attempt import attempt
     from cusi.search.restore import NodeRestorer
     restorer = NodeRestorer(directory=search_run(parameters=obj["parameters"], env=obj["env_name"],
@@ -72,7 +72,7 @@ def do_attempt(obj, max_tries, lookback, max_tasks):
                             state_cache=obj["state_cache"])
     attempt(spec=obj["spec"], pool=_pool(obj), vlm=obj["vlm"], paths=obj["paths"], restorer=restorer,
             max_tries=max_tries, lookback=lookback, judge_max_new_tokens=obj["max_new_tokens"], max_tasks=max_tasks,
-            parameters=obj["parameters"])
+            sample_tasks=sample_tasks, sample_seed=sample_seed, parameters=obj["parameters"])
 
 
 def do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed):
@@ -85,6 +85,10 @@ def do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed):
 max_tries_opt = click.option("--max_tries", default=3, help="Tries per task (a critique hint between tries).")
 lookback_opt = click.option("--lookback", default=8, help="Final frames shown to the judge.")
 max_tasks_opt = click.option("--max_tasks", default=None, type=int, help="Attempt only the first this many tasks.")
+sample_opt = click.option("--sample_tasks", default=None, type=int,
+                          help="Attempt the first this many tasks of a seeded shuffle (default: all); raise it "
+                               "to extend the sample.")
+sample_seed_opt = click.option("--sample_seed", default=0, show_default=True, help="Seed of --sample_tasks.")
 paraphrases_opt = click.option("--n_paraphrases", default=3, help="Paraphrases per successful train task.")
 margin_opt = click.option("--safety_margin", default=2, help="Executor calls kept past the safe success point.")
 val_opt = click.option("--val_frac", default=0.2, help="Share of tasks held out for validation.")
@@ -95,11 +99,13 @@ seed_opt = click.option("--seed", default=0, help="Train/validation task split s
 @max_tries_opt
 @lookback_opt
 @max_tasks_opt
+@sample_opt
+@sample_seed_opt
 @click.pass_obj
-def attempt(obj, max_tries, lookback, max_tasks):
+def attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed):
     """Attempt each task, judged, with critique-hint retries; one pickle per task."""
     try:
-        do_attempt(obj, max_tries, lookback, max_tasks)
+        do_attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed)
     finally:
         _close(obj)
 
@@ -119,15 +125,18 @@ def dataset(obj, n_paraphrases, safety_margin, val_frac, seed):
 @max_tries_opt
 @lookback_opt
 @max_tasks_opt
+@sample_opt
+@sample_seed_opt
 @paraphrases_opt
 @margin_opt
 @val_opt
 @seed_opt
 @click.pass_obj
-def run_all(obj, max_tries, lookback, max_tasks, n_paraphrases, safety_margin, val_frac, seed):
+def run_all(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed, n_paraphrases, safety_margin, val_frac,
+            seed):
     """attempt, dataset."""
     try:
-        do_attempt(obj, max_tries, lookback, max_tasks)
+        do_attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed)
         do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed)
     finally:
         _close(obj)

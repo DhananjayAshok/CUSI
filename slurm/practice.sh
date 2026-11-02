@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/practice.sh (all logic lives there). Submit from the CUSI root:
 #   sbatch --output="$results_dir/logs/practice_%j.out" slurm/practice.sh --env <env> --model <model> \
-#       --source <annotated search run>
+#       --source <annotated search run> [--sample_tasks <n> --sample_seed <seed>]
 # Arguments after the script name are passed through to scripts/slurm/practice.sh.
 # vLLM serves --model on every visible GPU (Gemma-4-31B needs 2).
 #SBATCH --job-name=cusi-practice

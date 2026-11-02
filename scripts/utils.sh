@@ -265,6 +265,8 @@ declare -A EXPLORE_TRAIN_DEFAULTS=(
 PRACTICE_ESSENTIALS=("env" "model" "source")
 declare -A PRACTICE_DEFAULTS=(
     ["max_tasks"]="none"
+    ["sample_tasks"]="none"
+    ["sample_seed"]="0"
     ["vllm_port"]="none"
 )
 
