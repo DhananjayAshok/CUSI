@@ -4,7 +4,7 @@
 # extends it.
 #
 # GPUs: the search process needs one only for a cnn / siglip image embedder, the world_model novelty scorer or the
-# curiosity expander's policy; it then takes the first visible GPU. With --expander vlm or vlm_typing, vLLM serves
+# curiosity expander's policy; it then takes the first visible GPU. With a VLM expander (vlm_*), vLLM serves
 # --model on the other visible GPUs (on the only one if just one is visible), or on all of them when the search needs
 # none. GameBoy runs on the node; Web and Android in the CUSI container (Android starts one emulator, which needs
 # /dev/kvm).
@@ -26,10 +26,10 @@ parse_args ARGS REQUIRED_ARGS "$@"
 
 ENV_NAME="${ARGS["env"]}"
 MODEL="${ARGS["model"]}"
-IS_VLM=false; [[ "${ARGS["expander"]}" == "vlm" || "${ARGS["expander"]}" == "vlm_typing" ]] && IS_VLM=true
+IS_VLM=false; [[ "${ARGS["expander"]}" == vlm_* ]] && IS_VLM=true
 HAS_MODEL=false; [[ "$MODEL" != "none" ]] && HAS_MODEL=true
 if [[ "$IS_VLM" != "$HAS_MODEL" ]]; then
-    echo "Error: --model goes with --expander vlm or vlm_typing, and only with them."; exit 1
+    echo "Error: --model goes with a VLM expander (vlm_*), and only with them."; exit 1
 fi
 JOB="${SLURM_JOB_ID:-local$$}"
 PORT="${ARGS["vllm_port"]}"

@@ -274,6 +274,7 @@ declare -A PRACTICE_DEFAULTS=(
 ANNOTATE_ESSENTIALS=("env" "run" "model")
 declare -A ANNOTATE_DEFAULTS=(
     ["max_features"]="8"
+    ["workers"]="8"
     ["vllm_port"]="none"
 )
 

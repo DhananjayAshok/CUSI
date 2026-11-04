@@ -28,9 +28,13 @@ PATH_KEYS = ("embedder_load_path", "world_model_load_path")
 #: Per expander: (actions per expansion, node threshold, what one expansion's actions are). Each becomes the flags
 #: --<expander>_steps and --<expander>_node_threshold; the run uses its own expander's pair.
 EXPANDER_DEFAULTS = {"random": (100, 0.2, "actions per expansion (one walk)"),
-                     "vlm": (20, 0.1, "actions per expansion"),
-                     "vlm_typing": (20, 0.1, "actions per expansion"),
+                     "vlm_w_typing": (20, 0.1, "actions per expansion"),
+                     "vlm_no_typing": (20, 0.1, "actions per expansion"),
+                     "vlm_typing_only": (20, 0.1, "actions per expansion"),
                      "curiosity": (10, 0.1, "PPO episode length, so the most actions a committed episode adds")}
+#: The VLM explorers: with every action (typing included), without typing, typing only. GameBoy has no typing, so its
+#: only VLM explorer is vlm_no_typing.
+VLM_EXPANDERS = ("vlm_w_typing", "vlm_no_typing", "vlm_typing_only")
 
 
 def expander_options(command):
@@ -84,10 +88,12 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @click.option("--q_ema", default=0.3, show_default=True, help="Weight of the newest yield in Q.")
 @click.option("--roots_only", is_flag=True, help="Expand only the scene roots (OS-Genesis / AutoPlay style).")
 @click.option("--expander", default="random", show_default=True,
-              type=click.Choice(["random", "vlm", "vlm_typing", "curiosity"]),
-              help="vlm_typing: the VLM explorer typing only, from nodes with a text field (Web, Android).")
+              type=click.Choice(["random", *VLM_EXPANDERS, "curiosity"]),
+              help="vlm_w_typing: the VLM explorer with every action, typing included (Web, Android). vlm_no_typing: "
+                   "the same without typing (GameBoy has none). vlm_typing_only: typing only, from nodes with a text "
+                   "field (Web, Android).")
 @click.option("--typing_field_cap", default=10, show_default=True,
-              help="vlm_typing: typing attempts per text field identity (expanders.field_key) per scene.")
+              help="vlm_typing_only: typing attempts per text field identity (expanders.field_key) per scene.")
 @click.option("--from_run", default=None,
               help="Start this run from another run's tree (of any expander), into this run's own directory "
                    "(store.fork_run: the source is not changed). The run's limits count only its own expansions.")
@@ -106,7 +112,7 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @click.option("--model_name", default=None,
               help="VLM: the model of the env's eval executor, which explores by pursuing objectives (screen features "
                    "not yet discovered), and which also lists each new node's features, reports the segment that "
-                   "reached it and scores candidates at selection. Only with --expander vlm (other trees are annotated "
+                   "reached it and scores candidates at selection. Only with a VLM expander (other trees are annotated "
                    "afterwards by cusi.search.annotate).")
 @click.option("--model_backend", default="vllm", show_default=True)
 @click.option("--vllm_base_url", default=None)
@@ -144,10 +150,11 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
         with open(stored_path) as f:
             stored = json.load(f)
         stored = stored.get("config", stored)
-    if expander == "vlm_typing" and env_name == "gameboy":
-        raise click.UsageError("--expander vlm_typing needs an env with typing (web, android).")
-    if (expander in ("vlm", "vlm_typing")) != bool(model_name):
-        raise click.UsageError("--model_name goes with --expander vlm or vlm_typing, and only with them.")
+    if expander in ("vlm_w_typing", "vlm_typing_only") and env_name == "gameboy":
+        raise click.UsageError(f"--expander {expander} needs an env with typing (web, android); GameBoy's VLM "
+                               f"explorer is vlm_no_typing.")
+    if (expander in VLM_EXPANDERS) != bool(model_name):
+        raise click.UsageError("--model_name goes with a VLM expander, and only with them.")
     source_config, first = None, 0
     if from_run is not None:
         source_dir = search_run(parameters=parameters, env=env_name, run=from_run)
@@ -191,8 +198,8 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
                  "keep_policies": keep_policies} if expander == "curiosity" else {}
     vlm_config = {"model_name": model_name, "model_backend": model_backend, "vllm_base_url": vllm_base_url,
                   "max_features": max_features, "score_top_m": score_top_m,
-                  "default_score": default_score} if expander in ("vlm", "vlm_typing") else {}
-    typing_config = {"typing_field_cap": typing_field_cap} if expander == "vlm_typing" else {}
+                  "default_score": default_score} if expander in VLM_EXPANDERS else {}
+    typing_config = {"typing_field_cap": typing_field_cap} if expander == "vlm_typing_only" else {}
     fork_config = {"from_run": from_run, "from_expansions": first} if from_run is not None else {}
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
@@ -224,24 +231,27 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     stats = TreeStats(q_ema=q_ema)
     def make(*, scene):
         s = scene_for(scene=spec.scenes[scene], scoped=scoped)
-        if expander == "vlm_typing":
+        if expander == "vlm_typing_only":
             s = Scene(s.name, {**s.kwargs, "action_mode": "typing"})
+        elif expander == "vlm_no_typing" and env_name != "gameboy":     # GameBoy has no typing
+            s = Scene(s.name, {**s.kwargs, "action_mode": "no_typing"})
         return spec.make_env(scene=s, worker=0, parameters=parameters)
     annotators = {}
-    if expander in ("vlm", "vlm_typing"):
+    if expander in VLM_EXPANDERS:
         from cusi.agents.vlm import AgentVLM
         from cusi.search.describe import TransitionDescriber
-        from cusi.search.expanders import ExecutorExpander
+        from cusi.search.expanders import ExecutorExpander, NoTypingExpander
         from cusi.search.features import VLMFeatures
         from cusi.search.scoring import VLMScorer
         vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
                        parameters=parameters)
-        if expander == "vlm_typing":
+        if expander == "vlm_typing_only":
             from cusi.search.expanders import TypingExpander
             explorer = TypingExpander(env_name=env_name, vlm=vlm, seed=seed, field_cap=typing_field_cap,
                                       parameters=parameters)
         else:
-            explorer = ExecutorExpander(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
+            cls = NoTypingExpander if expander == "vlm_no_typing" else ExecutorExpander
+            explorer = cls(env_name=env_name, vlm=vlm, seed=seed, parameters=parameters)
         annotators = {"features": VLMFeatures(vlm=vlm, max_features=max_features),
                       "describer": TransitionDescriber(vlm=vlm, parameters=parameters),
                       "decision_scorer": VLMScorer(vlm=vlm, default_score=default_score)}

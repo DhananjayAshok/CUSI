@@ -65,9 +65,10 @@ class ExecutorExpander:
     the node's) that the scene has not discovered and the walk has not pursued. The hint is the tree context
     (cusi.search.context.explore_hint). When the executor says the objective is done (its finish action, or the
     done-check every executor runs after each step; only GameBoy's makes a call), the current screen's features give
-    the next objective and the executor is retasked, keeping its memory."""
+    the next objective and the executor is retasked, keeping its memory. The env runs with all its actions, typing
+    included (Web, Android); vlm_no_typing is the same explorer with typing taken out."""
 
-    name = "vlm"
+    name = "vlm_w_typing"
 
     def __init__(self, *, env_name: str, vlm, seed: int = 0, parameters: dict) -> None:
         self.env_name, self.vlm, self.seed, self._parameters = env_name, vlm, seed, parameters
@@ -141,6 +142,12 @@ class ExecutorExpander:
             self._next_objective(obs=result[0], info=result[4], how="done_check")
 
 
+class NoTypingExpander(ExecutorExpander):
+    """The VLM explorer without typing. GameBoy has no typing, so there it is the same explorer."""
+
+    name = "vlm_no_typing"
+
+
 #: The typing explorer's task: the fields it may still type into (their index and label).
 TYPING_TASK = ("Type into one of these text fields to find out what it leads to, with text this {where} would act on: "
                "{fields}. {actions}")
@@ -174,7 +181,7 @@ class TypingExpander(ExecutorExpander):
     task lists those fields. Each typing step records the field it typed into (step extra typed_field). With no such
     node left, the search stops ("no typable field left")."""
 
-    name = "vlm_typing"
+    name = "vlm_typing_only"
 
     @property
     def exhausted_reason(self) -> str:

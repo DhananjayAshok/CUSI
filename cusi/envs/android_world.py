@@ -87,8 +87,9 @@ def describe_actions(*, prompt: str) -> str:
     return patch(prompt=prompt, old=INPUT_DESC_OLD, new=INPUT_DESC_NEW, flat=True)
 
 
-def action_menu(*, mode: str) -> str:
-    """M3A's action list from its prompt, as this env runs it; free_play drops `status` and `answer`."""
+def action_menu(*, mode: str, action_mode: str = "all") -> str:
+    """M3A's action list from its prompt, as this env runs it; free_play drops `status` and `answer`, action_mode
+    "no_typing" drops `input_text` and `keyboard_enter`."""
     prefix = describe_actions(prompt=m3a.PROMPT_PREFIX.replace("{{", "{").replace("}}", "}"))
     start = prefix.index("- If you think the task has been completed")
     lines = []
@@ -97,6 +98,8 @@ def action_menu(*, mode: str) -> str:
         if not line:
             continue
         if mode == "free_play" and ('"status"' in line or '"answer"' in line):
+            continue
+        if action_mode == "no_typing" and any(f'"{a}"' in line for a in NO_TYPING_REFUSED):
             continue
         lines.append("- " + line)
     return "\n".join(lines)
@@ -153,6 +156,16 @@ MSG_OFF_APP = "That action left {app} for another app ({package}), so it was und
 TYPING_ACTIONS = ("input_text", "keyboard_enter", "scroll", "hide_keyboard")
 MSG_TYPING_ONLY = ("Only typing actions are available: input_text, keyboard_enter (to submit), scroll, and "
                    '{"action_type": "hide_keyboard"} (to close the keyboard). No action was performed.')
+#: No-typing mode (the VLM explorer without typing): text entry and Enter are refused, and the menu and the agent's
+#: prompt drop them (cusi.agents.executors.m3a.without_typing). The on-screen keyboard's keys are ordinary clickable
+#: elements (key_pos_*: letters, Space, Delete, Enter / Done / Search), so a click or long press on any element of the
+#: keyboard's package is refused too.
+NO_TYPING_REFUSED = ("input_text", "keyboard_enter")
+KEYBOARD_PACKAGE = "com.google.android.inputmethod.latin"
+MSG_NO_KEYBOARD = ("The on-screen keyboard is not available here (typing is off). Close it with navigate_back, or"
+                   " click or scroll elsewhere. No action was performed.")
+MSG_NO_TYPING = ("Typing is not available here (input_text, keyboard_enter). Click or scroll instead. No action was"
+                 " performed.")
 #: System screens any app's flows go through (dialogs and the share sheet, permission prompts, the keyboard, the file
 #: and photo pickers, the notification shade): never out of a scene's scope.
 SYSTEM_PACKAGES = frozenset({"android", "com.android.systemui", "com.android.intentresolver",
@@ -274,7 +287,8 @@ class AndroidPlayEnv(TextActionEnv):
         ({"packages": [...]}, with start_app) keeps a free_play episode in its app: a step that leaves for a package
         outside it and SYSTEM_PACKAGES is undone and invalid; app_label names the app in that message. Test mode is
         never scoped (tasks start on the home screen and some use two apps). action_mode "typing" accepts only
-        TYPING_ACTIONS (hide_keyboard is this env's: Back while the keyboard is shown)."""
+        TYPING_ACTIONS (hide_keyboard is this env's: Back while the keyboard is shown); "no_typing" refuses
+        NO_TYPING_REFUSED and clicks on the on-screen keyboard."""
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
             log_error(f"reset_mode must be 'snapshot' or 'reinit', got {reset_mode!r}", parameters=self._parameters)
@@ -296,8 +310,9 @@ class AndroidPlayEnv(TextActionEnv):
         self.probe_success = probe_success
         self.start_app = start_app
         self.app_label = app_label or start_app
-        if action_mode not in ("all", "typing"):
-            log_error(f"action_mode must be 'all' or 'typing', got {action_mode!r}", parameters=self._parameters)
+        if action_mode not in ("all", "typing", "no_typing"):
+            log_error(f"action_mode must be 'all', 'typing' or 'no_typing', got {action_mode!r}",
+                      parameters=self._parameters)
         self.action_mode = action_mode
         self.extra_action_types = ("hide_keyboard",) if action_mode == "typing" else ()   # the executor accepts it
         self._scope = frozenset(scope["packages"]) if scope and mode == "free_play" and start_app else None
@@ -320,7 +335,7 @@ class AndroidPlayEnv(TextActionEnv):
         if max_steps is None and mode == "test":
             max_steps = int(10 * self._task.complexity)   # suite_utils._allocate_step_budget
         self.max_steps = max_steps
-        self.actions_text = action_menu(mode=mode)
+        self.actions_text = action_menu(mode=mode, action_mode=action_mode)
         self._at_initial_state = True
         self._steps = 0
         self._ui_count = raw[1][1]
@@ -573,6 +588,8 @@ class AndroidPlayEnv(TextActionEnv):
                 parsed, error = None, MSG_TYPING_ONLY
             elif parsed["action_type"] == "hide_keyboard":
                 parsed, hide = None, True
+        if parsed is not None and self.action_mode == "no_typing" and parsed["action_type"] in NO_TYPING_REFUSED:
+            parsed, error = None, MSG_NO_TYPING
         if parsed is not None:
             try:
                 ja = json_action.JSONAction(**parsed)
@@ -584,6 +601,9 @@ class AndroidPlayEnv(TextActionEnv):
                 ja, error = None, MSG_OUT_OF_RANGE
         if ja is not None and ja.action_type == json_action.STATUS and self.mode == "free_play":
             ja, error = None, MSG_NO_STATUS
+        if (ja is not None and self.action_mode == "no_typing" and ja.action_type in ("click", "long_press")
+                and ja.index is not None and self._on_keyboard(index=int(ja.index))):
+            ja, error = None, MSG_NO_KEYBOARD
 
         terminated, reward, extra = False, 0.0, {}
         env, task = self._env, self._task
@@ -653,6 +673,13 @@ class AndroidPlayEnv(TextActionEnv):
         if "mInputShown=true" in self._adb("shell", "dumpsys", "input_method", timeout=10):
             self._adb("shell", "input", "keyevent", "4", timeout=10)
             time.sleep(1.0)
+
+    def _on_keyboard(self, *, index: int) -> bool:
+        """Whether the current screen's UI element at index (negative: from the end, as M3A) is the keyboard's."""
+        try:
+            return self._ui_elements[index].package_name == KEYBOARD_PACKAGE
+        except IndexError:
+            return False
 
     def typable_fields(self) -> list:
         """The UI elements text can be typed into on the current screen (input_text with their index), each {"index",

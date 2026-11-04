@@ -8,7 +8,7 @@ import os
 import re
 from typing import Optional
 from cusi.utils.log_handling import log_warn
-from cusi.envs.webvoyager import MSG_NO_GOOGLE, load_webvoyager, without_google
+from cusi.envs.webvoyager import MSG_NO_GOOGLE, load_webvoyager, without_google, without_typing
 from cusi.agents.executors.base import GUIDANCE_END, GUIDANCE_START, SECRET_NOTE, Decision, Executor
 
 MAX_ATTACHED_IMGS = 5     # F08=5 (WebVoyager/run.sh: 3)
@@ -65,7 +65,10 @@ class WebVoyagerExecutor(Executor):
 
     def reset_memory(self) -> None:
         # F14=google: no Google action (it often lands on a CAPTCHA)
-        self._messages = [{"role": "system", "content": without_google(prompt=self._wv.SYSTEM_PROMPT)}]
+        system = without_google(prompt=self._wv.SYSTEM_PROMPT)
+        if getattr(self.env, "action_mode", "all") == "no_typing":     # the VLM explorer without typing
+            system = without_typing(prompt=system)
+        self._messages = [{"role": "system", "content": system}]
         self._new_task = None
         self._images = []
         self._n_previous = 0

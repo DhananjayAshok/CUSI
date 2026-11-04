@@ -43,6 +43,9 @@ MSG_OUT_OF_BOUNDS = ("That action left the website for a browser page ({url}), s
 MSG_OFF_SITE = "That action left {site} for another website ({url}), so it was undone. Stay on {site}."
 #: Typing mode (the typing explorer): only Type (which also presses Enter) and Scroll.
 MSG_TYPING_ONLY = "Only Type and Scroll are available here. No action was performed."
+#: No-typing mode (the VLM explorer without typing): Type is refused, and the menu and the agent's system prompt drop it
+#: through without_typing.
+MSG_NO_TYPING = "Typing is not available here. Click or scroll instead. No action was performed."
 #: Browser-internal pages (the new-tab page after GoBack from the first page, settings, ...) are out of bounds:
 #: no element on them can be labelled, and they are not website content.
 OUT_OF_BOUNDS_PREFIXES = ("chrome://", "chrome-untrusted://", "chrome-search://")
@@ -220,9 +223,21 @@ def without_google(*, prompt: str) -> str:
     return remove_line(text=prompt, pattern=r"- Google\n")
 
 
-def action_menu(*, system_prompt: str, mode: str) -> str:
-    """The action list from WebVoyager's system prompt, without Google; free_play drops ANSWER."""
+def without_typing(*, prompt: str) -> str:
+    """WebVoyager's system prompt without typing: the Type action (the numbered entry and the format line) and the two
+    action guidelines about typing."""
+    prompt = remove_line(text=prompt, pattern=r"2\. Delete existing content in a textbox[^\n]*\n")
+    prompt = remove_line(text=prompt, pattern=r"- Type \[Numerical_Label\]; \[Content\]\n")
+    prompt = remove_line(text=prompt, pattern=r"1\) To input text, NO need to click textbox first[^\n]*\n")
+    return remove_line(text=prompt, pattern=r"2\) You must Distinguish between textbox and search button[^\n]*\n")
+
+
+def action_menu(*, system_prompt: str, mode: str, action_mode: str = "all") -> str:
+    """The action list from WebVoyager's system prompt, without Google; free_play drops ANSWER, action_mode
+    "no_typing" drops Type."""
     system_prompt = without_google(prompt=system_prompt)
+    if action_mode == "no_typing":
+        system_prompt = without_typing(prompt=system_prompt)
     numbered = re.search(r"\n(1\. Click.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     formats = re.search(r"STRICTLY follow the format:\n(.*?)\n\n", system_prompt, flags=re.DOTALL).group(1)
     lines = numbered.splitlines() + ["", "Action format:"] + formats.splitlines()
@@ -319,7 +334,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS). scope (see
         in_scope) keeps a free_play episode on its website: a step that lands elsewhere is undone and invalid; site
         names it in that message. Test mode is never scoped (a few benchmark tasks need another site). action_mode
-        "typing" accepts only Type and Scroll. A Type that leaves the page's URL unchanged (typed, not submitted to a
+        "typing" accepts only Type and Scroll; "no_typing" refuses Type. A Type that leaves the page's URL unchanged (typed, not submitted to a
         new page) sets info["no_node"]: a saved state (URL, cookies, storage, scroll) would not hold what was typed."""
         self._parameters = load_parameters(parameters)
         self._wv = load_webvoyager(project_root=self._parameters["project_root"])
@@ -351,8 +366,9 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
         self._scope = scope if mode == "free_play" else None
-        if action_mode not in ("all", "typing"):
-            log_error(f"action_mode must be 'all' or 'typing', got {action_mode!r}", parameters=self._parameters)
+        if action_mode not in ("all", "typing", "no_typing"):
+            log_error(f"action_mode must be 'all', 'typing' or 'no_typing', got {action_mode!r}",
+                      parameters=self._parameters)
         self.action_mode = action_mode
         self._site = site or urlparse(self.start_url).hostname
         self.site_name = self._site if self._scope is not None else None   # the explorer's "Do not leave" names it
@@ -367,7 +383,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         if max_steps is None and mode == "test":
             max_steps = DEFAULT_TEST_MAX_STEPS
         self.max_steps = max_steps
-        self.actions_text = action_menu(system_prompt=self._wv.SYSTEM_PROMPT, mode=mode)
+        self.actions_text = action_menu(system_prompt=self._wv.SYSTEM_PROMPT, mode=mode, action_mode=action_mode)
         self._goal = self._task["ques"] if mode == "test" else ""
         self._steps = 0
         self._at_initial_state = True
@@ -587,6 +603,11 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
         if action_key == "google":
             info = self.make_info(valid=False, error=MSG_NO_GOOGLE, parsed_action=parsed, step=self._steps,
+                                  scene_id=self.scene_id, stale=True)
+            return self._obs(), 0.0, False, truncated, info
+
+        if self.action_mode == "no_typing" and action_key == "type":
+            info = self.make_info(valid=False, error=MSG_NO_TYPING, parsed_action=parsed, step=self._steps,
                                   scene_id=self.scene_id, stale=True)
             return self._obs(), 0.0, False, truncated, info
 

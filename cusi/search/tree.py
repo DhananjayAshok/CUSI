@@ -73,7 +73,7 @@ class Expansion:
     children: list = field(default_factory=list)
     yield_value: float = 0.0
     stats: dict = field(default_factory=dict)
-    expander: str = "random"               # random | vlm | curiosity
+    expander: str = "random"               # random | vlm_w_typing | vlm_no_typing | vlm_typing_only | curiosity
     expander_info: dict = field(default_factory=dict)   # expander-specific (plans/archive/next_plan.md §E.6)
 
 

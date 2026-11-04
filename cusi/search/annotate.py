@@ -16,6 +16,7 @@ annotations.json records the model. The run's viewer is rebuilt at the end.
 """
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 import click
 from cusi.agents.frames import FrameRef
@@ -36,8 +37,9 @@ def unannotated(*, nodes: dict) -> list:
         or (n["parent"] is not None and (n.get("description") is None or n.get("edge_notes_raw") is None)))]
 
 
-def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_features: int,
+def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_features: int, workers: int,
                  parameters: dict[str, Any]) -> dict:
+    """workers: nodes annotated at a time (their VLM calls run concurrently; their updates are written one by one)."""
     from cusi.search.describe import TransitionDescriber
     from cusi.search.features import VLMFeatures
     from cusi.search.notes import TASK_EXAMPLES, EdgeNotes, NodeNotes
@@ -58,11 +60,12 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
     nodes = node_rows(directory=directory)
     expansions = {e["id"]: e for e in read_rows(os.path.join(directory, EXPANSIONS_FILE))}
     counts = {"features": 0, "reports": 0, "node_notes": 0, "edge_notes": 0}
-    for i, nid in enumerate(sorted(nodes)):
+
+    def calls(nid: int) -> tuple:
+        """One node's annotation calls (on a worker thread) -> (its new fields, the counts they add). Reads only the
+        node's own fields and its parent's frame, which no other node's update changes."""
         node = nodes[nid]
-        if (node.get("flags") or {}).get("challenge_page"):
-            continue
-        update, parent_update = {}, {}
+        update, added = {}, []
         frame = FrameRef(path=os.path.join(directory, node["frame"])).pil()
         with tally() as compute:     # this node's annotation calls
             if node.get("features") is None:
@@ -70,38 +73,58 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
                 if not f.pop("parsed"):
                     update["flags"] = {**(node.get("flags") or {}), "features_parse_failed": True}
                 update.update(f)
-                counts["features"] += 1
+                added.append("features")
             if node.get("node_notes_raw") is None:
-                notes = node_notes(env_description=env_description, frame=frame,
-                                   text_boxes=node.get("text_boxes") or [])
-                edge_tasks = [t for t in node.get("tasks") or [] if t["source"] == "edge"]
-                update.update(notes, tasks=[{"task": t, "source": "node"} for t in notes["node_tasks"]] + edge_tasks)
-                counts["node_notes"] += 1
+                update.update(node_notes(env_description=env_description, frame=frame,
+                                         text_boxes=node.get("text_boxes") or []))
+                added.append("node_notes")
             if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
                 exp_id, first, last = node["segment"]
                 steps = [step_from_row(directory=directory, row=r) for r in expansions[exp_id]["steps"][first:last + 1]]
-                parent = nodes[node["parent"]]
-                start_frame = FrameRef(path=os.path.join(directory, parent["frame"]))
+                start_frame = FrameRef(path=os.path.join(directory, nodes[node["parent"]]["frame"]))
                 if node.get("description") is None:
                     update.update(describer(env_description=env_description, steps=steps, start_frame=start_frame))
-                    counts["reports"] += 1
+                    added.append("reports")
                 if node.get("edge_notes_raw") is None:
-                    notes = edge_notes(env_description=env_description, start_frame=start_frame.pil(), end_frame=frame,
-                                       steps=steps, description=update.get("description", node.get("description")))
-                    update.update(notes)
-                    if notes["edge_task"]:
-                        parent_update["tasks"] = (parent.get("tasks") or []) + [
-                            {"task": notes["edge_task"], "source": "edge", "child": nid, "segment": node["segment"]}]
-                    counts["edge_notes"] += 1
+                    update.update(edge_notes(env_description=env_description, start_frame=start_frame.pil(),
+                                             end_frame=frame, steps=steps,
+                                             description=update.get("description", node.get("description"))))
+                    added.append("edge_notes")
         if update:
             update["annotate_compute"] = compute.snapshot()
-            rows = [{"id": nid, **update}] + ([{"id": node["parent"], **parent_update}] if parent_update else [])
-            append_node_updates(directory=directory, rows=rows)
-            node.update(update)
-            if parent_update:
-                nodes[node["parent"]].update(parent_update)
-        if (i + 1) % 20 == 0:
-            log_info(f"annotate {directory}: {i + 1}/{len(nodes)} nodes, {counts}", parameters=parameters)
+        return update, added
+
+    def apply(nid: int, update: dict) -> None:
+        """Write one node's fields (on this thread only). Task lists are merged here, from their current values: a
+        node's own tasks keep the edge tasks its children already added, and an edge task joins its parent's list."""
+        node = nodes[nid]
+        if "node_tasks" in update:
+            edge_tasks = [t for t in node.get("tasks") or [] if t["source"] == "edge"]
+            update["tasks"] = [{"task": t, "source": "node"} for t in update["node_tasks"]] + edge_tasks
+        rows = [{"id": nid, **update}]
+        parent_update = {}
+        if "edge_notes_raw" in update and update.get("edge_task"):
+            parent = nodes[node["parent"]]
+            parent_update["tasks"] = (parent.get("tasks") or []) + [
+                {"task": update["edge_task"], "source": "edge", "child": nid, "segment": node["segment"]}]
+            rows.append({"id": node["parent"], **parent_update})
+        append_node_updates(directory=directory, rows=rows)
+        node.update(update)
+        if parent_update:
+            nodes[node["parent"]].update(parent_update)
+
+    todo = [nid for nid in sorted(nodes) if not (nodes[nid].get("flags") or {}).get("challenge_page")]
+    log_info(f"annotate {directory}: {len(todo)} nodes, {workers} at a time", parameters=parameters)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(calls, nid): nid for nid in todo}
+        for i, future in enumerate(as_completed(futures)):
+            update, added = future.result()
+            if update:
+                apply(futures[future], update)
+            for k in added:
+                counts[k] += 1
+            if (i + 1) % 20 == 0:
+                log_info(f"annotate {directory}: {i + 1}/{len(todo)} nodes, {counts}", parameters=parameters)
     return counts
 
 
@@ -112,7 +135,8 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
 @click.option("--model_backend", default="vllm", show_default=True)
 @click.option("--vllm_base_url", default=None)
 @click.option("--max_features", default=8, show_default=True, help="Features listed per node.")
-def main(env_name, run_name, model_name, model_backend, vllm_base_url, max_features):
+@click.option("--workers", default=8, show_default=True, help="Nodes annotated at a time.")
+def main(env_name, run_name, model_name, model_backend, vllm_base_url, max_features, workers):
     from cusi.agents.vlm import AgentVLM
     from cusi.search.viewer import build_viewer
     parameters = load_parameters()
@@ -120,7 +144,7 @@ def main(env_name, run_name, model_name, model_backend, vllm_base_url, max_featu
     vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
                    parameters=parameters)
     counts = annotate_run(directory=directory, env_name=env_name, vlm=vlm, model_name=model_name,
-                          max_features=max_features, parameters=parameters)
+                          max_features=max_features, workers=workers, parameters=parameters)
     viewer = build_viewer(run_dir=directory, title=f"{env_name} / {run_name}")
     log_info(f"annotated {directory}: {counts}; viewer {viewer}", parameters=parameters)
 

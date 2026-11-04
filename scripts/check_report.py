@@ -22,11 +22,11 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.agents.frames import FrameRef
 
 ENVS = ("gameboy", "web", "android")
-EXPANDERS = ("random", "vlm", "curiosity")
+EXPANDERS = ("random", "vlm_w_typing", "vlm_no_typing", "curiosity")
 # thumbnail size (width, height) per env, roughly the screen's aspect ratio
 THUMB = {"gameboy": (240, 216), "web": (560, 315), "android": (150, 333)}
 COLS = {"gameboy": 8, "web": 4, "android": 8}
-COLORS = {"random": "tab:blue", "vlm": "tab:orange", "curiosity": "tab:green"}
+COLORS = {"random": "tab:blue", "vlm_w_typing": "tab:orange", "vlm_no_typing": "tab:purple", "curiosity": "tab:green"}
 
 
 def _read_jsonl(*, path: str) -> list:

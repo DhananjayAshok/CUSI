@@ -1618,3 +1618,70 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   and nothing may have been modified in the last 30 min. Unannotated trees may be pushed.
 - Open: trees stopped by their Slurm time limit have no summary.json, so the gate refuses them; and pushing a run
   already on the Hub as loose files leaves those files behind.
+
+## 2026-11-03: Concurrent annotation (--workers, default 8); cancelling practice to free GPUs backfired
+
+- annotate_run made one VLM call at a time: its vLLM servers ran 1 request ~86% of the time (~200 prompt tok/s, vs
+  ~1,200 for practice's 8 workers). Now each node's calls run on a worker thread and the main thread writes the
+  updates one by one, merging task lists at write time (a node's own tasks keep the edge tasks its children added;
+  an edge task joins its parent's current list). Tested on a de-annotated copy of android/sat_random_s2 (277 nodes,
+  4 A5000s): 0 unannotated, 0 task-list inconsistencies, 980 vs 985 tasks from the serial run, ~650 nodes/h vs ~160.
+- Failure: to focus compute on annotation I cancelled the three GameBoy practice jobs (629 / 569 / 538 of 750 kept),
+  but the 12 A6000s freed (practice + the restarted serial annotations) went to another user's queued jobs within
+  seconds (our fairshare is lower). Only lg10's A5000s were ours to use. Check the queue for other users' pending
+  jobs before releasing GPUs.
+
+## 2026-11-03: The VLM explorer typed; expanders renamed vlm_w_typing / vlm_no_typing / vlm_typing_only
+
+- Failure: the VLM trees were described as "typing off", but `--expander vlm` ran the env with every action. Only the
+  typing-only explorer changed the action set. Across the sat_vlm trees the VLM typed in 5.4-6.5% of steps on Web
+  and Android, mostly its objective into search boxes. 17-30% of their nodes were reached by a typing step and 38-81%
+  descend from one. Random never types (its samplers only click, scroll, go back or home); GameBoy has no typing. So
+  random vs VLM on Web and Android compared no typing with some typing.
+- Expanders renamed: vlm -> vlm_w_typing (Web, Android), vlm_typing -> vlm_typing_only (Web, Android), and a new
+  vlm_no_typing (GameBoy: the same explorer, there being nothing to type; Web and Android: refused until a no-typing
+  action mode exists). The GameBoy sat_vlm trees are vlm_no_typing.
+- The 9 sat_vlm trees were migrated (config.json expander, each expansions row's expander and its steps' extra key,
+  task_coverage / task_diversity run_dir; checked equal to a backup up to the renamed fields) and renamed
+  sat_vlm_w_typing_s* (Web, Android) / sat_vlm_no_typing_s* (GameBoy), with their practice outputs. Practice was not
+  cancelled: running jobs load the tree at start and then open files under its path, so symlinks under the old names
+  keep them going; the queued segments (no GPUs held) were resubmitted under the new names. Remove the symlinks once
+  the old-name jobs end.
+
+## 2026-11-03: vlm_no_typing (Web, Android)
+
+- Env action_mode "no_typing", with typing both refused and removed from the agent's prompt:
+  - Web: Type is refused (MSG_NO_TYPING). WebVoyager's system prompt and the action menu drop the Type entry, its
+    format line and the two typing guidelines (without_typing, anchored like without_google).
+  - Android: input_text and keyboard_enter are refused. M3A's action prompt drops both actions and the guidance on
+    entering or editing text (typing, deleting with backspace, pasting, auto-complete), and "input_text" from the
+    index rule (m3a.without_typing, every cut checked at import).
+- Android's on-screen keyboard keys are ordinary clickable elements (key_pos_*: letters, Space, Delete, Enter / Done
+  / Search), so no_typing also refuses a click or long press on any element of the keyboard's package
+  (com.google.android.inputmethod.latin). In the existing trees, 3.9-4.4% of random's Android clicks hit the
+  keyboard (letters, Space, Delete: gibberish typing), and 3.5-4.4% of vlm_w_typing's (mostly Enter / Done / Search
+  after input_text). So random on Android is not strictly typing-free either. Random on Web cannot type.
+- Text-field contents are not a typing signal: random trees, which cannot type text, show fields "holding text"
+  (Android placeholders reported as values; Web fields the site pre-fills, e.g. Google Flights' "Where from?").
+- Live tests (Gemma 4 31B on a practice job's vLLM, via srun --overlap):
+  - Web (Google Flights, Wolfram|Alpha; 2 expansions, 40 steps): no typing attempts, only clicks and scrolls.
+    Format errors 5/40 vs 7.6% in the vlm_w_typing trees.
+  - Android (Contacts, SMS; 4 expansions, 80 steps): no typing attempts and no keyboard taps.
+  - A scripted check on the emulator (SMS search field open, keyboard shown): a key tap, a long press,
+    input_text and keyboard_enter were all refused; navigate_back worked; the field kept its placeholder.
+  - The first Web vlm_no_typing submission (291319-291327) left out `--gres=gpu:rtxa6000:2`, so vLLM got one A6000 and
+    failed at startup; each afterany segment then failed in ~2 min. Resubmitted with the gres as 291829-291837.
+    slurm/search.sh defaults to one GPU, so every VLM search must pass the gres.
+  - Web vlm_no_typing s1 failed 3 times on lg16 (alongside web practice): apple.com's start page timed out on all 3
+    browser attempts while building roots. curl from the node was fine. Resubmitted with --exclude=eclairlg16 (291844-291846).
+
+## 2026-11-04: Fine-tunes on the saturation practice datasets (max_length 6144 on A6000)
+
+- The 2026-10-28 settings (r16, alpha 32, lr 5e-5, 64 rows/step, 1 epoch) with --max_length 3072 dropped 44% of Web rows:
+  Web rows run to a 2.8k-token median (99th percentile 6.5-7.4k), GameBoy's to ~0.8k. Now --max_length 6144
+  --max_batch_tokens 6144 for every env (drops ~2% of Web rows, none on GameBoy). On 4x A6000: peak 39-40 GB of 48,
+  ~300 s/step (0.2 rows/s, ~600 tokens/s), so a Web fine-tune (~110-120 steps) takes ~10 h.
+- 3072 was an A5000 limit (8x 24 GB); a 4x A5000 node cannot hold Gemma-4-31B for training, and 2x A6000 was not tried.
+- The old-name symlinks (storage/{search,practice}/<env>/.../sat_vlm_s<k>) must stay: practice datasets written before
+  the rename hold absolute image paths under sat_vlm_s<k>. Removing them (2026-11-04 17:10) crashed the Web VLM s0/s1
+  fine-tunes with FileNotFoundError; restored, and the two fine-tunes resubmitted (291960, 291961).

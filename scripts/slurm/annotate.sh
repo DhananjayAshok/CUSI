@@ -4,7 +4,7 @@
 # every visible GPU. Run from the CUSI root (Slurm wrapper: slurm/annotate.sh); rerunning continues where it stopped.
 #
 #   bash scripts/slurm/annotate.sh --env <env> --run <run> --model <model> [--max_features <value>] \
-#       [--vllm_port <value>]
+#       [--workers <value>] [--vllm_port <value>]
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
 populate_dict ANNOTATE_DEFAULTS ARGS
@@ -22,4 +22,4 @@ bash scripts/serve_vllm.sh --model "${ARGS["model"]}" --port "$PORT" || exit 1
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 CUDA_VISIBLE_DEVICES="" python -u -m cusi.search.annotate --env "${ARGS["env"]}" --run "${ARGS["run"]}" \
     --model_name "${ARGS["model"]}" --model_backend vllm --vllm_base_url "http://127.0.0.1:$PORT/v1/" \
-    --max_features "${ARGS["max_features"]}"
+    --max_features "${ARGS["max_features"]}" --workers "${ARGS["workers"]}"

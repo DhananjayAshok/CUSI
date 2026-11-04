@@ -55,6 +55,18 @@ SUBGOALS_HEADER = "Subgoal plan ([x] = completed, seen on screen):\n"
 SUBGOALS_ASK = ("In your answer, after the Reason line and before the Action line, add a line \"Completed subgoals:"
                 " <numbers of the subgoals now completed, as observed on the screen, or none>\". Finish the task only"
                 " when every subgoal is completed.")
+# The VLM explorer without typing (env action_mode "no_typing", which refuses input_text and keyboard_enter): those
+# actions and the guidance about entering or editing text (deleting, pasting, auto-complete) are cut from the action
+# prompt, each cut matching exactly once.
+NO_TYPING_CUTS = (r"- Type text into a text field \(this action clicks.*?\}`\n",
+                  r"- Press the Enter key: `\{\"action_type\": \"keyboard_enter\"\}`\n",
+                  r"- Use the `input_text` action whenever you want to type.*?instead of deleting it by hand\.\n",
+                  r"- To delete some text: the most traditional way.*?in the keyboard\.\n",
+                  r"- To paste text into a text box,.*?`paste` button in it\.\n",
+                  r"- When typing into a text field, sometimes an auto-complete.*?in the list\.\n")
+NO_TYPING_PATCHES = (("For `click`, `long_press` and `input_text`, the index",
+                      "For `click` and `long_press`, the index"),
+                     ("type and report content EXACTLY", "report content EXACTLY"))
 # F56: what a text field holds after typing.
 READBACK_MATCH_CHARS = 40
 
@@ -146,8 +158,19 @@ def readback_note(*, action: str, ui_elements: str) -> Optional[str]:
             " entered and saved where you intended.")
 
 
+def without_typing(*, prompt: str) -> str:
+    """The action prompt without input_text, keyboard_enter and the guidance about entering or editing text."""
+    for pattern in NO_TYPING_CUTS:
+        prompt, n = re.subn(pattern, "", prompt, count=1, flags=re.DOTALL)
+        if n != 1:
+            raise ValueError(f"M3A prompt anchor not found (android_world changed?): {pattern[:80]!r}")
+    for old, new in NO_TYPING_PATCHES:
+        prompt = patch(prompt=prompt, old=old, new=new, flat=True)
+    return prompt
+
+
 def action_prompt(*, goal: str, history: list, ui_elements: str, guidance: Optional[str], notes: str,
-                  subgoals: list, done: set, context: str) -> str:
+                  subgoals: list, done: set, context: str, no_typing: bool = False) -> str:
     """M3A's action prompt with the final design. Blocks are inserted in the confirmed order: notes, rules, subgoal plan, device context."""
     if guidance:
         text = f"{guidance}\n{SECRET_NOTE}"
@@ -161,6 +184,8 @@ def action_prompt(*, goal: str, history: list, ui_elements: str, guidance: Optio
     prompt = describe_actions(prompt=prompt)                                             # F55, F57
     prompt = patch(prompt=prompt, old=DELETE_TIP_OLD, new=DELETE_TIP_NEW, flat=True)      # F55
     prompt = insert(prompt=prompt, text=MINITAP_RULES)                                    # F58
+    if no_typing:
+        prompt = without_typing(prompt=prompt)
     if subgoals:
         prompt = insert(prompt=prompt, text=subgoals_block(subgoals=subgoals, done=done))  # F59
     return insert(prompt=prompt, text=context)                                           # F61
@@ -168,6 +193,8 @@ def action_prompt(*, goal: str, history: list, ui_elements: str, guidance: Optio
 
 # Every anchor, checked once at import.
 action_prompt(goal="g", history=[], ui_elements="", guidance=None, notes="", subgoals=[], done=set(), context="")
+action_prompt(goal="g", history=[], ui_elements="", guidance=None, notes="", subgoals=[], done=set(), context="",
+              no_typing=True)
 
 
 class M3AExecutor(Executor):
@@ -216,7 +243,8 @@ class M3AExecutor(Executor):
         self._before = (obs, info)
         prompt = action_prompt(goal=self.task, history=self._history(), ui_elements=obs["texts"]["ui_elements"],
                                guidance=hint, notes=self._notes, subgoals=self._subgoals, done=self._done,
-                               context=device_context(env=self.env))
+                               context=device_context(env=self.env),
+                               no_typing=getattr(self.env, "action_mode", "all") == "no_typing")
         response = self.call(tag="action", prompt=prompt, images=[info["raw_frame"], obs["frame"]])
         self._notes = read_notes(response=response) or self._notes
         if self._subgoals:
