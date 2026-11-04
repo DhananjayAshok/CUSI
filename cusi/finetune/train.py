@@ -69,8 +69,8 @@ class LoRATrainer:
         encoder = RowEncoder(processor=self.processor)
         paths = dataset_paths(dataset_dir=self.dataset_dir)
         roles = tuple(c["roles"])
-        self.train_rows = read_rows(path=paths["train"], roles=roles)
-        val = read_rows(path=paths["validation"], roles=roles)
+        self.train_rows = read_rows(path=paths["train"], roles=roles, dataset_dir=self.dataset_dir)
+        val = read_rows(path=paths["validation"], roles=roles, dataset_dir=self.dataset_dir)
         g = torch.Generator().manual_seed(c["seed"])
         self.val_rows = [val[i] for i in torch.randperm(len(val), generator=g)[:c["val_rows"]].tolist()]
         t0 = time.time()

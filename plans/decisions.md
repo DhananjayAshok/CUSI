@@ -1685,3 +1685,22 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
 - The old-name symlinks (storage/{search,practice}/<env>/.../sat_vlm_s<k>) must stay: practice datasets written before
   the rename hold absolute image paths under sat_vlm_s<k>. Removing them (2026-11-04 17:10) crashed the Web VLM s0/s1
   fine-tunes with FileNotFoundError; restored, and the two fine-tunes resubmitted (291960, 291961).
+
+## 2026-11-04: Practice datasets store image paths relative to the dataset directory
+
+- Rows held absolute image paths (<storage_dir>/practice/.../dataset/images/...), so a renamed run or a dataset pulled
+  to another storage_dir could not be trained on (the Web VLM s0/s1 fine-tunes crashed when the old-name symlinks went).
+- Now the dataset stage writes images/<name>.png, and cusi.finetune.data.read_rows resolves paths against the dataset
+  directory: an absolute (older) path keeps its part after the last /dataset/. read_rows raises if any image is missing
+  (one directory listing per images dir), so a broken dataset fails at startup.
+- Migrated the 11 datasets (enumerated by hand: web random s0-2, web vlm_w_typing s0-2, android random s1-2, gameboy
+  random s0-2; tmp_migrate_paths.py; originals in storage/tmp/dataset_paths_backup). Checks: a dry run asserted every
+  row unchanged but for its image paths and every image present; before vs after on all rows, the new reader resolves
+  to the same file (realpath of the directory + name) as the stored path; the processor's encodings (token ids, pixel
+  values, masks) of 6 sampled rows per split are identical; absolute paths 682,043 -> 0; a rerun finds nothing to
+  rewrite; android sat_random_s1 rebuilt from its episodes with the new code equals the migrated rows (images
+  byte-identical). Running fine-tunes kept their in-memory rows and were not disturbed.
+- The old-name symlinks (sat_vlm_s<k>) are removed (18, each checked as a symlink); the Web VLM s0/s1 datasets load
+  without them. Android VLM s2's practice segment started before the change and will write absolute paths: read_rows
+  handles them; rerun the migration on it once built.
+- llm-utils submodule removed (no CUSI code, script or job used it; its env was never created).

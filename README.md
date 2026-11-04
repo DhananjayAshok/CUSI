@@ -7,9 +7,7 @@ A template for Python research projects. Provides standardised environment setup
 ## Checklist
 
 1. Do [setup](setup/README.md)
-2. Checkout llm-utils to the latest commit
-3. Create symlink with llm-utils/setup/.venv and wherever your actual env is
-4. Add all and commit
+2. Add all and commit
 
 
 
@@ -26,7 +24,6 @@ cd <project_name>
 # 2. Project venv. Optional first: put the venv under your storage dir and symlink it,
 #    e.g. ln -s <storage_dir>/venvs/cusi setup/.venv
 cd setup && uv sync && cd ..
-cd llm-utils/setup && uv sync && cd ../..
 source setup/.venv/bin/activate
 
 # 3. Fill in every PLACEHOLDER in configs/private_vars.yaml (storage_dir, results_dir,
@@ -71,8 +68,6 @@ All `.yaml` files in [`configs/`](configs/) are automatically merged into the `p
 | `sync_data.py` | Syncs named sets of `storage_dir` artifacts with a HuggingFace Dataset repo, which mirrors the local layout. `pull` dry-runs unless `--no_dry_run`. | `python sync_data.py push --set evals --run_name <run>` / `pull` / `init` |
 | `cusi/utils/lm_inference.py` | LM and VLM inference via OpenAI-compatible APIs (`OpenAIModel`, `vLLMModel`, `OpenRouterModel`), Anthropic (`AnthropicModel`), and local HuggingFace models (`HuggingFaceModel`). Supports text and image inputs. Returns `{"output": ..., "meta": ...}`, where `meta` holds per-record `input_tokens`/`output_tokens`. | `model = OpenAIModel(model="gpt-4o"); result = model.infer(texts, max_new_tokens=256); result["output"], result["meta"]["input_tokens"]` |
 | `paired_bootstrap` | Statistical significance test comparing two systems via paired bootstrap resampling. Returns the achieved p-value. Optionally logs win ratios and 95% confidence intervals. | `p = paired_bootstrap(sys1_scores, sys2_scores, verbose=True, parameters=parameters)` |
-| `llm-utils` (submodule) | Efficient, scalable, offline, batched LLM/VLM inference via HuggingFace Transformers and vLLM. Also supports pretraining, SFT, DPO, and unlearning. Entry point: [`llm-utils/infer.py`](llm-utils/infer.py). Called via [`scripts/llm-utils.sh`](scripts/llm-utils.sh). | `bash scripts/llm-utils.sh --input data.csv --model_name <name> hf --batch_size 8` |
-
 ---
 
 ## Running Code

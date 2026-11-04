@@ -20,10 +20,49 @@ IGNORE_INDEX = -100
 END_OF_TURN = "<turn|>"
 
 
-def read_rows(*, path: str, roles: tuple) -> list:
+def image_path(*, dataset_dir: str, path: str) -> str:
+    """A row's image path, relative to its dataset directory (images/<name>.png), as a path to open. Rows written before
+    2026-11-04 hold absolute paths, which break when the run is renamed or the dataset is moved to another storage_dir:
+    those keep only their part after the last /dataset/."""
+    if os.path.isabs(path):
+        marker = os.sep + "dataset" + os.sep
+        if marker not in path:
+            raise ValueError(f"image path {path} is absolute and not under a dataset directory")
+        path = path[path.rindex(marker) + len(marker):]
+    return os.path.join(dataset_dir, path)
+
+
+def row_images(*, row: dict) -> list:
+    """The image items of a row's messages ({"type": "image", "image": <path>}), in order."""
+    return [c for m in row["messages"] if isinstance(m["content"], list) for c in m["content"] if c["type"] == "image"]
+
+
+def missing_images(*, rows: list) -> list:
+    """The rows' image paths that do not exist (one listing per images directory, not one stat per image)."""
+    listed, missing = {}, []
+    for r in rows:
+        for c in row_images(row=r):
+            directory, name = os.path.split(c["image"])
+            if directory not in listed:
+                listed[directory] = set(os.listdir(directory)) if os.path.isdir(directory) else set()
+            if name not in listed[directory]:
+                missing.append(c["image"])
+    return missing
+
+
+def read_rows(*, path: str, roles: tuple, dataset_dir: str) -> list:
+    """The rows of one split with the given roles, their image paths resolved against dataset_dir; raises if any
+    image is missing."""
     with open(path) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    return [r for r in rows if r["role"] in roles]
+    rows = [r for r in rows if r["role"] in roles]
+    for r in rows:
+        for c in row_images(row=r):
+            c["image"] = image_path(dataset_dir=dataset_dir, path=c["image"])
+    missing = missing_images(rows=rows)
+    if missing:
+        raise FileNotFoundError(f"{len(missing)} images of {path} are missing, e.g. {missing[:3]}")
+    return rows
 
 
 def dataset_paths(*, dataset_dir: str) -> dict:

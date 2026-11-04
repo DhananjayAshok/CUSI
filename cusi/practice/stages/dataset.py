@@ -96,12 +96,12 @@ def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, im
                 accepted = call.accepted_by_env()
                 if success and not accepted:
                     continue
-        image_paths = []
+        image_paths = []   # relative to the dataset directory, so the dataset survives a rename or a move
         for i, image in enumerate(call.images):
-            path = os.path.join(images_dir, f"{episode_id}_{call_idx}_{i}.png")
-            with open(path, "wb") as f:
+            name = f"{episode_id}_{call_idx}_{i}.png"
+            with open(os.path.join(images_dir, name), "wb") as f:
                 f.write(image.png)
-            image_paths.append(path)
+            image_paths.append(os.path.join(os.path.basename(images_dir), name))
         rows.append({"episode_id": episode_id, "task_id": task["task_id"], "task": task["task"],
                      "task_source": task["source"], "scene": task["scene"], "node_id": task["node_id"],
                      "try": entry["try"], "role": role, "tag": tag, "call_idx": call_idx, "accepted": accepted,

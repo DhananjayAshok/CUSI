@@ -1,7 +1,3 @@
-[submodule "llm-utils"]
-	path = llm-utils
-	url = https://github.com/DhananjayAshok/llm-utils/
-	branch = app
 [submodule "GameBoyRL"]
 	path = GameBoyRL
 	url = https://github.com/DhananjayAshok/GameBoyRL

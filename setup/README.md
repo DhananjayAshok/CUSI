@@ -36,8 +36,6 @@ uv add accelerate click huggingface_hub seaborn pandas tqdm numpy openai anthrop
 | `torch` | Local HuggingFace model GPU execution | Remove `HuggingFaceModel` and model store from [`cusi/utils/lm_inference.py`](../cusi/utils/lm_inference.py) |
 | `accelerate`, `transformers` | Local HuggingFace model loading (LM + VLM) | Same as `torch` above |
 | `torchvision` | Image preprocessing for VLM inference via `HuggingFaceModel` | Don't use VLMs with `HuggingFaceModel` |
-| `llm-utils` (submodule) | Efficient, scalable, offline, batched LLM inference | Remove [`scripts/llm-utils.sh`](../scripts/llm-utils.sh) and remove the submodule |
-
 This creates a uv.lock file, that must be committed to version control. This will also create the environment. Source it with (from root):
 
 ```console
