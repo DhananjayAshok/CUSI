@@ -71,7 +71,8 @@ class EnvSpec:
 def _gameboy_env(*, scene: Scene, worker: int, parameters: dict):
     # Imports are lazy: GameBoyRL's and WebVoyager's top-level `utils` modules cannot share a process.
     from cusi.envs.gameboy import GameBoyPlayEnv
-    return GameBoyPlayEnv(game=GAMEBOY_GAME, mode="free_play", parameters=parameters, **scene.kwargs)
+    kwargs = {"game": GAMEBOY_GAME, **scene.kwargs}
+    return GameBoyPlayEnv(mode="free_play", parameters=parameters, **kwargs)
 
 
 def _android_env(*, scene: Scene, worker: int, parameters: dict):
@@ -200,3 +201,18 @@ class EnvPool:
             except Exception:
                 pass
         self._envs = {}
+
+
+def gameboy_spec(*, game: str) -> EnvSpec:
+    """The GameBoy spec for another GameBoyWorlds game: one scene per start state of its benchmark tasks, with no
+    on-screen text (obs["text_boxes"] empty; the glyph tables are only checked for pokemon_red)."""
+    if game == GAMEBOY_GAME:
+        return ENV_SPECS["gameboy"]
+    from gameboy_worlds.utils import get_benchmark_tasks
+    states = list(dict.fromkeys(get_benchmark_tasks(game=game)["init_state"]))
+    base = ENV_SPECS["gameboy"]
+    return EnvSpec(name="gameboy", domain=gameboy_domain(game=game),
+                   scenes={state: Scene(state, {"init_state": state, "game": game, "read_text": False})
+                           for state in states},
+                   max_steps=base.max_steps, max_workers=base.max_workers, make_env=_gameboy_env,
+                   make_agent=base.make_agent, env_description=f"the GameBoy game {game}")

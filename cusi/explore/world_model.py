@@ -9,30 +9,56 @@ import torch
 import torch.nn as nn
 from cusi.utils.log_handling import log_info
 from cusi.envs.action_vocab import ActionVocab
-from cusi.explore.replay import iter_replay, load_episodes
+from cusi.explore.replay import is_validation_episode, iter_replay, load_episodes
 from cusi.state.scorers.world_model import WORLD_MODEL_META_FILENAME, WorldModel
 
 
-def transitions_from_replay(*, replay_dirs: list, embedder=None) -> dict:
-    """Transition arrays (obs, action, next, episode, frame_changed); embedder re-embeds frames instead of using stored ones."""
-    obs, act, nxt, epi, changed = [], [], [], [], []
-    episode_id = 0
-    for directory in replay_dirs:
-        for ep in load_episodes(directory=directory, load_frames=embedder is not None):
-            if embedder is None:
-                embs = [np.asarray(s["embedding"], dtype=np.float32) for s in ep]
-            else:
-                embs = list(embedder.embed(frames=[s["frame"] for s in ep]).numpy())
-            for t in range(1, len(ep)):
-                prev = embs[t - 2] if t >= 2 else embs[t - 1]
-                obs.append(np.concatenate([prev, embs[t - 1]]))
-                act.append(ep[t]["action_index"] if ep[t]["action_index"] is not None else -1)
-                nxt.append(embs[t])
-                epi.append(episode_id)
-                changed.append(float(np.abs(embs[t] - embs[t - 1]).max() > 1e-3))
-            episode_id += 1
+def replay_episodes(*, replay_dirs: list, embedder=None) -> list:
+    """Every episode of the replays, in load order (its index is the episode id the transitions carry); frames only
+    when an embedder will re-embed them, stored embeddings only when it will not."""
+    return [ep for directory in replay_dirs
+            for ep in load_episodes(directory=directory, load_frames=embedder is not None, embed=embedder is None)]
+
+
+def transitions_from_episodes(*, episodes: list, embedder=None, seed: int, episode_ids: Optional[list] = None,
+                              embed_batch: int = 512) -> dict:
+    """Transition arrays (obs, action, next, episode, frame_changed, held_out) of the given episodes (ids: their
+    positions in replay_episodes); embedder re-embeds frames, batched across episodes, instead of using stored ones."""
+    episode_ids = list(range(len(episodes))) if episode_ids is None else episode_ids
+    if embedder is None:
+        embs = [[np.asarray(s["embedding"], dtype=np.float32) for s in ep] for ep in episodes]
+    else:
+        embs, pending, sizes = [], [], []
+        for k, ep in enumerate(episodes):
+            pending += [s["frame"] for s in ep]
+            sizes.append(len(ep))
+            if len(pending) >= embed_batch or k == len(episodes) - 1:
+                flat = list(embedder.embed(frames=pending).numpy())
+                for n in sizes:
+                    embs.append(flat[:n])
+                    flat = flat[n:]
+                pending, sizes = [], []
+    obs, act, nxt, epi, step, changed, held = [], [], [], [], [], [], []
+    for ep, e, eid in zip(episodes, embs, episode_ids):
+        held_out = is_validation_episode(source=ep[0]["source"], episode=ep[0]["episode"], seed=seed)
+        for t in range(1, len(ep)):
+            prev = e[t - 2] if t >= 2 else e[t - 1]
+            obs.append(np.concatenate([prev, e[t - 1]]))
+            act.append(ep[t]["action_index"] if ep[t]["action_index"] is not None else -1)
+            nxt.append(e[t])
+            epi.append(eid)
+            step.append(t)
+            changed.append(float(np.abs(e[t] - e[t - 1]).max() > 1e-3))
+            held.append(held_out)
     return {"obs": np.stack(obs), "action": np.array(act, dtype=np.int64), "next": np.stack(nxt),
-            "episode": np.array(epi), "frame_changed": np.array(changed, dtype=np.float32)}
+            "episode": np.array(epi), "step": np.array(step), "frame_changed": np.array(changed, dtype=np.float32),
+            "held_out": np.array(held, dtype=bool)}
+
+
+def transitions_from_replay(*, replay_dirs: list, seed: int, embedder=None) -> dict:
+    """Transition arrays of every episode of the replays (see transitions_from_episodes)."""
+    return transitions_from_episodes(episodes=replay_episodes(replay_dirs=replay_dirs, embedder=embedder),
+                                     embedder=embedder, seed=seed)
 
 
 def evaluate(*, model: WorldModel, data: dict, idx: np.ndarray, device: str) -> dict:
@@ -55,6 +81,21 @@ def evaluate(*, model: WorldModel, data: dict, idx: np.ndarray, device: str) -> 
         return out
 
 
+def replay_game(*, replay_dirs: list, env_name: str) -> Optional[str]:
+    """The game every replay was explored on (a search run's config.json "game"; GameBoy runs before --game existed
+    are pokemon_red). Replays of different games cannot train one world model."""
+    games = set()
+    for d in replay_dirs:
+        run_dir = d.rstrip("/")
+        while run_dir and not os.path.exists(os.path.join(run_dir, "config.json")):
+            run_dir = os.path.dirname(run_dir)
+        config = json.load(open(os.path.join(run_dir, "config.json"))) if run_dir else {}
+        games.add(config.get("game") or ("pokemon_red" if env_name == "gameboy" else None))
+    if len(games) > 1:
+        raise ValueError(f"replays of different games: {sorted(games)}")
+    return games.pop() if games else None
+
+
 def stored_embedder_name(*, replay_dirs: list) -> str:
     for directory in replay_dirs:
         for row in iter_replay(directory=directory, load_frames=False):
@@ -63,7 +104,7 @@ def stored_embedder_name(*, replay_dirs: list) -> str:
 
 
 def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs: int = 50,
-                      batch_size: int = 256, lr: float = 1e-3, val_frac: float = 0.1, seed: int = 0,
+                      batch_size: int = 256, lr: float = 1e-3, seed: int = 0,
                       embedder=None, embedder_config: Optional[dict] = None, residual: bool = False,
                       device: str = None, parameters: dict[str, Any] = None) -> dict:
     """embedder re-embeds the replay frames (None: the stored embeddings); embedder_config is how to rebuild it
@@ -71,20 +112,22 @@ def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     vocab = ActionVocab(env_name=env_name)
     spec = {"env": env_name, "n_actions": len(vocab), "names": vocab.names}
-    data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder)
+    data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder, seed=seed)
     meta = {"image_embedder": embedder.name, "embedder_meta": embedder.meta()} if embedder is not None else \
         {"image_embedder": stored_embedder_name(replay_dirs=replay_dirs), "embedder_meta": None}
-    meta.update({"env": env_name, "emb_dim": int(data["next"].shape[1]), "embedder_config": embedder_config})
+    game = replay_game(replay_dirs=replay_dirs, env_name=env_name)
+    from cusi.world_action.base import game_series
+    meta.update({"env": env_name, "emb_dim": int(data["next"].shape[1]), "embedder_config": embedder_config,
+                 "game": game, "game_series": game_series(game=game), "replay_dirs": replay_dirs})
     valid = data["action"] >= 0
     for k in data:
         data[k] = data[k][valid]
     n = len(data["action"])
     rng = np.random.default_rng(seed)
-    # split by episode, so validation transitions come from unseen episodes
-    episodes = np.unique(data["episode"])
-    val_eps = set(rng.choice(episodes, size=max(1, int(len(episodes) * val_frac)), replace=False).tolist()) \
-        if len(episodes) > 1 else set()
-    is_val = np.array([e in val_eps for e in data["episode"]])
+    # split by episode, so validation transitions come from unseen episodes: the held-out episodes of
+    # is_validation_episode, which a SigLIP fine-tune on the same replay also held out
+    is_val = data["held_out"]
+    val_eps = set(np.unique(data["episode"][is_val]).tolist())
     train_idx, val_idx = np.where(~is_val)[0], np.where(is_val)[0]
     torch.manual_seed(seed)
     model = WorldModel(emb_dim=data["next"].shape[1], n_actions=spec["n_actions"], residual=residual).to(device)
@@ -116,7 +159,7 @@ def train_world_model(*, replay_dirs: list, out_dir: str, env_name: str, epochs:
         json.dump(meta, f, indent=1)
     vocab.save(directory=out_dir)
     summary = {"n_transitions": int(n), "n_train": int(len(train_idx)), "n_val": int(len(val_idx)),
-               "val_episodes": sorted(int(e) for e in val_eps),
+               "val_episodes": sorted(int(e) for e in val_eps), "seed": seed,
                "action_counts": {spec["names"][a]: int(c) for a, c in zip(*np.unique(data["action"], return_counts=True))},
                "final": history[-1], "replay_dirs": replay_dirs}
     with open(os.path.join(out_dir, "train_summary.json"), "w") as f:

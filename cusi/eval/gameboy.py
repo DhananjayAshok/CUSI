@@ -48,20 +48,26 @@ def action_sequence(*, reports: list) -> list:
 
 
 def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
-             out_dir: str, parameters=None) -> EvalRow:
+             out_dir: str, parameters=None, world_action=None, world_action_device: str = "cpu",
+             world_action_shadow: bool = True) -> EvalRow:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.episode import write_episode
     from cusi.agents.records import InvalidRecord
     parameters = load_parameters(parameters)
     vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
+    wam = None
+    if world_action is not None:    # cached per process: one load for every task a worker runs
+        from cusi.world_action import load_world_action_model
+        wam = load_world_action_model(spec=world_action, device=world_action_device, parameters=parameters)
     t0 = time.time()
     env = GameBoyPlayEnv(game=row["game"], mode="test", controller_variant=CONTROLLER_VARIANT, max_steps=MAX_STEPS,
                          wait_ticks=GAMEBOY_WAIT_TICKS, session_name=session_name,
                          benchmark_row=row, parameters=parameters)
     try:
         obs, info = env.reset()
-        agent = make_agent(env_name="gameboy", env=env, vlm=vlm, parameters=parameters)
+        agent = make_agent(env_name="gameboy", env=env, vlm=vlm, parameters=parameters, world_action=wam,
+                           world_action_shadow=world_action_shadow)
         supervisor, result = agent.run(task=row["task"], obs=obs, info=info, max_steps=MAX_STEPS)
         last = env._env.get_info()
         n_steps = int(last["core"]["steps"])
@@ -76,6 +82,12 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
     extra = {"init_state": row["init_state"], "subgoals_reached": list(subgoals.get("completed", [])),
              "subgoals_all": list(subgoals.get("all", [])), "n_decisions": report.n_steps,
              "actions": action_sequence(reports=legs), **supervisor_extra(report=report, result=result)}
+    wam_meta = None
+    if wam is not None:
+        from cusi.agents.executors.world_action import episode_summary
+        wam_meta = {**wam.summary(), "transfer": wam.transfer_kind(game=row["game"]), "device": world_action_device,
+                    "shadow_base": world_action_shadow}
+        extra.update(episode_summary(legs=legs))
     with gzip.open(os.path.join(eval_trajectories(run_dir=out_dir), f"{task_id}.pkl.gz"), "wb") as f:
         pickle.dump(report, f)
     write_episode(directory=eval_episode(run_dir=out_dir, task_id=task_id), report=report, gameboy=True, meta={
@@ -83,6 +95,7 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
         "agent": AGENT_VERSION, "executor": agent.executor_class.name, "supervisor": agent.supervisor_class.__name__,
         "success": success, "termination": final.termination_reason if final else None, "budget": MAX_STEPS,
         "emulator_steps": n_steps, "seconds": seconds, "state": supervisor_state(result=result),
+        "world_action": wam_meta,
         "env_extras": {"subgoals_reached": extra["subgoals_reached"], "subgoals_all": extra["subgoals_all"],
                        "init_state": row["init_state"]}})
     tin = (report.executor_input_tokens or 0) + (report.supervisor_input_tokens or 0)
@@ -105,15 +118,29 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
 @click.option("--workers", default=1, show_default=True, help="Tasks run in parallel (one emulator each).")
 @click.option("--tasks", default=None, help="Task ids <game>_<row>, comma-separated or a file of lines; overrides"
                                             " --game/--n_tasks.")
+@click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy:"
+              " its directory, a world model's name under explore/gameboy/world_model, or 'oracle' (the emulator's "
+              "own next screens: the upper bound).")
+@click.option("--world_action_device", default="cpu", help="Where the world action model runs (vLLM holds the GPUs).")
+@click.option("--world_action_shadow", default=True, type=bool, help="Also record (never execute) the base policy's "
+              "own decision at every world-action decision: one extra VLM call per decision.")
 @seed_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, game, n_tasks, rerun_failed, workers,
-            overwrite, ignore_config_violation, tasks, seed):
+            overwrite, ignore_config_violation, tasks, seed, world_action, world_action_device, world_action_shadow):
     """GameBoy benchmark through GameBoyPlayEnv test mode, with the final GameBoy agent."""
     tasks = task_list(tasks=tasks)
+    wam_summary = None
+    if world_action is not None:
+        from cusi.world_action import load_world_action_model
+        wam = load_world_action_model(spec=world_action, device=world_action_device, parameters=parameters)
+        wam_summary = {**wam.summary(), "transfer": wam.transfer_kind(game=game)}
+        world_action = wam.directory or world_action
     config = dict(env="gameboy", agent=AGENT_VERSION, model_name=model_name, model_backend=model_backend, game=game,
-                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=DECODING)
+                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=DECODING,
+                  world_action=world_action, world_action_model=wam_summary,
+                  world_action_shadow=world_action_shadow if world_action else None)
     out_dir = eval_run(parameters=parameters, env="gameboy", run=run_name)
     run = EvalRun(directory=out_dir, config=config, overwrite=overwrite,
                   ignore_config_violation=ignore_config_violation)
@@ -129,7 +156,9 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
         session = f"cusi_eval_{AGENT_VERSION}_{model_name.split('/')[-1].lower()}_{run_name}/{task_id}/"
         jobs.append(dict(row=row, task_id=task_id, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, session_name=session, out_dir=out_dir,
-                         parameters=parameters if workers <= 1 else None))
+                         parameters=parameters if workers <= 1 else None,
+                         world_action=world_action, world_action_device=world_action_device,
+                         world_action_shadow=world_action_shadow))
 
     def on_result(job, result):
         row, task_id = job["row"], job["task_id"]

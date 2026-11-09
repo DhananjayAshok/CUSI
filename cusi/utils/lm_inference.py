@@ -205,7 +205,11 @@ class InferenceModel(ABC):
         }
 
     def get_output_final(self, output_text: str) -> str:
-        """Truncate at ``[STOP]`` and strip."""
+        """Truncate at ``[STOP]`` and strip. A thinking model's <think>...</think> block (GLM-4.1V-Thinking; this
+        vLLM build has no reasoning parser) is cut too, so executors parse the answer; an unclosed block (the
+        thinking ran past max_new_tokens) is left as is and fails to parse, which is the right outcome."""
+        import re
+        output_text = re.sub(r"<think>.*?</think>", "", output_text, flags=re.S)
         output_text = output_text.split("[STOP]")[0]
         return output_text.strip()
 

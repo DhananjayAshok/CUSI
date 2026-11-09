@@ -268,6 +268,8 @@ declare -A PRACTICE_DEFAULTS=(
     ["sample_tasks"]="none"
     ["sample_seed"]="0"
     ["vllm_port"]="none"
+    ["command"]="all"
+    ["extra"]="none"
 )
 
 # scripts/slurm/annotate.sh
@@ -309,6 +311,12 @@ declare -A FINETUNE_EVAL_DEFAULTS=(
     ["eval_extra"]="none"
     ["base_run"]="none"
     ["after"]="none"
+)
+
+# scripts/slurm/action_repro.sh
+ACTION_REPRO_ESSENTIALS=("model" "lora" "out")
+declare -A ACTION_REPRO_DEFAULTS=(
+    ["n"]="300"
 )
 
 # scripts/slurm/env_run.sh
@@ -353,6 +361,9 @@ declare -A EVAL_DEFAULTS=(
     ["vllm_extra"]="none"
     ["lora"]="none"
     ["game"]="none"
+    ["world_action"]="none"
+    ["world_action_device"]="cpu"
+    ["world_action_shadow"]="true"
 )
 
 # scripts/slurm/vllm_python.sh

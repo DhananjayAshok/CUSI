@@ -36,6 +36,10 @@ OPERATIONAL_KEYS = {"log_every", "eval_every", "save_every", "num_workers", "max
 @click.option("--max_batch_tokens", default=8192, show_default=True,
               help="Padded tokens (rows x longest) per forward pass on one GPU; size it to the GPU's memory.")
 @click.option("--warmup_frac", default=0.03, show_default=True)
+@click.option("--lr_schedule", default="cosine", type=click.Choice(["cosine", "constant"]), show_default=True,
+              help="After warmup: cosine to 0, or constant (PAE).")
+@click.option("--train_tasks", default=None, type=int,
+              help="Train on the rows of a seeded subset of this many training tasks (all their rows, every epoch).")
 @click.option("--max_length", default=4096, show_default=True, help="Longer rows are dropped.")
 @click.option("--max_rows", default=None, type=int, help="Train on only the first rows of the shuffled order.")
 @click.option("--val_rows", default=200, show_default=True, help="Validation rows sampled for the loss.")
@@ -58,6 +62,10 @@ def main(env_name, model_name, practice_model, source, run_name, roles, overwrit
         raise click.UsageError(f"unknown roles {unknown}; roles are {ROLES}")
     practice = PracticePaths(parameters=parameters, env_name=env_name, model_name=practice_model or model_name,
                              source=source)
+    # options added later are recorded only when set, so runs started before them resume under the same config
+    for key, default in (("lr_schedule", "cosine"), ("train_tasks", None)):
+        if kwargs.get(key) == default:
+            kwargs.pop(key)
     config = {"env": env_name, "model_name": model_name, "dataset_dir": practice.dataset_dir, "roles": roles,
               "compile": compile_layers, **kwargs}
     out_dir = finetune_run(parameters=parameters, env=env_name, source=source, run=run_name)

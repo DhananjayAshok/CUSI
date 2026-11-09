@@ -75,11 +75,11 @@ def do_attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed):
             sample_tasks=sample_tasks, sample_seed=sample_seed, parameters=obj["parameters"])
 
 
-def do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed):
+def do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed, labels="judge"):
     from cusi.practice.stages.dataset import build_dataset
     build_dataset(spec=obj["spec"], vlm=obj["vlm"], paths=obj["paths"], n_paraphrases=n_paraphrases,
                   safety_margin=safety_margin, val_frac=val_frac, seed=seed, max_new_tokens=obj["max_new_tokens"],
-                  overwrite=obj["overwrite"], parameters=obj["parameters"])
+                  overwrite=obj["overwrite"], parameters=obj["parameters"], labels=labels)
 
 
 max_tries_opt = click.option("--max_tries", default=3, help="Tries per task (a critique hint between tries).")
@@ -115,10 +115,54 @@ def attempt(obj, max_tries, lookback, max_tasks, sample_tasks, sample_seed):
 @margin_opt
 @val_opt
 @seed_opt
+@click.option("--labels", default="judge", type=click.Choice(["judge", "gt"]),
+              help="Label tries by the judge, or by the benchmark's success (test-set practice only).")
 @click.pass_obj
-def dataset(obj, n_paraphrases, safety_margin, val_frac, seed):
+def dataset(obj, n_paraphrases, safety_margin, val_frac, seed, labels):
     """Build the success and failure train/validation JSONL from the attempts."""
-    do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed)
+    do_dataset(obj, n_paraphrases, safety_margin, val_frac, seed, labels=labels)
+
+
+@main.command(name="attempt_test")
+@click.option("--repeats", required=True, help="Repeats to attempt, comma-separated (e.g. 0,1).")
+@click.option("--game", required=True, help="The GameBoyWorlds game whose benchmark tasks are practised.")
+@click.option("--n_workers", default=8, show_default=True, help="Tasks attempted in parallel.")
+@max_tries_opt
+@lookback_opt
+@click.pass_obj
+def attempt_test(obj, repeats, game, n_workers, max_tries, lookback):
+    """Practice on the test set (GameBoy, a diagnostic): attempt each benchmark task from its start state as the
+    eval runs it, judged with critique-hint retries, recording the benchmark's success beside the judge's."""
+    from cusi.practice.stages.attempt_test import attempt_test as run
+    run(spec=obj["spec"], vlm=obj["vlm"], paths=obj["paths"], game=game,
+        repeats=[int(r) for r in repeats.split(",")], max_tries=max_tries, lookback=lookback,
+        judge_max_new_tokens=obj["max_new_tokens"], n_workers=n_workers, parameters=obj["parameters"])
+
+
+@main.command(name="focus_dataset")
+@click.option("--from_source", required=True, help="The attempt_test run whose tries are the focus rows.")
+@click.option("--tasks", required=True, help="Benchmark row indices to focus on, comma-separated.")
+@click.option("--labels", required=True, type=click.Choice(["judge", "gt"]), help="Which tries count as successes.")
+@click.option("--mix_source", required=True, help="A practice run of this env whose dataset is mixed in and "
+                                                   "validated on.")
+@click.option("--mix_ratio", default=1.0, show_default=True, help="Mix-in rows per focus row (0: none).")
+@click.option("--focus_repeat", default=1, show_default=True, help="Copies of each focus row per epoch.")
+@click.option("--val_rows", default=400, show_default=True, help="Validation rows sampled from the mix dataset.")
+@margin_opt
+@seed_opt
+@click.pass_obj
+def focus_dataset(obj, from_source, tasks, labels, mix_source, mix_ratio, focus_repeat, val_rows, safety_margin,
+                  seed):
+    """A focus dataset: a few test tasks' practice successes, mixed with another practice dataset (GameBoy)."""
+    from cusi.practice.stages.focus import build_focus_dataset
+
+    def other(source):
+        return PracticePaths(parameters=obj["parameters"], env_name=obj["env_name"], model_name=obj["vlm"].model_name,
+                             source=source)
+    build_focus_dataset(paths=obj["paths"], from_paths=other(from_source), tasks=[int(t) for t in tasks.split(",")],
+                        labels=labels, mix_paths=other(mix_source), mix_ratio=mix_ratio, focus_repeat=focus_repeat,
+                        val_rows=val_rows, safety_margin=safety_margin, seed=seed, overwrite=obj["overwrite"],
+                        parameters=obj["parameters"])
 
 
 @main.command(name="all")

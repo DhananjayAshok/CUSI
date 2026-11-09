@@ -80,9 +80,11 @@ class GameBoyPlayEnv(TextActionEnv):
         wait_ticks: Optional[int] = None,
         benchmark_row: Optional[dict] = None,
         gameboy_worlds_debug: bool = False,
+        read_text: bool = True,
         parameters: dict[str, Any] = None,
     ) -> None:
         """mode="test" needs benchmark_row (use from_benchmark); evaluation should pass wait_ticks=20.
+        read_text=False leaves obs["text_boxes"] empty whether or not the game has a glyph table.
         gameboy_worlds_debug runs GameBoyWorlds in its debug_mode, which tolerates missing region captures (some
         variants ship without them); only for tooling such as the glyph-table harvest."""
         self._parameters = load_parameters(parameters)
@@ -116,8 +118,10 @@ class GameBoyPlayEnv(TextActionEnv):
         raw_obs, raw_info = self._env.get_observation(), self._env.get_info()
         frame = self._frame(raw_obs=raw_obs)
         emulator = self._env._emulator
-        self.text_table = load_table(variant=game)
-        if self.text_table is None:
+        self.text_table = load_table(variant=game) if read_text else None
+        if not read_text:
+            self._reader = None
+        elif self.text_table is None:
             log_warn(f"No glyph table for {game} (cusi/envs/gameboy_text/{game}.json): obs['text_boxes'] stays empty",
                      parameters=self._parameters)
             self._reader = None

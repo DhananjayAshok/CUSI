@@ -15,7 +15,7 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.paths import search_run, storage_relative
 from cusi.utils.run_dir import run_options
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS, Scene, scene_for
+from cusi.agents.specs import ENV_NAMES, ENV_SPECS, Scene, gameboy_spec, scene_for
 from cusi.search.restore import DEFAULT_STATE_CACHE
 from cusi.search.store import committed_expansions, fork_run
 from cusi.state import build_archive, build_encoder, build_scorer_from_config, state_config, state_options
@@ -66,6 +66,8 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @click.command()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
 @click.option("--run_name", required=True)
+@click.option("--game", default=None, help="GameBoy: another GameBoyWorlds game (its benchmark start states as scenes, "
+              "no on-screen text); default pokemon_red.")
 @click.option("--scenes", default=None, help="Comma-separated scenes (default: all of the env's).")
 @click.option("--max_expansions", required=True, type=int, help="Total expansions in the run (raise it to extend).")
 @expander_options
@@ -128,7 +130,7 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
               help="On resume, first restore up to this many nodes and compare them with what they stored.")
 @state_options(scorer=True)
 @run_options
-def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes_only, budget_metric, budget,
+def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive_nodes_only, budget_metric, budget,
          saturation_patience, c_puct,
          tau, normalise_p, q_ema, roots_only, expander, typing_field_cap, from_run, reward_buffer, rl_total_steps,
          rl_max_minutes, rl_num_envs,
@@ -142,7 +144,9 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
     from cusi.search.stats import TreeStats
     from cusi.search.store import SearchStore
     parameters = loaded_parameters
-    spec = ENV_SPECS[env_name]
+    if game is not None and env_name != "gameboy":
+        raise click.UsageError("--game is for --env gameboy")
+    spec = gameboy_spec(game=game) if game is not None else ENV_SPECS[env_name]
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
     stored_path = os.path.join(directory, "config.json")
     stored = None
@@ -220,6 +224,8 @@ def main(env_name, run_name, scenes, max_expansions, closing_node, archive_nodes
         scoped = True
     if scoped:
         config["scoped"] = True
+    if game is not None:
+        config["game"] = game
     store = SearchStore(directory=directory, config=config, overwrite=overwrite,
                         ignore_config_violation=ignore_config_violation)
     from cusi.envs.action_vocab import ActionVocab

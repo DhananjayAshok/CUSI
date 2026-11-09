@@ -9,6 +9,9 @@
 #
 #   bash scripts/slurm/practice.sh --env <env> --model <model> --source <source> [--max_tasks <value>] \
 #       [--sample_tasks <value>] [--sample_seed <value>] [--vllm_port <value>]
+#   bash scripts/slurm/practice.sh --env gameboy --model <model> --source <source> --command <run_practice command> \
+#       --extra "<its flags>"   # one stage, e.g. --command attempt_test --extra "--game pokemon_red --repeats 0,1"
+#       # or --command dataset --extra "--labels gt"
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
 populate_dict PRACTICE_DEFAULTS ARGS
@@ -30,10 +33,16 @@ trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]] && export CUSI_CONTAINER_NV=1
 export CUDA_VISIBLE_DEVICES=""
 
-FLAGS=(--env "$ENV_NAME" --model_name "$MODEL" --vllm_port "$PORT" --source "${ARGS["source"]}" all)
-[[ "${ARGS["max_tasks"]}" != "none" ]] && FLAGS+=(--max_tasks "${ARGS["max_tasks"]}")
-[[ "${ARGS["sample_tasks"]}" != "none" ]] && FLAGS+=(--sample_tasks "${ARGS["sample_tasks"]}"
-                                             --sample_seed "${ARGS["sample_seed"]}")
+FLAGS=(--env "$ENV_NAME" --model_name "$MODEL" --vllm_port "$PORT" --source "${ARGS["source"]}" "${ARGS["command"]}")
+if [[ "${ARGS["command"]}" == "all" ]]; then
+    [[ "${ARGS["max_tasks"]}" != "none" ]] && FLAGS+=(--max_tasks "${ARGS["max_tasks"]}")
+    [[ "${ARGS["sample_tasks"]}" != "none" ]] && FLAGS+=(--sample_tasks "${ARGS["sample_tasks"]}"
+                                                 --sample_seed "${ARGS["sample_seed"]}")
+fi
+if [[ "${ARGS["extra"]}" != "none" ]]; then
+    read -r -a EXTRA <<< "${ARGS["extra"]}"
+    FLAGS+=("${EXTRA[@]}")
+fi
 CMD="python -u run_practice.py ${FLAGS[*]@Q}"
 case "$ENV_NAME" in
     gameboy) bash -c "$CMD" ;;

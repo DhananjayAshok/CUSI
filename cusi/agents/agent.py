@@ -39,12 +39,22 @@ def _classes(env_name: str) -> tuple:
 class Agent:
     """An env's executor under its supervisor; one supervisor (and one executor per leg) per run()."""
 
-    def __init__(self, *, env_name: str, env, vlm, parameters: dict) -> None:
+    def __init__(self, *, env_name: str, env, vlm, parameters: dict, world_action=None,
+                 world_action_shadow: bool = True) -> None:
         self.env_name = env_name
         self.env = env
         self.vlm = vlm
         self._parameters = parameters
         self.executor_class, self.supervisor_class = _classes(env_name)
+        #: A WorldActionModel deciding in place of the executor's own policy (cusi/agents/executors/world_action.py).
+        self.world_action = world_action
+        if world_action is not None:
+            from cusi.agents.executors.world_action import world_action_executor_class
+            if world_action.env_name != env_name:
+                raise ValueError(f"world action model {world_action.directory} is for {world_action.env_name}, "
+                                 f"not {env_name}")
+            self.executor_class = world_action_executor_class(base=self.executor_class, model=world_action,
+                                                              shadow_base=world_action_shadow)
 
     def make_executor(self, *, previous_history=None):
         return self.executor_class(env=self.env, vlm=self.vlm, previous_history=previous_history,
@@ -59,8 +69,10 @@ class Agent:
         return supervisor, supervisor.evaluate()
 
 
-def make_agent(*, env_name: str, env, vlm, parameters: dict) -> Agent:
-    return Agent(env_name=env_name, env=env, vlm=vlm, parameters=parameters)
+def make_agent(*, env_name: str, env, vlm, parameters: dict, world_action=None,
+               world_action_shadow: bool = True) -> Agent:
+    return Agent(env_name=env_name, env=env, vlm=vlm, parameters=parameters, world_action=world_action,
+                 world_action_shadow=world_action_shadow)
 
 
 def merged_leg(*, report) -> LegReport:

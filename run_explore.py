@@ -70,7 +70,7 @@ def world_model(obj, run_names, name, epochs, image_embedder, encoder_model, emb
 @click.option("--epochs", default=20, help="cnn: epochs.")
 @click.option("--steps", default=20, help="siglip: optimizer steps.")
 @click.option("--max_minutes", default=5.0)
-@click.option("--max_frames", default=50_000)
+@click.option("--max_frames", default=50_000, help="Training frames (siglip: sampled across the training episodes).")
 @click.pass_obj
 def train_embedder(obj, embedder, run_names, name, encoder_model, epochs, steps, max_minutes, max_frames):
     """Train a cnn embedder / fine-tune SigLIP on replay frames."""
@@ -85,7 +85,7 @@ def train_embedder(obj, embedder, run_names, name, encoder_model, epochs, steps,
         if not encoder_model:
             raise click.UsageError("--embedder siglip needs --encoder_model")
         train_siglip(env_name=obj["env_name"], replay_dirs=dirs, out_dir=out, encoder_model=encoder_model,
-                     steps=steps, max_minutes=max_minutes, max_frames=min(max_frames, 5000),
+                     steps=steps, max_minutes=max_minutes, max_frames=max_frames,
                      seed=obj["parameters"]["random_seed"], parameters=obj["parameters"])
 
 
@@ -112,16 +112,19 @@ def decoder(obj, run_names, name, epochs, max_frames):
               "SigLIP's own decoder when the world model was trained on one.")
 @click.option("--run_names", default=None, help="Replay to draw examples from (default: the world model's).")
 @click.option("--n_examples", default=6)
+@click.option("--n_pixel", default=2000, help="Held-out transitions decoded for the pixel errors.")
 @click.pass_obj
-def wm_eval(obj, name, run_names, n_examples):
-    """Render decoded world-model predictions for sampled transitions and score the model."""
+def wm_eval(obj, name, run_names, n_examples, n_pixel):
+    """Render decoded world-model predictions for sampled held-out transitions and score the model: embedding
+    cosine / MSE against the "nothing changes" baseline, and pixel errors (mean |a - b| in 0-255 levels) of the
+    decoded prediction, of copying the current frame and of the decoder's round trip of the real next frame."""
     import torch
     from PIL import Image
     from cusi.explore.decoder import EmbeddingDecoder
-    from cusi.explore.world_model import transitions_from_replay
+    from cusi.explore.world_model import transitions_from_episodes, evaluate
+    from cusi.explore.replay import is_validation_episode, load_episodes
     from cusi.state import build_image_embedder
     from cusi.state.scorers.world_model import WorldModel, read_meta
-    from cusi.explore.replay import load_episodes
     wm_dir = paths.world_model_dir(parameters=obj["parameters"], env=obj["env_name"], name=name)
     config = read_meta(directory=wm_dir).get("embedder_config")
     embedder = None if config is None else build_image_embedder(env_name=obj["env_name"],
@@ -142,51 +145,112 @@ def wm_eval(obj, name, run_names, n_examples):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     wm, dec = WorldModel.load(directory=wm_dir, device=device), EmbeddingDecoder.load(directory=dec_dir, device=device)
     rng = np.random.default_rng(0)
-    rows = []
-    episodes = [ep for d in replay_dirs for ep in load_episodes(directory=d)]
-    # Examples and metrics come from the world model's held-out episodes (episode ids number the episodes of its
-    # replay dirs in load order), unless another replay was asked for or the model predates the recorded split.
-    val_eps = set(summary["val_episodes"]) if run_names is None and summary.get("val_episodes") else None
-    if val_eps is None:
+    # frames for the pictures always; stored embeddings only when the world model was trained on them
+    episodes = [ep for d in replay_dirs for ep in load_episodes(directory=d, embed=embedder is None)]
+    # Examples and metrics come from the world model's held-out episodes (ids: positions in load order), unless
+    # another replay was asked for or the model predates the recorded split. Only those episodes are embedded.
+    if run_names is not None:
+        log_info(f"wm_eval: every transition of {run_names} (held out only if the world model never trained on it)",
+                 parameters=obj["parameters"])
+        eval_eps = list(range(len(episodes)))
+    elif not summary.get("val_episodes"):
         log_warn("wm_eval: no held-out split for this replay; examples and metrics include training transitions",
                  parameters=obj["parameters"])
-    if embedder is not None:
-        for ep in episodes:
-            for s, e in zip(ep, embedder.embed(frames=[s["frame"] for s in ep]).numpy()):
-                s["embedding"] = e
-    eval_eps = [e for e in range(len(episodes)) if val_eps is None or e in val_eps]
-    candidates = [(e, t) for e in eval_eps for t in range(1, len(episodes[e]))
-                  if episodes[e][t]["action_index"] is not None and episodes[e][t]["valid"]]
-    if not candidates:   # no valid action in the replay: show the no-op transitions instead
-        candidates = [(e, t) for e in eval_eps for t in range(1, len(episodes[e]))
-                      if episodes[e][t]["action_index"] is not None]
-    for e, t in [candidates[i] for i in rng.choice(len(candidates), size=min(n_examples, len(candidates)),
-                                                   replace=False)]:
-        ep = episodes[e]
-        embs = [torch.tensor(np.asarray(s["embedding"], dtype=np.float32)) for s in ep]
-        prev = embs[t - 2] if t >= 2 else embs[t - 1]
-        obs = torch.cat([prev, embs[t - 1]]).unsqueeze(0).to(device)
-        taken = ep[t]["action_index"]
-        others = [a for a in rng.choice(wm.n_actions, size=3, replace=False).tolist() if a != taken][:2]
-        acts = torch.tensor([taken] + others, device=device)
-        preds = wm(obs=obs.repeat(len(acts), 1), actions=acts)
-        tiles = [ep[t - 1]["frame"].pil(), ep[t]["frame"].pil()]
-        size = dec.out_size[1], dec.out_size[0]
-        tiles = [np.asarray(x.resize(size)) for x in tiles]
-        tiles.append(dec.decode(embs[t].unsqueeze(0))[0])
-        tiles += list(dec.decode(preds))
-        rows.append(np.concatenate(tiles, axis=1))
-    grid = np.concatenate(rows, axis=0)
-    out_png = os.path.join(wm_dir, "predictions.png")
-    Image.fromarray(grid).save(out_png)
-    data = transitions_from_replay(replay_dirs=replay_dirs, embedder=embedder)
-    from cusi.explore.world_model import evaluate
-    keep = data["action"] >= 0
-    if val_eps is not None:
-        keep &= np.isin(data["episode"], list(val_eps))
-    metrics = evaluate(model=wm, data=data, idx=np.where(keep)[0], device=device)
-    metrics["held_out"] = val_eps is not None
-    with open(os.path.join(wm_dir, "eval.json"), "w") as f:
+        eval_eps = list(range(len(episodes)))
+    elif "seed" in summary:
+        eval_eps = [e for e, ep in enumerate(episodes)
+                    if is_validation_episode(source=ep[0]["source"], episode=ep[0]["episode"], seed=summary["seed"])]
+    else:
+        eval_eps = sorted(summary["val_episodes"])
+    data = transitions_from_episodes(episodes=[episodes[e] for e in eval_eps], episode_ids=eval_eps,
+                                     embedder=embedder, seed=summary.get("seed", obj["parameters"]["random_seed"]))
+    keep = np.where(data["action"] >= 0)[0]
+    metrics = evaluate(model=wm, data=data, idx=keep, device=device)
+    metrics["held_out"] = run_names is None and bool(summary.get("val_episodes"))
+
+    size = dec.out_size[1], dec.out_size[0]
+
+    def real(e, t):
+        return np.asarray(episodes[e][t]["frame"].pil().convert("RGB").resize(size), dtype=np.uint8)
+
+    def predict(i, actions):
+        obs = torch.tensor(data["obs"][i], device=device).unsqueeze(0).repeat(len(actions), 1)
+        return wm(obs=obs, actions=torch.tensor(actions, device=device))
+
+    # Pixel errors on decoded frames, as GameBoyRL's world-model executor records them (WorldModelDecision), and
+    # PSNR / SSIM / LPIPS (as DreamDojo reports them), each for the prediction, copying the current frame and the
+    # decoder's round trip of the real next frame
+    import lpips
+    from skimage.metrics import structural_similarity
+    torch.hub.set_dir(os.path.join(obj["parameters"]["model_dir"], "torch_hub"))   # LPIPS's AlexNet weights
+    lpips_net = lpips.LPIPS(net="alex", verbose=False).to(device).eval()
+
+    def scores(a, b):
+        """mae, psnr (None when identical), ssim, lpips of two HxWx3 frames in 0-255."""
+        mse = float(((a - b) ** 2).mean())
+        t = torch.tensor(np.stack([a, b]), device=device).permute(0, 3, 1, 2) / 127.5 - 1
+        return {"mae": float(np.abs(a - b).mean()), "psnr": None if mse == 0 else 10 * np.log10(255 ** 2 / mse),
+                "ssim": float(structural_similarity(a, b, data_range=255, channel_axis=2)),
+                "lpips": float(lpips_net(t[:1], t[1:]).item())}
+
+    def shifted(before, after):
+        """Whether the change is a scroll: some vertical or horizontal shift of before (1 to 1/8 of the frame)
+        matches after on the overlap with under a quarter of the unshifted error."""
+        g0, g1 = before.mean(2), after.mean(2)
+        base = np.abs(g0 - g1).mean()
+        h, w = g0.shape
+        errs = [np.abs(g0[d:] - g1[:h - d]).mean() for d in range(1, h // 8 + 1)]
+        errs += [np.abs(g0[:h - d] - g1[d:]).mean() for d in range(1, h // 8 + 1)]
+        errs += [np.abs(g0[:, d:] - g1[:, :w - d]).mean() for d in range(1, w // 8 + 1)]
+        errs += [np.abs(g0[:, :w - d] - g1[:, d:]).mean() for d in range(1, w // 8 + 1)]
+        return bool(min(errs) < 0.25 * base)
+
+    pix = {"changed": [], "unchanged": []}
+    shift_rows = []
+    spread = []
+    with torch.no_grad():
+        for i in rng.choice(keep, size=min(n_pixel, len(keep)), replace=False):
+            e, t = int(data["episode"][i]), int(data["step"][i])
+            before, after = real(e, t - 1).astype(np.float32), real(e, t).astype(np.float32)
+            preds = dec.decode(predict(i, list(range(wm.n_actions)))).astype(np.float32)
+            recon = dec.decode(torch.tensor(data["next"][i]).unsqueeze(0))[0].astype(np.float32)
+            row = {"predicted": scores(preds[data["action"][i]], after), "copy": scores(before, after),
+                   "decoder_round_trip": scores(recon, after)}
+            changed = bool(np.abs(after - before).max() > 0)
+            pix["changed" if changed else "unchanged"].append(row)
+            if changed and shifted(before, after):
+                shift_rows.append(row)
+            spread.append(np.mean([np.abs(a - b).mean() for k, a in enumerate(preds) for b in preds[k + 1:]]))
+    pix["shifted"] = shift_rows   # the changed transitions that are scrolls
+    for kind, rows in pix.items():
+        if rows:
+            out = {"n": len(rows)}
+            for name in ("mae", "psnr", "ssim", "lpips"):
+                out[name] = {}
+                for source in ("predicted", "copy", "decoder_round_trip"):
+                    vals = [r[source][name] for r in rows if r[source][name] is not None]
+                    out[name][source] = float(np.mean(vals)) if vals else None   # None: copy is exact (PSNR inf)
+            # mae kept under GameBoyRL's names too
+            out.update({source: out["mae"][source] for source in ("predicted", "copy", "decoder_round_trip")})
+            out["predicted_beats_copy"] = float(np.mean([r["predicted"]["mae"] < r["copy"]["mae"] for r in rows]))
+            metrics[f"pixel_{kind}"] = out
+    metrics["pixel_spread_across_actions"] = float(np.mean(spread))
+
+    # Grid: current | real next | decoded real next | predicted(taken) | predicted(other) x2
+    shown = [i for i in keep if data["frame_changed"][i] > 0] or list(keep)
+    rows = []
+    with torch.no_grad():
+        for i in rng.choice(shown, size=min(n_examples, len(shown)), replace=False):
+            e, t, taken = int(data["episode"][i]), int(data["step"][i]), int(data["action"][i])
+            others = [a for a in rng.choice(wm.n_actions, size=3, replace=False).tolist() if a != taken][:2]
+            tiles = [real(e, t - 1), real(e, t), dec.decode(torch.tensor(data["next"][i]).unsqueeze(0))[0]]
+            tiles += list(dec.decode(predict(i, [taken] + others)))
+            rows.append(np.concatenate(tiles, axis=1))
+    # another replay's results sit beside the world model's own
+    suffix = "" if run_names is None else "_" + paths.runs_label(run_names=run_names)
+    out_png = os.path.join(wm_dir, f"predictions{suffix}.png")
+    Image.fromarray(np.concatenate(rows, axis=0)).save(out_png)
+    with open(os.path.join(wm_dir, f"eval{suffix}.json"), "w") as f:
         json.dump(metrics, f, indent=1)
     log_info(f"wm_eval: {metrics}; columns = current | real next | decoded real next | predicted(taken) |"
              f" predicted(other) x2 -> {out_png}", parameters=obj["parameters"])

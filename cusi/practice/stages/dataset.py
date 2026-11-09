@@ -12,6 +12,8 @@ messages is the call's input as a chat (text, then its images as paths under ima
 out (accepted False; failure/ keeps them). Judge and critique calls are not the agent's and are never rows.
 
 Tasks are split into train and validation (val_frac, seeded) alike for both datasets, so validation tasks are unseen.
+labels="gt" labels each try by the benchmark's success (test-set practice, attempt_test) instead of the judge's
+verdict, and keeps a successful try whole (the env ended it at the goal).
 Each successful train task is paraphrased by the model (n_paraphrases) and its success rows are repeated with every
 paraphrase in place of the task.
 """
@@ -140,7 +142,7 @@ def paraphrase(*, spec, vlm, tasks: list, n: int, path: str, max_new_tokens: int
 
 
 def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety_margin: int, val_frac: float,
-                  seed: int, max_new_tokens: int, overwrite: bool, parameters: dict) -> None:
+                  seed: int, max_new_tokens: int, overwrite: bool, parameters: dict, labels: str = "judge") -> None:
     out_dir = paths.dataset_dir
     if os.path.exists(os.path.join(out_dir, "stats.json")) and not overwrite:
         log_info(f"dataset: already built ({out_dir}).", parameters=parameters)
@@ -162,7 +164,11 @@ def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety
         stats["unrestorable"] += record["restore_error"] is not None
         split = "validation" if record["task"]["task_id"] in val else "train"
         for entry in record["tries"]:
-            success = entry["verdict"]["success"]
+            if labels == "gt":
+                success = entry["gt_success"]
+                entry = {**entry, "verdict": {**entry["verdict"], "safe_success_point": None}}
+            else:
+                success = entry["verdict"]["success"]
             kind = "success" if success else "failure"
             stats[f"{kind}_tries"] += 1
             rows[(kind, split)] += try_rows(record=record, entry=entry, success=success,
@@ -185,5 +191,6 @@ def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety
         stats[f"{kind}_{split}_rows"] = len(split_rows)
     stats["paraphrase_rows"] = len(augmented)
     stats["validation_tasks"] = len(val)
+    stats["labels"] = labels
     atomic_json(dict(stats), os.path.join(out_dir, "stats.json"))
     log_info(f"dataset: {dict(stats)} -> {out_dir}", parameters=parameters)

@@ -79,6 +79,10 @@ case "$ENV_NAME" in
     gameboy)
         FLAGS+=(--workers "${ARGS["workers"]}")
         [[ "${ARGS["game"]}" != "none" ]] && FLAGS+=(--game "${ARGS["game"]}")
+        # a World Action Model deciding in place of the executor: a model dir, or a world model's name
+        [[ "${ARGS["world_action"]}" != "none" ]] && FLAGS+=(--world_action "${ARGS["world_action"]}"
+                                                        --world_action_device "${ARGS["world_action_device"]}"
+                                                        --world_action_shadow "${ARGS["world_action_shadow"]}")
         [[ "${ARGS["n_tasks"]}" != "none" ]] && FLAGS+=(--n_tasks "${ARGS["n_tasks"]}") ;;
     web)
         FLAGS+=(--workers "${ARGS["workers"]}" --task_file "${ARGS["task_file"]}") ;;

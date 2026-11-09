@@ -1704,3 +1704,388 @@ Plan: `plans/archive/final_port_plan.md`, including the user's decisions on it.
   without them. Android VLM s2's practice segment started before the change and will write absolute paths: read_rows
   handles them; rerun the migration on it once built.
 - llm-utils submodule removed (no CUSI code, script or job used it; its env was never created).
+- Correction: Android VLM s2's dataset (built 2026-11-05 01:26) already had relative paths (the dataset stage ran with
+  the new code); a dry run of tmp_migrate_paths.py on it found nothing to rewrite and every image present.
+
+## 2026-11-05: Search segments starved between 23 h segments; don't pin a chained search to one node
+
+- The chained vlm_no_typing search segments (priority 87, 2x A6000) lost every freed A6000 to another user's 1-GPU
+  arrays (fairshare priority ~264) and to our own practice / fine-tune jobs (92). Web s0, s1, s2 and Android s1 sat
+  queued after their first segments ended (01:56-02:33); Web s0 resumed on lg06 at 02:41.
+- Android s1's later segments were pinned to lg17 (--nodelist, to keep one emulator per node), and a 4-GPU Web fine-tune
+  took lg17 at 02:42, which would have blocked the search for ~9 h. Changed both pending segments to
+  ExcNodeList=lg02,lg05,lg06,lg10,lg18 (the nodes that run or will run an emulator) instead of a single node.
+
+## 2026-11-05: Test-set evals of the saturation-practice adapters
+
+- Submitted (tmp_eval_adapters.sh) evals of the 8 finished final_r16_lr5e-5 adapters: Web random s0-2 and
+  vlm_w_typing s0-2 (eval runs lora_<source>), Android random s1-2. With them, greedy base evals
+  base_gemma-4-31b-it on Web and Android: the existing full_gemma-4-31b-it_r0 runs predate greedy decoding and the
+  current executor, so they are not a fair baseline (GameBoy already has base_gemma-4-31b-it_greedy).
+- Web: 2x A6000, 6 browsers, Gemma-4-31B judge on the same server, lg16 excluded (apple.com timed out there for the
+  Web s1 search). Android: exclusive 4x A6000 node, 3 emulators, as the earlier Android evals.
+- Android vlm_w_typing s0-2 evals queued behind their fine-tunes (afterok; tmp_eval_android_vlm.sh).
+- Deleted the old Web and Android base runs full_gemma-4-31b-it_r0 (Android with its shards _s0-_s2; ~1.6 GB) on
+  request: superseded by base_gemma-4-31b-it (greedy, current agent). Their scores remain in
+  plans/archive/results.md. Then also GameBoy's full_gemma-4-31b-it_r0 and Android's wait1_gemma-4-31b-it_r0 (with
+  shards; ~0.6 GB).
+- Android random s0's practice finished 2026-11-05 22:47 (4600 success train rows, 21 of 250 unrestorable): fine-tune
+  293004 and its eval lora_sat_random_s0 (afterok) queued.
+
+### 2026-11-06: Web test-set results of the saturation-practice adapters (final_r16_lr5e-5)
+WebVoyager (429 tasks, greedy, Gemma-4-31B judge). Base 62.7%. Random s0/s1/s2: 64.1 / 62.5 / 61.5% (mean 62.7%).
+vlm_w_typing s0/s1/s2: 62.5 / 62.5 / 65.7% (mean 63.6%). Fine-tuning on practice successes does not move Web success
+beyond seed noise (spread across seeds ~3-4 points, i.e. ~15 tasks); VLM vs random differs by under 1 point on average.
+Android base (AndroidWorld, 116 tasks in 3 emulator shards, greedy): 80.5 / 115 scored = 70.0% (1 task failed to run).
+GameBoy vlm_no_typing s1 practice done (291308 + 291309): 750 tasks, 0 unrestorable, 113588 success train rows; paths
+relative, all images present. Fine-tune 293008-293010 (3 segments).
+Android adapters so far (of 115 scored): random s1 81.0 (70.4%), random s2 77.5 (67.4%), vlm_w_typing s2 74.0 (64.3%).
+
+### 2026-11-06: Why the saturation-practice fine-tunes don't move test success (diagnosis, in progress)
+- Eval noise: any two Web runs (base or adapter) disagree on 17-21% of the 429 tasks, adapter-vs-adapter as often as
+  base-vs-adapter; 195 of 429 tasks are solved by some of the 7 runs and not others. Android: 9-13% of 116. The SE of a
+  difference between two runs is ~2 points (Web) / ~3 (Android). Base repeats queued to measure the floor directly
+  (tmp_eval_repeat.sh: web base_gemma-4-31b-it_rep1/rep2 293180/293181, android rep1 293182).
+- The adapters do change the policy: on Android, adapter and base differ at the first call (the plan) in 89 of 116 tasks.
+- Templates match: Android action / plan / summary prompts, train vs eval, no template line on one side only.
+- Web, split by whether practice visited the site (practice scenes: Apple, ArXiv, Booking, ESPN, GitHub, Wolfram
+  Alpha; next to nothing on Coursera, Google Flights, Google Map, Huggingface):
+  practiced 261 tasks: base 62.1%, all six adapters >= base, mean 64.5% (+2.4; GitHub 30 -> 31-36 of 41);
+  unpracticed 168 tasks: base 63.7%, all six <= base, mean 61.0% (-2.7; Google Map 40 -> 34-38 of 41).
+  Gains where practice went, losses where it did not: the net is zero. Pending: whether the base repeats keep this split.
+- Training is small: one epoch; Android 27-51 steps of 64 rows (84-~200 train tasks, 27 of random s1's 84 in Settings),
+  15-36% of Android rows dropped at max_length 6144 (the longest, i.e. late steps of long tasks); Web 106-120 steps.
+  The logs have no untrained validation loss: probes with --lr 0 --max_rows 64 (run probe_lr0, tmp_ft_probe.sh,
+  293175-293179) give the base model's loss on the same 200 validation rows.
+
+### 2026-11-06: GameBoyRL's world model, and a SigLIP world model on the random Red trees
+- GameBoyRL's world-model benchmark arm (results/benchmark/<game>/subgoal_world_model_*.csv, Sep 13-20) solved 196 of
+  498 tasks over 10 games vs 203 for the same agent without it. Its decisions (report.pkl.gz per episode) hold the
+  predicted frame per action and the real next frame. Pokemon Red, 4939 steps: decoded prediction error 63.2 grey
+  levels (0-255) where the screen changed vs 23.1 for copying the current frame (the copy wins 96%), 59.4 vs 0.0
+  where it did not; the decoder's own round trip of the real frame 30.6; predictions for different actions differ by
+  11.2. The predictions are a tiled texture (overworld) or a blurred battle screen, the same for every action: the
+  VLM chose among near-identical noise.
+- The Oct 21 SigLIP fine-tune (1540 frames of the old 2-scene trees, val pixel MAE 3.9; its world model cos 0.85 vs
+  copy 0.55 on 140 held-out transitions) was deleted on 2026-10-26, so it is retrained.
+- Changes (cusi/explore): one held-out split for everything trained on a replay (replay.is_validation_episode: hash
+  of run dir, episode, seed; 10%), used by the SigLIP fine-tune and the world model (before, the fine-tune split
+  frames at random and the world model drew its episodes separately, so the embedder could train on the world
+  model's validation frames). The SigLIP fine-tune samples its frames across every training episode
+  (sample_canvases; before, the first 5000 in file order, capped in run_explore) and validates on up to 512
+  held-out frames every 250 steps (before, 16 frames). Re-embedding skips the search run's own embedder pass
+  (iter_replay embed=False) and batches frames across episodes. wm_eval embeds only the held-out episodes (before,
+  every frame, twice) and adds GameBoyRL's pixel measures (prediction / copy / decoder round trip, split on screen
+  change; spread across actions).
+- Runs (tmp_wm_siglip.sh, Quadro RTX 8000): smoke chain 293295-293297; fine-tune siglip_red_random (siglip2-base,
+  50k frames of sat_random_s0-s2, 15000 steps / 100 min) 293298; residual world models red_random_s0 (150k
+  transitions) 293299 and red_random_all (890k) 293301, 100 epochs; wm_eval 293300, 293302.
+- Fine-tune diagnosis, probe 1 (293175): the untrained model's loss on Web random s0's 190 validation rows is 0.2790;
+  the adapter's on the same rows 0.2969. One epoch of training made the held-out practice rows (validation tasks of
+  the same practice run) less likely, not more.
+- Probe 2 (293176): Web vlm_w_typing s0, untrained 0.2636 vs adapter 0.2805 on the same 199 validation rows: worse
+  again, by the same ~6%.
+- GameBoy base, current agent, greedy (293168): 20/49 (40.8%). The Oct 29 greedy base (base_gemma-4-31b-it_greedy)
+  had 15/49; the two disagree on 9 of 49 tasks (18%), the same model and decoding: GameBoy's run-to-run noise floor
+  is as large as Web's. Any GameBoy adapter difference under ~5 tasks is noise.
+- SigLIP fine-tune siglip_red_random (293298): 15000 steps, 62 min, 50k frames; held-out decoder round trip 10.7 grey
+  levels (train 0.053 / val 0.059 loss). World model red_random_s0 (293299, residual, 100 epochs, 150k transitions;
+  eval 293300 on 14540 held-out transitions): embedding cos 0.879 vs copy 0.770 (screen changed: 0.850 vs 0.707).
+  Decoded pixels, screen changed (1589 sampled): predicted 22.4, copy 33.6, decoder floor 10.2, prediction beats copy
+  on 56%; unchanged (411): predicted 7.2 vs floor 5.6; predictions for different actions differ by 33.6 (GameBoyRL:
+  63.2 / 23.1 / 30.6, beats copy 4%, spread 11.2). The grid shows map scrolls, battle text and the START menu
+  predicted for the action taken, and different screens for other actions.
+- Android vlm_w_typing s1 (292905): 76.0 / 114 scored = 66.7% (2 failed to run); base 70.0%.
+- GameBoy random s1 adapter (293170): 23/49 (46.9%) vs base 20/49; 9 tasks differ (6 adapter-only, 3 base-only), the
+  same count as base vs base repeat.
+- Probe 3 (293177): Android random s1, untrained 0.1134 vs adapter 0.0886 on the same validation rows: here training
+  did help the held-out practice tasks (-22% loss), yet the test eval is flat (70.4% vs base 70.0%). Android's
+  adapters learned their practice distribution; it does not reach AndroidWorld's tasks.
+- GameBoy random s0 adapter (293169): 19/49 (38.8%) vs base 20/49; with s1's 23/49 the mean is at the base.
+- Probe 4 (293178): Android vlm_w_typing s0, untrained 0.1006 vs adapter 0.0804 (-20%), as Android random.
+- Probe 5 (293179): GameBoy random s0, untrained 0.4690 vs adapter 0.3052 (-35%).
+- Probes, summary: Web adapters are worse than the untrained model on held-out practice rows (+6%, both sources);
+  Android (-20 to -22%) and GameBoy (-35%) adapters are better on them. Yet none moves its test eval. So on Android
+  and GameBoy the adapters learn the practice distribution and it does not transfer to the test tasks; on Web the
+  training does not generalise even within practice (Web has ~110 steps over 7-8k rows of a few sites).
+
+- All-seeds SigLIP WM (293301 train, 293302 eval; red_random_all, 3 random seeds, held-out episodes): cos 0.901 vs copy 0.773 (s0: 0.879); changed-screen pixel error 19.2 vs copy 31.9, decoder floor 11.0, beats copy on 59% (s0: 22.4 / 33.6 / 10.2 / 56%); spread across actions 39.1 (s0 33.6). More data helps on every metric. Grid: menus open and close correctly per action; outdoor scenes blur; screen transitions (black bars, fades) are missed.
+- Android vlm_no_typing s2 search (291330) ended at its time limit 23:39 UTC with a 197-node tree (final segment, as planned).
+- Android vlm_no_typing s0 search (291328) ended at its time limit 23:45 UTC (final segment, as planned).
+- Android base repeat (293182, base_gemma-4-31b-it_rep1): 73.5/114 scored = 64.5% vs the original base 80.5/115 = 70.0%; 11 of 116 tasks flip (9.5%). Same model, 5.5 pts apart: Android adapter differences of that size (e.g. vlm_w_typing s1 66.7%) are within run-to-run noise.
+
+### 2026-11-07: world models on four more GameBoy games (Links Awakening, Deja Vu 1, Sword of Hope 1, Bomberman Quest)
+- run_search --game: a GameBoyWorlds game other than pokemon_red, its benchmark start states as scenes (specs.gameboy_spec),
+  with no on-screen text (GameBoyPlayEnv read_text=False; glyph tables exist but are only checked for Red).
+- First searches (293311-293331, Red's settings, saturation_patience 50) stopped "saturated" within seconds: 316 / 50 /
+  55 / 71 expansions for s0 of the four games vs Red s0's 7509. Without text the novelty score finds few new nodes, so
+  50 empty expansions come at once. Their fine-tunes / world models were cancelled. Rerun with saturation off and a
+  fixed 7500 expansions per seed (Red s0's size, ~150k transitions): searches 293336-293356, fine-tunes 293339 /
+  293345 / 293351 / 293357, world models 293340 / 293346 / 293352 / 293358, evals 293341 / 293347 / 293353 / 293359
+  (tmp_wm_games.sh).
+- wm_eval adds PSNR, SSIM and LPIPS (alex; lpips 0.1.4 added to setup/) for the prediction, copy and decoder round
+  trip; Red rerun 293335.
+- 2026-11-07: four-game reruns cancelled at the user's request (focus on Red); no results.
+- Red all-seeds WM with PSNR / SSIM / LPIPS (293335, same 2000 sampled transitions as 293302: MAE identical). Screen changed (1572), predicted / copy / decoder floor: PSNR 17.55 / 14.63 / 20.21 dB, SSIM 0.742 / 0.657 / 0.813, LPIPS 0.228 / 0.274 / 0.172 (gap to the floor closed: 52% / 55% / 45%; MAE 61%). Unchanged (428): PSNR 21.43 vs floor 21.87, SSIM 0.888 vs 0.900, LPIPS 0.136 vs 0.101 (copy exact).
+- GameBoy random s2 adapter (293171): 22/49. Random adapters s0/s1/s2: 19/23/22 (mean 21.3) vs base 20/49 (base repeat 15/49): within the noise floor; s2 vs base 10 flips.
+- Red WM on Pokemon Crystal (unseen game): random search sat_random_crystal_s0 (293385, --game pokemon_crystal, 1500 expansions) -> wm_eval red_random_all --run_names search:sat_random_crystal_s0 (293386). wm_eval on another replay now writes eval_<replay>.json / predictions_<replay>.png beside the model's own.
+- Red WM on Crystal (293386, 30000 transitions of 1500 expansions, none seen in training): does not transfer. Embedding cos (changed) 0.546 vs copy 0.695. Pixels, changed (1506): MAE 68.8 vs copy 33.4, floor 44.8; PSNR 8.80 / 15.77 / 11.86; SSIM 0.237 / 0.648 / 0.318; LPIPS 0.660 / 0.327 / 0.597; beats copy 15%. Even the decoder's round trip is worse than copying: Red's fine-tuned SigLIP + decoder do not represent Crystal's tiles, and the predictions drift to Red screens (Red's battle sprite, Red's START menu).
+- Android vlm_w_typing s0 (293310): 78.0/115 = 67.8% (s1 66.7%) vs base 70.0% / base repeat 64.5%: within noise. Zelda s0 search (293361) slowest of the four (5531/7500 at 40 min).
+- Web base repeat 1 (293180): 251/429 = 58.5% vs original base 269/429 = 62.7%; 110 of 429 tasks flip (25.6%). Same model, 4.2 pts apart: Web's run-to-run noise is larger than the ~18% flips estimated from adapter pairs.
+- Sword of Hope 1 WM (293378; 43340 held-out transitions, 32081 changed): changed-screen cos 0.986 vs copy 0.759; MAE 0.64 / copy 7.29 / floor 0.51; PSNR 31.6 / 23.2 / 32.4; SSIM 0.989 / 0.900 / 0.991; LPIPS 0.007 / 0.128 / 0.005 (91-98% of the gap closed); beats copy 66%. A menu game: changes are small (copy MAE 7.3 vs Red 31.9), cursor and dialogue updates, which the model predicts almost to the decoder floor.
+- Web vlm_no_typing s0 search (291831) ended at its time limit 05:37 UTC, final segment as planned: 887 expansions, 1529-node tree.
+- Deja Vu 1 WM (293372; 45720 held-out, 35791 changed): cos 0.987 vs copy 0.871; MAE 2.32 / copy 10.69 / floor 1.40; PSNR 27.28 / 23.05 / 27.94; SSIM 0.979 / 0.901 / 0.988; LPIPS 0.022 / 0.120 / 0.013 (86-91% of the gap); beats copy on only 27%: the mean is carried by large changes, while on small ones copying is closer.
+- Bomberman Quest WM (293384; 43320 held-out, 32880 changed): cos 0.938 vs copy 0.609; MAE 5.17 / 22.23 / 1.55; PSNR 29.87 / 20.37 / 31.52; SSIM 0.945 / 0.782 / 0.987; LPIPS 0.070 / 0.213 / 0.032 (79-85%); beats copy 40%. Grid: START opens the menu, the map and menu are right, the player sprite blurs away.
+- Android random s0 fine-tune failed again (293291): NCCL 'unhandled cuda error' in the step-50 checkpoint save, on eclairlg05, the same step and node as 293004. Resubmitted excluding lg05: fine-tune 293395 (from scratch, ~6.5 h; no checkpoint was ever written) -> eval 293396.
+- Link's Awakening WM (293366; 45760 held-out, 42757 changed): cos 0.965 vs copy 0.580; MAE 4.64 / 25.63 / 2.77; PSNR 27.30 / 17.56 / 28.35; SSIM 0.937 / 0.738 / 0.963; LPIPS 0.071 / 0.230 / 0.050 (88-92% of the gap); beats copy 65%. Grid: inventory fades and title screen right; a screen-edge scroll to the next room is missed (predicts the old room), a fade-in comes out blurred.
+- Web base repeat 2 (293181): 250/429 = 58.3%. The three base runs: 62.7 / 58.5 / 58.3%; pairwise flips 25.6 / 21.7 / 17.0% (mean ~21%, SE of a difference ~2.8 pts). The two repeats (run a day after the original) agree; the original sits ~4 pts above both: live sites drift, so a Web comparison should use runs made close together.
+- Android random s0 fine-tune, third failure (293395, eclairlg06): the same NCCL "unhandled cuda error" in the dcp gather of the step-50 checkpoint save, so it is not node lg05. The code is unchanged since 292127, which saved at step 50 with a 43 GB peak, so memory headroom is not clearly the cause (and max_batch_tokens cannot go below max_length 6144). Resubmitted as 293462 (eval 293463) with save_every 5 (the save path is tested at step 5, and a later crash resumes from the last save) and NCCL_DEBUG=INFO.
+- vlm_no_typing searches all done (final segments ended at their time limit 13:05 UTC, as planned): Web s0 / s1 / s2 887 / 886 / 872 expansions (1529 / 1680 / 1523 nodes); Android s0 / s1 / s2 264 / 257 / 288 (341 / 352 / 338 nodes). No practice or fine-tunes run on them yet.
+- Android random s0 retry 293462: the step-5 checkpoint save succeeded, so dcp saving works on this run; the failure appears only near step 50.
+- GameBoy vlm_no_typing s0 fine-tune done (292922, resumed run): 1652 steps, final validation loss 0.2695. Stale follow-on 292923 cancelled; eval 293172 started.
+- wm_eval gains pixel_shifted: the changed transitions that are scrolls (a vertical or horizontal shift of the current frame, up to 1/8 of it, matches the next with under 1/4 of the unshifted error; checked on real Red frames: synthetic shifts caught, an unrelated frame not; 162 / 617 changed). Rerun on the five world models (293546-293550; other buckets reproduce). Shifted transitions: Red 393 / 1572 changed, Link's Awakening 13 / 1949, Deja Vu / Sword of Hope / Bomberman Quest 0 (no scrolling in these replays).
+  - Red, shifted (393): MAE 28.6 / copy 44.5 / floor 18.2 (60% of the gap); PSNR 13.93 / 10.26 / 17.26 (52%); SSIM 0.584 / 0.426 / 0.689 (60%); LPIPS 0.340 / 0.259 / 0.286 (worse than copy, and the floor is too: LPIPS tolerates a shift but not the decoder's blur); beats copy (MAE) on 89%.
+  - Link's Awakening, shifted (13, too few to lean on): MAE 18.7 / 55.6 / 6.1 (74%); PSNR 21.08 / 11.87 / 23.99; SSIM 0.787 / 0.257 / 0.938; LPIPS 0.091 / 0.224 / 0.032; beats copy 85%.
+- Sequel transfer evals, as Red -> Crystal (screen-changed transitions): Link's Awakening -> Oracle of Seasons (search 293551 -> eval 293552), Deja Vu 1 -> 2 (293553 -> 293554), Sword of Hope 1 -> 2 (293555 -> 293556), Bomberman Quest -> Bomberman Max (293557 -> 293558); 1500-expansion random searches, tmp_wm_sequels.sh.
+- Sequel transfer (screen-changed; pred / copy / floor; cos pred vs copy): none transfer, as Red -> Crystal. Each sequel's decoder round trip is itself worse than copying, so the trained game's SigLIP + decoder cannot represent the sequel's screens and the dynamics are not tested.
+  - Link's Awakening -> Oracle of Seasons (1714 px): cos 0.333 vs 0.744; MAE 89.97 / 32.93 / 62.79; PSNR 7.48 / 15.76 / 15.84; SSIM 0.122 / 0.690 / 0.297; LPIPS 0.741 / 0.304 / 0.576; beats copy 11% (trained game: 0.965 cos, MAE 4.64, 65%).
+  - Deja Vu 1 -> 2 (1684): cos 0.560 vs 0.871; MAE 53.63 / 11.03 / 32.64; PSNR 10.10 / 22.78 / 12.66; SSIM 0.467 / 0.898 / 0.593; LPIPS 0.452 / 0.120 / 0.267; beats 8%.
+  - Sword of Hope 1 -> 2 (1419): cos 0.240 vs 0.802; MAE 95.05 / 9.48 / 98.67; PSNR 4.83 / 20.74 / 5.07; SSIM 0.207 / 0.893 / 0.179; LPIPS 0.580 / 0.174 / 0.559; beats 2%.
+  - Bomberman Quest -> Max (1602): cos 0.123 vs 0.744; MAE 105.76 / 35.62 / 78.45; PSNR 6.24 / 15.36 / 11.00; SSIM 0.046 / 0.605 / 0.163; LPIPS 0.775 / 0.269 / 0.564; beats 2%.
+- GameBoy vlm_no_typing s0 adapter (293172): 17/49 (34.7%) vs base 20/49 (repeat 15/49); 11 tasks differ (4 adapter-only, 7 base-only). Random adapters s0/s1/s2: 19/23/22. Within the noise floor; s1/s2 vlm evals pending.
+
+## 2026-11-07: why practice adapters do not help (diagnosis)
+
+No practice adapter beats its base beyond the noise (GameBoy 17-23/49 vs base 20; Android 64-70% vs 70.0 / 64.5; Web
+61.5-65.7% vs 62.7 on the same day). The practice -> test chain, step by step: (1) proposal (practice tasks like the
+test's?), (2) labels (judge successes real? new behaviour in them?), (3) learning (does the policy change on test
+screens?), (4) measurement (can the eval see a change?).
+- Plan: practice on the GameBoy test set itself (attempt_test: the 49 pokemon_red tasks from their benchmark start
+  states, run as the eval runs them, 175 steps; judged with hint retries as practice; each try also records the
+  benchmark's success), 6 repeats (293568-293573; a first submission 293560-5 died on a command-name typo). From it: judge precision / recall against the benchmark, per-task
+  success rates, and three oracle adapters with the tree adapters' fine-tune: judge labels on all 49 tasks (proposal
+  taken out), benchmark labels on all 49 (proposal and judge out), benchmark labels on half the tasks evaluated on the
+  other half (in-distribution generalisation). Two more greedy base evals (293566-7) for the noise floor.
+  New: cusi/practice/stages/attempt_test.py, run_practice.py attempt_test and dataset --labels gt, practice.sh
+  --command / --extra.
+- Early findings from the existing runs:
+  - Measurement: of the 49 GameBoy test tasks, 19 were solved by none of 8 runs (base, base greedy rerun, 6
+    adapters) and 12 by all 8: only 18 can move. Evals are greedy, and the base still swings 20 vs 15 between runs.
+  - Proposal: practice tasks are micro-steps ("Move one tile down after finishing the conversation", "Finish reading
+    the current dialogue"), test tasks are goals ("Defeat Gym Leader Brock", "Sell exactly 1 Psychic TM"). Practice
+    succeeds on 62-75% of its tasks at the first or a hinted try; the base solves 41% of test tasks.
+  - Practice episodes never end themselves: 182 of 183 judged-successful tries (random s0, first 300 tasks) ran to
+    the 50-step budget; the dataset keeps the calls up to the judge's safe point + 2 (median 41% of the try).
+  - Training rows (GameBoy random s0, 22617 originals, x4 with paraphrases): action decisions 35%, frame_diff 34%,
+    done_check 15%, supervisor calls 16%.
+  - Learning: the adapters do change test behaviour. Greedy from the same start, a base rerun shares a median 10-action
+    prefix with the base, the adapters 3-4 (first action the same on 80-90% of tasks vs 98%); the action mix barely
+    moves (TV 0.04-0.07, as the base rerun's 0.06).
+
+- 2026-11-07 (diagnosis, cont.): interim test-set practice at 129/294 pkls: judge vs benchmark over all tries (judge,gt)
+  TT 76, TF 19, FT 10, FF 119 -> judge precision 80%, recall 88% (worse than the 92/97% at 77 pkls; ~1 in 5 judged
+  successes is false). First-try benchmark success 64/129 (biased up: quick tasks finish first). Added repeats r6-r10
+  (293575-293578, 293581) and greedy base reps 3-4 (293579-293580) on free GPUs. Oracle pipeline (tmp_oracle.sh) fires
+  when r0-r5 finish: datasets testset_judge / testset_gt / testset_gtA (half A = seeded 25 of 49 tasks,
+  tree/testset_halves.txt) -> fine-tunes with the tree adapters' recipe -> 2 greedy evals each on all 49.
+  GameBoy vlm_no_typing s2 fine-tune 293002 completed; stale follow-on 293003 cancelled, eval 293174 unblocked.
+
+- 2026-11-08 (diagnosis): test-set practice r0-r5 done (294 task-repeats, 554 tries). Judge vs benchmark success:
+  all tries precision 0.71 / recall 0.91 (TT 137, TF 57, FT 13, FF 347); first tries 0.74 / 0.95; hinted tries are
+  worse: try 2 precision 0.62, try 3 0.57 / recall 0.57. So the judge's false successes concentrate on exactly the
+  hinted tries that are practice's only new signal. Hints rescue 29 of 179 first-try benchmark failures (16%).
+  Sampled first-try success 0.39 per task = greedy mean 0.39 (5 greedy base runs: 15, 19, 21, 19, 22 of 49 -> the
+  noise band all adapters, 17-23, sit in). Per task: 15 never solved by greedy or 6x3 practice tries; 6 tasks
+  (17, 19, 23, 29, 31, 36) are never solved greedily but practice solves them sometimes -> the only room for new signal.
+
+- 2026-11-08 (diagnosis): GameBoy adapters vs 5 greedy base runs, per task. Adapter - base success rate +0.024,
+  permutation p = 0.57. Success agreement adapter-base 0.845 = base-base 0.849; 5-action openings identical
+  base-base 0.82 but adapter-adapter 0.46 / adapter-base 0.48: an adapter is statistically a re-roll of the base
+  (trajectories change, outcomes do not). By group: base-always 12/12 kept, never-solved 15 stay 0, base-mixed 16:
+  adapters 35 vs base 36 (per-run means), practice-new tasks (17,19,23,29,31,36; greedy 0/5 each, sampled first try
+  0.23): adapters 7/30 = 0.23 = the base's sampled rate (task 19: greedy 0/5, sampled 9/11, adapters 4/5; gains are
+  offset by losses, e.g. task 3 greedy 4/5 -> adapters 0/5, all five stuck in a RIGHT/LEFT oscillation). Not
+  scene-habit replay: adapter first action matches the practice scene's modal first action 0.19 = base 0.19.
+  No generic shift (output tokens/call, calls/decision, legs unchanged). Training does fit practice: val loss
+  0.41-0.47 -> 0.27-0.31 on held-out practice tasks. Only ~35% of rows are executor action calls (rest
+  frame_diff, done_check, supervisor). Next: per-token NLL of base vs tree adapters on test-task success vs failure
+  rows (tmp_token_loss.py, job 293666).
+
+- 2026-11-08 (diagnosis, token loss; tmp_token_loss.py, job 293666): base vs tree adapters (sat_vlm_no_typing_s2,
+  sat_random_s1) on 400 rows of test-task trajectories (testset_gt: 120 action + 80 other rows from benchmark-success
+  tries, same from failures). Mean per-row NLL base 0.415 -> adapter 0.281, but without each row's last token
+  0.312 -> 0.288: ~82% of the loss the adapters remove is the end-of-turn token. Cause: prompts make the model end
+  with "[STOP]", inference cuts at [STOP] and strips (lm_inference.py), the dataset stores the cut response, and
+  RowEncoder appends <turn|>: the base puts ~9 nats on <turn|> right after "Action: X" (5.9 after done_check), the
+  adapters ~0. Harmless at inference (the turn ends either way) but it is most of what fine-tuning learns and why
+  val loss falls 0.43 -> 0.29. On content: action tokens given the reasoning are already ~0.01 nats under the base;
+  reasoning tokens drop only 0.006-0.011 on success rows and 0.036-0.039 on failure rows (adapters fit failed
+  test trajectories better than successful ones); every action row's taken action gets likelier, success and
+  failure alike. Conclusion: self-generated practice data has almost nothing for SFT to learn beyond formatting,
+  and what little it learns is not selective for success. Fix to make later: keep "[STOP]" (the text the model
+  actually produced) in dataset responses.
+
+- 2026-11-09 (oracle results): testset_gtA (fine-tuned on benchmark-success tries of half A of the test tasks, from
+  their own start states, r0-r5; 11 h) scores 16 and 18 of 49: half A (trained, 25 tasks) 8 and 11 vs base 8-11;
+  half B (unseen, 24) 8 and 7 vs base 7-12. Training on correct trajectories of the very test tasks does not raise
+  their success: the learning leg, not task proposal or labels, is the binding failure. Gains (task 16 0.4 -> 1.0,
+  19 0 -> 0.5) are offset by losses (task 10 0.8 -> 0, 1 1.0 -> 0.5): the re-roll pattern again.
+  testset_judge / testset_gt fine-tunes hit the 23 h limit (judge at step 1110, resumed as 293874); testset_gt went
+  NaN at step 650 (every later checkpoint NaN), retrained from scratch as final_r16_lr5e-5_rerun (293876, follow-on
+  293877; cancel it if 293876 succeeds) after train.py now skips optimizer steps with a non-finite grad norm.
+  GameBoy vlm s1 fine-tune finished; stale follow-on 293010 cancelled, eval 293173 released.
+
+- 2026-11-09 (corrections to the Nov 8 token-loss entry, found while writing the week's report): "every action row's
+  taken action gets likelier" was wrong: the action segment included the appended <turn|> token, which carries the
+  drop. On the action tokens alone (after "Action:", before the end token) base is 0.000-0.011 nats and the adapters
+  0.002-0.017, i.e. unchanged or marginally worse; they lower that loss on 54-60% of rows (chance). Also: the 400
+  rows sampled action / frame_diff / done_check tags only, no supervisor rows. And the "re-roll" reading is an
+  aggregate: adapter-adapter outcome agreement 0.882 vs 0.875 expected for independent base-like runs, but task 3 is
+  failed by all 5 tree adapters (base 5/6) and task 5 solved by all 5 (base 3/6); the gtA oracle does not share
+  these flips (2/2, 1/2), so the tree adapters carry a consistent data-specific shift with no bias toward success.
+  Per-task numbers recomputed with all six greedy base runs (the Nov 8 analysis omitted base_gemma-4-31b-it, 20/49):
+  task 19 greedy 1/6 not 0/5; task 3 5/6; conclusions unchanged.
+
+- 2026-11-09 (world-model audit; tmp_leak.py, jobs 293882-3): the held-out split is held-out *expansions*, not
+  held-out game states. Random search re-expands shared nodes on a deterministic emulator, so held-out transitions
+  repeat training ones. Red s0 (seed 42): 44,364 unique frames among 142k training frames; of 14,540 held-out
+  transitions, 75% have a next frame byte-identical to a training frame and 48% repeat a training (current frame,
+  action) pair exactly. Sword of Hope (3 seeds): 5,326 unique frames among 427k; 99.5% / 98.3%. So every in-game
+  "beats copy" number (Red 19.2 vs 31.9, 59%; SoH 0.64 vs 7.3) is measured largely on transitions the model trained
+  on, and the near-floor results on the menu games are memorisation. Unaffected: the Crystal and sequel evals (never
+  seen), and the direction of the in-game vs sequel contrast, which is now partly train/test contamination rather
+  than only a visual shift. Code audit otherwise clean: embedder / world model / wm_eval share one split (seed 42,
+  same replay_dirs strings); copy baseline frames aligned; GameBoy canvas native so no resize mismatch; predictions
+  normalised before the cosine; no model selection on validation. Next: re-score each world model on the held-out
+  transitions whose (frame, action) pair is absent from training (Red s0 ~7.6k, SoH ~700) and report that column
+  as the honest in-game number; make the leak check part of wm_eval / the model's fitness gate.
+
+## 2026-11-09: World Action Model (WAM) contract and the SigLIP lookahead executor
+
+- Contract (cusi/world_action/base.py): state in, actions out. `begin(task, hint, obs, info)`, `plan(obs, info,
+  error, call) -> Plan(actions | finish | invalid, record)`, `observe(action_text, obs_before, ..., valid)`,
+  `history()/restore_history()` across legs. No latent / embedder / decoder type in the interface (user's design
+  call: the executor must not know how the model is made). `meta` carries env, game, game_series (GAME_SERIES
+  table), replay_dirs, fitness (eval.json headline, leak_check.json). `transfer_kind(game)` = same_game /
+  same_series / other_series, recorded in run config and episode meta.
+- Child (cusi/world_action/siglip_lookahead.py): GameBoyRL's planning arm with CUSI's fine-tuned SigLIP world
+  model: one-step rollout for every button, decoded by the SigLIP run's decoder, VLM picks "Choice: k" among
+  [current, 7 predictions]; single action per plan. Model + embedder + decoder cached per (dir, device) per process.
+- Executor (cusi/agents/executors/world_action.py): `world_action_executor_class(base, model)` subclasses the env's
+  own executor and replaces decide() only (history policy, done check, invalid handling unchanged, so base vs WAM
+  runs differ only in who decides). Plan.record goes on CallRecord.extra["world_action"] (new field) and the model
+  keeps filling it from observe(). `episode_summary(legs)` -> EvalRow.extra wa_* fields.
+- Wiring: make_agent(..., world_action=); run_eval gameboy --world_action <dir or world-model name>
+  --world_action_device (default cpu: vLLM holds the GPUs); eval.sh / EVAL_DEFAULTS --world_action,
+  --world_action_device. train_world_model now records game / game_series / replay_dirs; the 7 existing models were
+  backfilled (tmp_backfill_wm_meta.py; red_* -> pokemon_red/pokemon, zelda_la -> legend_of_zelda_links_awakening/
+  zelda, deja_vu_1, sword_of_hope_1, bomberman_quest).
+- Smoke (tmp_smoke_wa.py, CPU, real Red replay frames, canned choice): 8 images to the VLM, 0.14 s predict+decode,
+  candidate spread 45 grey levels (predictions depend on the action); on a real UP transition the hindsight-best
+  candidate was UP (cos 0.80 vs copy 0.62; A / B predictions = copy). Not yet run live.
+- Diagnostics hooks added before the first live run (user's request): (1) the VLM's view of the real outcome:
+  per-candidate pixel errors vs what happened, hindsight_best_pixel, chosen_beats_copy, chosen_predicted_similarity;
+  (2) the base policy's own decision on every world-action screen (shadow call, tag shadow_<tag>, decision None,
+  never executed; --world_action_shadow, default true, doubles VLM calls): base_action, base_reasoning,
+  base_invalid, diverged (base != executed), base_action_predicted_similarity (the world model's own view of the
+  base's action). Episode summary adds wa_diverged, wa_chosen_beats_copy, wa_base_invalid,
+  wa_base_action_pred_sim, wa_chosen_pred_sim. The done check reads the executed decision's reasoning, not the
+  shadow's. Smoke (stub base policy, real frames): executed DOWN vs base UP -> diverged True; the world model rated
+  the base's UP 0.80 vs the executed DOWN 0.57 against the real outcome.
+- Oracle lookahead (cusi/world_action/oracle_lookahead.py): candidate frames from the emulator itself (PyBoy
+  save_state to memory, press each button as GameBoyWorlds' emulator does, read the screen, load_state), below the
+  GameBoyWorlds step counters / trackers, so it costs no benchmark steps. The common lookahead loop moved to
+  cusi/world_action/lookahead.py (LookaheadModel: prompt, choice parsing, pixel scores); siglip_lookahead adds the
+  embedding scores. Contract gains attach_env(env), documented as diagnostic-only. Smoke on a live Red env: the
+  chosen candidate reproduces the real next screen exactly (error 0.0 on two decisions), step counter unchanged by
+  the lookahead (2 -> 2), real steps advance (-> 4).
+- Runs (tmp_wa_runs.sh; Gemma-4-31B, greedy, 8 workers, shadow base on, model on CPU): wa_red_rep1 (293885 died:
+  its workers imported the executor after the attach_env edit but the old model module; all 49 tasks errored in
+  seconds; resubmitted with --overwrite as 293889), wa_crystal_rep1 293886 (Red world model on Crystal, same-series
+  transfer), oracle_red_rep1 293887, oracle_crystal_rep1 293888. Baselines: six greedy Red base runs (15-22/49);
+  crystal_base_gemma-4-31b-it_greedy.
+- Don't edit modules a running eval imports lazily: workers import at first task, so an edit mid-startup splits
+  them across versions.
+- GLM-4.1V-9B-Thinking (zai-org) on all three test sets (tmp_glm.sh): the earlier 8-9B evidence is one Oct 29 sweep
+  with sampled decoding (Qwen3-VL-8B: GameBoy 6%, Web 35%, Android 46%; Gemma-4-26B-A4B 25 / 38 / 48%), so no 8-9B
+  model has been run with the current greedy agents. vLLM 0.30.0 here supports Glm4vForConditionalGeneration but
+  has no reasoning parser, so lm_inference.get_output_final now cuts <think>...</think> blocks before [STOP]
+  truncation (no-op for Gemma). Risk: Web / Android executors cap at 1000 new tokens, which a thinking model's
+  think block may exhaust (then the reply fails to parse and counts invalid); GameBoy's cap is 8000.
+
+- 2026-11-09 (diagnosis, Android / Web per task; tmp_aw.py, existing evals): Web (429 tasks; 3 base runs, 6 adapters):
+  base 269 / 251 / 250, adapters 275 / 268 / 264 / 268 / 268 / 282; outcome agreement base-base 0.786,
+  adapter-base 0.776, adapter-adapter 0.816; adapter - base +0.033 (permutation p = 0.06) but confounded by date: the
+  two base repeats ran a day after the original and sit ~4 pts below it, and the adapters ran near the original's
+  date; against the original alone the adapter mean is +1.8 tasks. 6 tasks flip in all 6 adapters (e.g.
+  Huggingface--21, GitHub--22 0 -> 1). Android (112 tasks scored in all 8 runs; 2 base, 6 adapters): base 78.5 / 71.5,
+  adapters 73-79; agreement base-base 0.884, adapter-base 0.893; +0.007 (p = 0.83); 68 always / 31 never / 13 mixed;
+  4 consistent flips (2 gains, 2 losses). [STOP] does not appear in the CUSI Web / Android executor or supervisor
+  files (prompts imported from the WebVoyager / M3A packages not checked), so the end-token finding may be
+  GameBoy-specific.
+
+## 2026-11-09: Literature baselines under the "self-judged only" constraint (code audits, storage/tmp/lit_code/)
+
+User's constraint: drop every phase that uses a stronger model or human demonstrations; all signal from the agent
+itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos cloned to storage/tmp/lit_code/).
+- No paper reports a run that meets the constraint. PAE: every run starts from SFT on Claude-3-Sonnet trajectories;
+  closest is Qwen2VL-7B as proposer+judge (not self) 14.9 -> 21.7 WebVoyager. OpenWebVoyager: GPT-4o writes queries,
+  judges, and its IL data is re-trained every round; 19.9 -> 22.6 -> 22.7 -> 25.8, single sampled run. OS-Genesis:
+  GPT-4o does synthesis, rollouts and scoring in every condition; 9.82 is a GPT-4o baseline, zero-shot Qwen2-VL-7B 0.89.
+  UI-Voyager: self rollouts after round 1 (round 1 likely uses larger Qwen3-VL), labels from AndroidWorld's rule-based
+  checker, training tasks are perturbed instances of the 116 eval templates; ~37 -> 73 (RFT) -> 81 (GRSD), 64 seeds.
+  MobileRL: human-demo SFT + reasoning SFT from another model, then RL with AndroidWorld's rule-based reward on the eval
+  templates; RL step alone 66.2 -> 80.2 (GLM-4.1V-9B), 56.8 -> 72.0 (Qwen2.5-VL-7B).
+- The large AndroidWorld gains share ground-truth rewards and training on the eval templates; the web gains share a
+  stronger-model judge and stronger-model demonstrations. Released code: PAE and OpenWebVoyager have training loops;
+  OS-Genesis, UI-Voyager and MobileRL release eval / data code only (UI-Voyager also GRSD's fork builder).
+- Training intensity in the papers vs ours (LoRA r16, lr 5e-5, 1 epoch): PAE LoRA r256 lr 2e-5 constant, 4 epochs per
+  iteration, buffer never cleared; OpenWebVoyager full FT lr 1e-5 cosine, ~2-3 epochs per phase; MobileRL full FT
+  (inferred) RL lr 1e-6 ~100 steps after 2-epoch SFT; OS-Genesis and UI-Voyager not reported.
+- Variance: only UI-Voyager (64 seeds) and MobileRL ablations (3 runs) average runs; none reports variance.
+- 2026-11-09: user's request for tomorrow morning: (1) action reproduction check first (cusi/finetune/repro.py,
+  run_diagnostics.py action_repro, slurm/action_repro.sh pair; jobs 293928-293933: web random_s0 / vlm_w_typing_s0,
+  android random_s1 / vlm_w_typing_s0, gameboy random_s0 / vlm_no_typing_s0; base vs adapter, greedy, 300 training
+  and 300 held-out practice action rows each); (2) then PAE-style aggressive fine-tunes. Of the three PAE changes,
+  shortest-success filtering and the never-cleared buffer are no-ops on our data (practice stops at the first judged
+  success, so a task has at most one success; one practice round). Only the recipe applies: run_finetune
+  --lr_schedule constant and --train_tasks N (seeded task subset) added; recorded in config only when set, so older
+  runs resume unchanged. At measured speeds 4 full epochs take ~12 h (Android), ~39 h (Web), ~110 h (GameBoy).
+
+- 2026-11-09 (cheap check #1, action_repro, jobs 293928-33): does an adapter reproduce its own training actions?
+  Greedy base vs adapter on 300 executor action rows of the adapter's practice dataset (train) and held-out practice
+  tasks (validation), first "Action:" line compared. Train base_match / adapter_match: GameBoy random 0.84 / 0.87,
+  vlm 0.87 / 0.88; Android random 0.94 / 0.92, vlm 0.96 / 0.93; Web random 0.73 / 0.71, vlm 0.75 / 0.74.
+  Validation alike (adapter equal or lower). On every env the base already picks the practice action 73-96% of the
+  time, and the adapters do not pick it more often even on the rows they trained on: the fine-tunes (r16, lr 5e-5
+  cosine, 1 epoch) did not fit the content, consistent with the token-loss finding (the drop is the end token).
+
+- 2026-11-09 (six-task focus experiment, user's request: make learning work on the six practice-new tasks 17, 19,
+  23, 29, 31, 36 with aggressive fine-tuning plus mix-in). Judge on these six (all 11 test-set practice repeats, 133
+  tries): precision 0.53 (21 real of 40 judged), recall 1.00, vs 0.72 / 0.90 on the other 43.
+  New stage run_practice focus_dataset (cusi/practice/stages/focus.py): the focus tasks' success tries from an
+  attempt_test run (every one in train, kept whole under gt labels) x focus_repeat, plus mix_ratio x as many success
+  rows sampled from another practice dataset (images copied in), validation = that dataset's held-out success rows.
+  Built (no paraphrases), source sat_vlm_no_typing_s0 for mix-in and validation:
+    testset_six_gt_mix     21 benchmark-success tries -> 4,782 rows + 4,782 mix-in (t19 has 10 of the 21 tries;
+                           t17, t23, t36 one each)
+    testset_six_gt_nomix   the same 4,782 rows, no mix-in
+    testset_six_judge_mix  40 judged successes (19 false; t23 11 judged / 1 real) -> 8,890 rows + 8,890 mix-in
+  Recipe (focus_r64_lr1e-4_e3): LoRA r64 a128, lr 1e-4 constant after warmup, 3 epochs, 32 rows/step,
+  max_length 6144. Each -> action_repro on its own rows -> 2 greedy evals on all 49 (capability on the other 43)
+  + 4 greedy evals on the six only (6 reps on the six, as the base's 6 greedy runs: 1/36 there).
+  Commands:
+    python run_practice.py --env gameboy --model_name google/gemma-4-31b-it --source testset_six_gt_mix \
+        focus_dataset --from_source testset --tasks 17,19,23,29,31,36 --labels gt \
+        --mix_source sat_vlm_no_typing_s0 --mix_ratio 1        (nomix: --mix_ratio 0; judge: --labels judge)
+    sbatch slurm/finetune.sh --env gameboy --model google/gemma-4-31b-it --source testset_six_gt_mix \
+        --run focus_r64_lr1e-4_e3 --extra "--lora_r 64 --lora_alpha 128 --lr 1e-4 --lr_schedule constant \
+        --epochs 3 --rows_per_step 32 --max_length 6144 --max_batch_tokens 6144 --val_rows 400"
+    sbatch slurm/eval.sh --env gameboy --model google/gemma-4-31b-it --run <name> --workers 6 \
+        --tasks pokemon_red_017,pokemon_red_019,pokemon_red_023,pokemon_red_029,pokemon_red_031,pokemon_red_036 \
+        --lora <adapter>
+  Jobs: gt_mix ft 293986 (repro 293987, evals 293988-93), gt_nomix ft 293994 (293995, 293996-294001),
+  judge_mix ft 294002 (294003, 294004-09). At 0.87 rows/s (4 A6000): ~9 h, ~5 h, ~17 h.
+  The PAE-recipe per-env fine-tunes (previous request) are not launched: the A6000s go to this first.
+  Caveat: this trains on the test tasks' own trajectories from their own start states, so it measures whether SFT
+  can fit the six at all, not generalisation.

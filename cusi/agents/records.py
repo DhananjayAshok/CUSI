@@ -112,6 +112,8 @@ class CallRecord:
     decision: Optional[str] = None
     #: A batched call's total goes on its first record.
     seconds: Optional[float] = None
+    #: Anything a deciding component keeps with its call (world action models: extra["world_action"]).
+    extra: dict = field(default_factory=dict)
 
     @property
     def env_steps(self) -> list:

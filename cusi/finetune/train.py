@@ -18,6 +18,7 @@ import math
 import os
 import time
 from typing import Any
+import numpy as np
 import torch
 from cusi.finetune import distributed as fsdp
 from cusi.finetune.data import (MicroBatches, RowEncoder, dataset_paths, keep_rows, label_tokens, length_index,
@@ -88,6 +89,11 @@ class LoRATrainer:
                                         path=paths[split], gather=fsdp.gather_objects)
         self.train_lengths, self.val_lengths = index["train"], index["validation"]
         keep = keep_rows(lengths=self.train_lengths, max_length=c["max_length"])
+        if c.get("train_tasks"):     # a seeded subset of the training tasks, all their rows (paraphrases included)
+            tasks = sorted({self.train_rows[i]["task_id"] for i in keep})
+            chosen = set(np.random.default_rng(c["seed"]).permutation(tasks)[:c["train_tasks"]].tolist())
+            keep = [i for i in keep if self.train_rows[i]["task_id"] in chosen]
+            self._info(f"finetune: {len(chosen)} of {len(tasks)} training tasks, {len(keep)} rows")
         order = [keep[i] for i in row_order(n=len(keep), epochs=c["epochs"], seed=c["seed"])]
         if c["max_rows"] is not None:
             order = order[:c["max_rows"]]
@@ -134,9 +140,11 @@ class LoRATrainer:
         total = len(self.plan)
         warmup = max(1, int(c["warmup_frac"] * total))
 
-        def schedule(step: int) -> float:     # linear warmup, then cosine to 0
+        def schedule(step: int) -> float:     # linear warmup, then cosine to 0 (or constant)
             if step < warmup:
                 return (step + 1) / warmup
+            if c.get("lr_schedule", "cosine") == "constant":
+                return 1.0
             return 0.5 * (1 + math.cos(math.pi * (step - warmup) / max(1, total - warmup)))
 
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, schedule)
@@ -202,7 +210,14 @@ class LoRATrainer:
                         (loss * (weight * self.world / step_tokens)).backward()
                         loss_sum += float(loss.detach()) * weight
                     grad_norm = torch.nn.utils.clip_grad_norm_(self.optimizer.param_groups[0]["params"], 1.0)
-                    self.optimizer.step()
+                    # one non-finite step (testset_gt, 2026-11-08: NaN at step 650) poisons every weight after it:
+                    # skip it; the ranks agree, since the clipped norm is computed over the whole sharded gradient
+                    if not torch.isfinite(grad_norm):
+                        self._info(f"finetune step {self.step}: non-finite grad norm, step skipped")
+                        self.optimizer.zero_grad(set_to_none=True)
+                        loss_sum = 0.0
+                    else:
+                        self.optimizer.step()
                     self.scheduler.step()
                     self.optimizer.zero_grad(set_to_none=True)
                 self.step += 1
