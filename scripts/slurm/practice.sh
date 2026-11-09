@@ -12,6 +12,7 @@
 #   bash scripts/slurm/practice.sh --env gameboy --model <model> --source <source> --command <run_practice command> \
 #       --extra "<its flags>"   # one stage, e.g. --command attempt_test --extra "--game pokemon_red --repeats 0,1"
 #       # or --command dataset --extra "--labels gt"
+#   [--lora <adapter dir>]   # serve the adapter and practise with it (every role); outputs under its model name
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
 populate_dict PRACTICE_DEFAULTS ARGS
@@ -26,14 +27,23 @@ PORT="${ARGS["vllm_port"]}"
 if [[ "$PORT" == "none" ]]; then
     PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 800 ))
 fi
-echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=$ENV_NAME source=${ARGS["source"]} model=$MODEL"
-bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" || exit 1
+AGENT_MODEL="$MODEL"
+SERVE_EXTRA=()
+if [[ "${ARGS["lora"]}" != "none" ]]; then   # the adapter plays every role, as "<base short>-lora-<finetune run>"
+    LORA="${ARGS["lora"]%/}"
+    [[ -f "$LORA/adapter_config.json" ]] || { echo "No LoRA adapter at $LORA"; exit 1; }
+    AGENT_MODEL="${MODEL##*/}-lora-$(basename "$(dirname "$LORA")")"
+    RANK=$(python -c "import json, sys; print(json.load(open(sys.argv[1]))['r'])" "$LORA/adapter_config.json")
+    SERVE_EXTRA=(--extra "--enable-lora --max-loras 1 --max-lora-rank $RANK --lora-modules $AGENT_MODEL=$LORA")
+fi
+echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=$ENV_NAME source=${ARGS["source"]} model=$AGENT_MODEL"
+bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" "${SERVE_EXTRA[@]}" || exit 1
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 # The container gets the job's GPUs (NVML accounts for the vLLM server's work); the client itself uses none.
 [[ -n "${CUDA_VISIBLE_DEVICES:-}" ]] && export CUSI_CONTAINER_NV=1
 export CUDA_VISIBLE_DEVICES=""
 
-FLAGS=(--env "$ENV_NAME" --model_name "$MODEL" --vllm_port "$PORT" --source "${ARGS["source"]}" "${ARGS["command"]}")
+FLAGS=(--env "$ENV_NAME" --model_name "$AGENT_MODEL" --vllm_port "$PORT" --source "${ARGS["source"]}" "${ARGS["command"]}")
 if [[ "${ARGS["command"]}" == "all" ]]; then
     [[ "${ARGS["max_tasks"]}" != "none" ]] && FLAGS+=(--max_tasks "${ARGS["max_tasks"]}")
     [[ "${ARGS["sample_tasks"]}" != "none" ]] && FLAGS+=(--sample_tasks "${ARGS["sample_tasks"]}"

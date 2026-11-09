@@ -21,22 +21,24 @@ from cusi.utils.log_handling import log_error, log_info
 from cusi.utils.paths import PracticePaths
 
 
-def test_tasks(*, game: str, repeats: list) -> list:
-    """Every benchmark task of game, once per repeat, with the benchmark row it runs from."""
+def test_tasks(*, game: str, repeats: list, indices: list = None) -> list:
+    """Every benchmark task of game (or those at indices), once per repeat, with the benchmark row it runs from."""
     from cusi.eval.gameboy import select_tasks
     return [{"task_id": f"t{i:03d}_r{r}", "task": row["task"], "scene": row["init_state"], "source": "test",
              "node_id": None, "child": None, "benchmark_index": i, "repeat": r, "row": row}
-            for r in repeats for i, row in enumerate(select_tasks(game=game, n_tasks=None))]
+            for r in repeats for i, row in enumerate(select_tasks(game=game, n_tasks=None))
+            if indices is None or i in indices]
 
 
 def attempt_test(*, spec, vlm, paths: PracticePaths, game: str, repeats: list, max_tries: int, lookback: int,
-                 judge_max_new_tokens: int, n_workers: int, parameters: dict) -> None:
-    """repeats: which repeats this run attempts (jobs splitting the repeats share paths)."""
+                 judge_max_new_tokens: int, n_workers: int, parameters: dict, indices: list = None) -> None:
+    """repeats: which repeats this run attempts (jobs splitting the repeats share paths); indices: only these
+    benchmark rows (default all)."""
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.gameboy import CONTROLLER_VARIANT, GAMEBOY_WAIT_TICKS, MAX_STEPS
     if spec.name != "gameboy":
         log_error(f"attempt_test: only GameBoy has test-set practice, not {spec.name}", parameters=parameters)
-    tasks = test_tasks(game=game, repeats=repeats)
+    tasks = test_tasks(game=game, repeats=repeats, indices=indices)
     os.makedirs(paths.episodes_dir, exist_ok=True)
     # jobs splitting the repeats write this at once: each through its own temporary file
     tmp = os.path.join(paths.root, f"config.json.{socket.gethostname()}.{os.getpid()}")

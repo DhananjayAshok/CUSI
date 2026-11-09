@@ -127,16 +127,18 @@ def dataset(obj, n_paraphrases, safety_margin, val_frac, seed, labels):
 @click.option("--repeats", required=True, help="Repeats to attempt, comma-separated (e.g. 0,1).")
 @click.option("--game", required=True, help="The GameBoyWorlds game whose benchmark tasks are practised.")
 @click.option("--n_workers", default=8, show_default=True, help="Tasks attempted in parallel.")
+@click.option("--tasks", default=None, help="Only these benchmark row indices, comma-separated (default: all).")
 @max_tries_opt
 @lookback_opt
 @click.pass_obj
-def attempt_test(obj, repeats, game, n_workers, max_tries, lookback):
+def attempt_test(obj, repeats, game, n_workers, tasks, max_tries, lookback):
     """Practice on the test set (GameBoy, a diagnostic): attempt each benchmark task from its start state as the
     eval runs it, judged with critique-hint retries, recording the benchmark's success beside the judge's."""
     from cusi.practice.stages.attempt_test import attempt_test as run
     run(spec=obj["spec"], vlm=obj["vlm"], paths=obj["paths"], game=game,
         repeats=[int(r) for r in repeats.split(",")], max_tries=max_tries, lookback=lookback,
-        judge_max_new_tokens=obj["max_new_tokens"], n_workers=n_workers, parameters=obj["parameters"])
+        judge_max_new_tokens=obj["max_new_tokens"], n_workers=n_workers, parameters=obj["parameters"],
+        indices=[int(t) for t in tasks.split(",")] if tasks else None)
 
 
 @main.command(name="focus_dataset")

@@ -270,6 +270,7 @@ declare -A PRACTICE_DEFAULTS=(
     ["vllm_port"]="none"
     ["command"]="all"
     ["extra"]="none"
+    ["lora"]="none"
 )
 
 # scripts/slurm/annotate.sh

@@ -2089,3 +2089,8 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   The PAE-recipe per-env fine-tunes (previous request) are not launched: the A6000s go to this first.
   Caveat: this trains on the test tasks' own trajectories from their own start states, so it measures whether SFT
   can fit the six at all, not generalisation.
+- 2026-11-09 (sync): pushed to the Hub search/gameboy/sat_vlm_no_typing_s0 (time-limited VLM tree, no summary.json:
+  sync_data push --time_limited <tree>), practice/gameboy/gemma-4-31b-it/tree/testset (attempt_test tries; now
+  finished once results.csv is newer than every episode) and the three testset_six_* focus datasets (self-contained:
+  mix-in images copied in). attempt_test --tasks (benchmark rows) and practice.sh --lora (practise with an adapter,
+  every role) added. More base practice on the six (repeats 11-40): 294010 (2x A6000), 294011 (8x A5000).

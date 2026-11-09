@@ -162,7 +162,8 @@ def trees_blockers(*, parameters: dict, path: str) -> list:
     out = []
     summary = os.path.join(path, "summary.json")
     if not os.path.exists(summary):
-        out.append("search running or killed (no summary.json)")
+        if os.path.basename(path) not in parameters.get("sync_time_limited", ()):
+            out.append("search running or killed (no summary.json; --time_limited if it ended at its time limit)")
     elif _newer(os.path.join(path, EXPANSIONS_FILE), summary):
         out.append("search resumed after its summary.json")
     if os.path.exists(os.path.join(path, ANNOTATIONS_FILE)):
@@ -199,7 +200,16 @@ def practice_pull(*, parameters: dict, run_name, envs: list) -> list:
 
 
 def practice_blockers(*, parameters: dict, path: str) -> list:
-    return [] if os.path.isdir(os.path.join(path, "dataset")) else ["no dataset/: practice is unfinished"]
+    """Finished once it has a dataset/, or (test-set practice, attempt_test: tries only) once its results.csv,
+    written at the end of every attempt_test run, is newer than every episode."""
+    if os.path.isdir(os.path.join(path, "dataset")):
+        return []
+    results, episodes = os.path.join(path, "results.csv"), os.path.join(path, "episodes")
+    if os.path.exists(results) and os.path.isdir(episodes):
+        if any(_newer(os.path.join(episodes, n), results) for n in os.listdir(episodes)):
+            return ["attempt_test running (an episode is newer than results.csv)"]
+        return []
+    return ["no dataset/: practice is unfinished"]
 
 
 # --------------------------------------------------------------------------- practice-ft
@@ -367,9 +377,13 @@ def create_hub_repo(parameters, private):
 @selection_options
 @click.option("--quiet_minutes", default=30.0, show_default=True,
               help="A run with any file modified this recently is still being written, and is not pushed.")
+@click.option("--time_limited", default=None,
+              help="trees: comma-separated tree names whose search ended at its Slurm time limit (chained segments, "
+                   "no summary.json); they are finished once quiet.")
 @click.pass_obj
-def push(parameters, file_set, run_name, envs, with_viewer, with_checkpoints, dry_run, quiet_minutes):
+def push(parameters, file_set, run_name, envs, with_viewer, with_checkpoints, dry_run, quiet_minutes, time_limited):
     """Upload a set's finished runs, one commit each; the repo path of each file is its path under storage_dir."""
+    parameters["sync_time_limited"] = tuple(_runs(time_limited)) if time_limited else ()
     api, repo_id, spec = parameters["api"], parameters["repo_id"], SETS[file_set]
     skip = _skip_patterns(with_viewer=with_viewer, with_checkpoints=with_checkpoints)
     paths = spec.paths(parameters=parameters, run_name=run_name, envs=_envs(envs))
