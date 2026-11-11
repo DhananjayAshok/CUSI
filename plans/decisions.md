@@ -2432,3 +2432,28 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   "The" reads "lhe"). Effect on LA trees: obs text_boxes filled, the novelty score's text half (region_alpha 0.5)
   active, so new dialogue lines and changed HUD numbers make nodes; annotation prompts get the screen text. The LA
   trees are rerun with it (user's call).
+- 2026-11-11 (Link's Awakening trees rerun with screen text): the 13 LA trees (Gemma random / vlm_no_typing s0-s5,
+  a partial Qwen 32B s0) ran with read_text off and were deleted with their two screen comparisons (user's call:
+  screen text must be in every tree). Resubmitted with text on (tmp_submit_la_text.sh, jobs in
+  storage/tmp/la_text_jobs.txt): Gemma random + vlm_no_typing s0-s5 (VLM on 2x A6000, 3 x 23 h), Qwen3-VL-8B s0-s2
+  on eclairlg14 and 32B s0-s2 on eclairlg15 as their other trees. Expect bigger trees that saturate later: new
+  dialogue lines and HUD changes (rupees, item levels) now count toward the novelty score's text half.
+- 2026-11-11 (text coverage; distinct screens): cusi/search/text_coverage.py (+ slurm/text_coverage.sh,
+  scripts/slurm/text_coverage.sh, CPU only): every observation's screen text in env-step order (scene starts, then
+  each step), items = web element labels ('"a", "b"' counts as two), android element text / content_description (not
+  resource_id), gameboy text_boxes lines; NFKC, lowercase, whitespace collapsed, punctuation / symbols / icon-font and
+  control characters trimmed; digits kept and no language reporting (user's calls); GameBoy drops items that are a
+  strict prefix of a longer item in the same expansion (text typing out). Per run: distinct items, per scene,
+  --at_steps; 2 runs: shared / only-A / only-B; 3+: unique to each; most frequent unique items as examples.
+  screen_coverage now reports each run's distinct screens too (user reversed the earlier call): a greedy pass over
+  its frames in the order seen, new when no kept screen is within tau (overall, and per scene on that scene's frames),
+  at tau/2, tau, 2tau; in compare and in a new `distinct` command / --stage distinct.
+  Tests (random s0 vs VLM-with-typing s0 for web and android; Red random s3 vs vlm_no_typing s3, the latter still
+  running, 7,480 steps):
+  text, distinct items (not seen by the other): web 72,146 (65,779) vs 17,726 (11,359), shared 6,367; android 4,436
+  (2,498) vs 4,035 (2,097); Red 1,302 (737) vs 913 (348); Red at 7,000 steps each 446 (132) vs 884 (570).
+  Numbers-only items (HUD, HP, money) are 19% / 30% of Red's items. Web random's unique items are led by its
+  localised pages.
+  screens (SigLIP), distinct at tau/2 / tau / 2tau: web 22,316 / 17,097 / 10,253 vs 6,110 / 5,321 / 3,834; android
+  2,021 / 1,414 / 917 vs 1,459 / 1,126 / 725; Red 7,446 / 2,818 / 766 vs 1,311 / 748 / 294, and at 7,000 steps each
+  1,266 / 643 / 221 vs 1,249 / 716 / 281.
