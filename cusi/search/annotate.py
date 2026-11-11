@@ -28,6 +28,24 @@ from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.paths import search_run
 
 ANNOTATIONS_FILE = "annotations.json"
+#: Screens shown before a node's own in its node-notes call, for context.
+NODE_CONTEXT_FRAMES = 3
+
+
+def context_frames(*, node: dict, nodes: dict, expansions: dict) -> list:
+    """The frames (run-relative refs, oldest first) of the last NODE_CONTEXT_FRAMES distinct screens before a node's:
+    the expansion's earlier steps, preceded by the screen it started from; none for a root."""
+    if not node.get("segment"):
+        return []
+    exp_id, _, last = node["segment"]
+    exp = expansions[exp_id]
+    refs = [nodes[exp["node_id"]]["frame"]] + [s["frame"] for s in exp["steps"][:last]]
+    # frames are stored once per distinct image: drop repeats of the node's screen and of the screen before
+    distinct = []
+    for ref in refs:
+        if ref != node["frame"] and (not distinct or ref != distinct[-1]):
+            distinct.append(ref)
+    return distinct[-NODE_CONTEXT_FRAMES:]
 
 
 def node_app(*, env_name: str, node: dict, expansions: dict):
@@ -92,8 +110,10 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
                 added.append("features")
             app = node_app(env_name=env_name, node=node, expansions=expansions)
             if node.get("node_notes_raw") is None:
+                context = [FrameRef(path=os.path.join(directory, ref)).pil()
+                           for ref in context_frames(node=node, nodes=nodes, expansions=expansions)]
                 update.update(node_notes(env_description=env_description, frame=frame,
-                                         text_boxes=node.get("text_boxes") or [], app=app))
+                                         text_boxes=node.get("text_boxes") or [], app=app, context_frames=context))
                 added.append("node_notes")
             if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
                 exp_id, first, last = node["segment"]

@@ -2409,3 +2409,11 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   NO TASK. Gemma ignored it anyway (1,209 of 1,346 one-action segments on web random had a task), and most such
   tasks are legitimate (open a page, talk to someone, read a sign). GameBoy screen-relative tasks ("Talk to the
   person to your left") merged across nodes: left as is (user's call).
+- 2026-11-11 (annotation: context frames): the node-notes call now also sees the last 3 distinct screens before the
+  node (the expansion's earlier steps, preceded by the screen it started from; none for a root; frames are stored
+  once per distinct image, so repeats of the node's screen are dropped), and is told to describe only the last
+  screen and to write NO TASK when it is blank, loading or mid-transition (parse_node drops NO TASK). Not recorded in
+  annotations.json (user's call): the annotation check stays model and max_features only. Live check
+  (job 295384, Qwen3-VL-8B fp16, 10 nodes): the 3 darkest Red s3 nodes (black screen, player sprite) were described
+  as transitions with no tasks; ordinary battle and Web pages kept their tasks. Caveat: a genuinely dark place (a cave
+  without Flash) could look the same.

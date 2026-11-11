@@ -15,7 +15,7 @@ from cusi.search.features import screen_text
 
 NO_TASK = "NO TASK"
 
-NODE_PROMPT = """You are looking at a screen of {env_description}.{app_note}
+NODE_PROMPT = """You are looking at a screen of {env_description}.{app_note}{context_note}
 
 Text currently on the screen:
 {texts}
@@ -110,7 +110,8 @@ def parse_node(*, text: str) -> tuple:
     m = _DESCRIPTION_RE.search(text)
     description = " ".join(m.group(1).split()) if m else None
     t = _TASKS_RE.search(text)
-    return description or None, parse_bullets(block=t.group(1), max_chars=MAX_ITEM_CHARS) if t else []
+    tasks = parse_bullets(block=t.group(1), max_chars=MAX_ITEM_CHARS) if t else []
+    return description or None, [x for x in tasks if x.rstrip(".").upper() != NO_TASK]
 
 
 def parse_edge(*, text: str) -> tuple:
@@ -125,6 +126,16 @@ def parse_edge(*, text: str) -> tuple:
     return task or None, knowledge, bool(m)
 
 
+def context_note(*, n: int) -> str:
+    """The node prompt's note on the n screens shown before the one to describe, or nothing."""
+    if not n:
+        return ""
+    return (f" You are shown {n + 1} screenshots in the order they appeared: the last one is the screen to describe; "
+            f"the {n} before it are the screens just before it, for context only. If the last screen is blank, still "
+            f"loading, or caught in a transition (fading, half drawn), say so in the description and write {NO_TASK} "
+            f"as the only task.")
+
+
 def app_note(*, app: str, where: str) -> str:
     """A sentence naming the app on a screen, or nothing."""
     return f' {where} is in the {app} app: call it "{app}" when a task names the app.' if app else ""
@@ -136,12 +147,16 @@ class NodeNotes:
         self.vlm, self.task_examples = vlm, task_examples
         self.max_new_tokens, self.temperature = max_new_tokens, temperature
 
-    def __call__(self, *, env_description: str, frame, text_boxes: list, app: str = None) -> dict:
+    def __call__(self, *, env_description: str, frame, text_boxes: list, app: str = None,
+                 context_frames: list = None) -> dict:
         """{"screen_description", "node_tasks", "node_notes_raw"}; frame is the node's unlabelled screen (PIL); app:
-        the app on it (Android), named in the prompt so tasks name it."""
+        the app on it (Android), named in the prompt so tasks name it; context_frames: the screens just before it
+        (PIL, oldest first), shown first so a blank, loading or half-drawn screen is recognised as one."""
+        context_frames = list(context_frames or [])
         prompt = NODE_PROMPT.format(env_description=env_description, texts=screen_text(boxes=text_boxes),
-                                    task_examples=self.task_examples, app_note=app_note(app=app, where="This screen"))
-        out = str(self.vlm.infer(texts=prompt, images=[frame], max_new_tokens=self.max_new_tokens,
+                                    task_examples=self.task_examples, app_note=app_note(app=app, where="This screen"),
+                                    context_note=context_note(n=len(context_frames)))
+        out = str(self.vlm.infer(texts=prompt, images=context_frames + [frame], max_new_tokens=self.max_new_tokens,
                                  temperature=self.temperature)["output"])
         description, tasks = parse_node(text=out)
         return {"screen_description": description, "node_tasks": tasks, "node_notes_raw": out}
