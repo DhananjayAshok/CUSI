@@ -2254,3 +2254,7 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   Google Flights, Wolfram Alpha; the 5 bot-blocked sites are out); Android 48/13/25 + 30. Base success train / val /
   test: Red 0.44/0.39/0.40, Android 0.70/0.69/0.69. No version or drift check by choice: the benchmarks are assumed
   fixed. Plan for using it: plans/user_sandbox_plan.md.
+- 2026-11-11 (benchmark data): `python -m gameboy_worlds.setup_data pull` for legend_of_zelda_links_awakening (153
+  files), pokemon_crystal (129), legend_of_zelda_the_oracle_of_seasons (115). Before it, only Red had been pulled after
+  the 37b80e3 update, and the other three games failed at env start on missing capture files (e.g.
+  sword_pickedupinit.npy, lost_battle.npy). After it, one task per game starts and steps.
