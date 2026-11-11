@@ -1,0 +1,2982 @@
+{
+ "gb.pokemon_red.000": {
+  "split": "train",
+  "text": "Enter the Pokemon Center"
+ },
+ "gb.pokemon_red.004": {
+  "split": "train",
+  "text": "Read the sign below you"
+ },
+ "gb.pokemon_red.010": {
+  "split": "train",
+  "text": "Open the Map"
+ },
+ "gb.pokemon_red.016": {
+  "split": "train",
+  "text": "Open the map on the wall"
+ },
+ "gb.pokemon_red.017": {
+  "split": "train",
+  "text": "Defeat Blue"
+ },
+ "gb.pokemon_red.019": {
+  "split": "train",
+  "text": "Get onto the water"
+ },
+ "gb.pokemon_red.023": {
+  "split": "train",
+  "text": "Read the letter"
+ },
+ "gb.pokemon_red.024": {
+  "split": "train",
+  "text": "Challenge the Elite Four"
+ },
+ "gb.pokemon_red.026": {
+  "split": "train",
+  "text": "Look into the binoculars above"
+ },
+ "gb.pokemon_red.027": {
+  "split": "train",
+  "text": "Speak to Pikachu"
+ },
+ "gb.pokemon_red.028": {
+  "split": "train",
+  "text": "Exit the building"
+ },
+ "gb.pokemon_red.029": {
+  "split": "train",
+  "text": "Go through the backdoor of the house that was robbed"
+ },
+ "gb.pokemon_red.030": {
+  "split": "train",
+  "text": "Leave Mewtwo in daycare"
+ },
+ "gb.pokemon_red.031": {
+  "split": "train",
+  "text": "Read about Saffron City"
+ },
+ "gb.pokemon_red.032": {
+  "split": "train",
+  "text": "Play the game above"
+ },
+ "gb.pokemon_red.033": {
+  "split": "train",
+  "text": "Toss an Ultra Ball"
+ },
+ "gb.pokemon_red.034": {
+  "split": "train",
+  "text": "Exit Seafoam Islands"
+ },
+ "gb.pokemon_red.036": {
+  "split": "train",
+  "text": "Withdraw Staryu from the box"
+ },
+ "gb.pokemon_red.038": {
+  "split": "train",
+  "text": "Poison Pidgeotto"
+ },
+ "gb.pokemon_red.039": {
+  "split": "train",
+  "text": "Switch to your weakest Pokemon"
+ },
+ "gb.pokemon_red.041": {
+  "split": "train",
+  "text": "Catch a Goldeen"
+ },
+ "gb.pokemon_red.042": {
+  "split": "train",
+  "text": "Try to teach Staryu Toxic"
+ },
+ "gb.pokemon_red.043": {
+  "split": "train",
+  "text": "Play the PokeFlute"
+ },
+ "gb.pokemon_red.044": {
+  "split": "train",
+  "text": "Open Squirtle's Pokedex page"
+ },
+ "gb.pokemon_red.045": {
+  "split": "train",
+  "text": "Open Blastoise's status page"
+ },
+ "gb.pokemon_red.046": {
+  "split": "train",
+  "text": "Open Charizard's move list"
+ },
+ "gb.pokemon_red.048": {
+  "split": "train",
+  "text": "Reach the gym leader"
+ },
+ "gb.pokemon_red.049": {
+  "split": "train",
+  "text": "Read the blackboard in the school nearby"
+ },
+ "gb.pokemon_red.001": {
+  "split": "val",
+  "text": "Exit the cave using the exit on the bottom right"
+ },
+ "gb.pokemon_red.007": {
+  "split": "val",
+  "text": "Defeat Trainer Lass"
+ },
+ "gb.pokemon_red.008": {
+  "split": "val",
+  "text": "Catch Pidgey"
+ },
+ "gb.pokemon_red.011": {
+  "split": "val",
+  "text": "Use a Potion on Charmander"
+ },
+ "gb.pokemon_red.022": {
+  "split": "val",
+  "text": "Get Mew's nickname rated"
+ },
+ "gb.pokemon_red.037": {
+  "split": "val",
+  "text": "Read the sign"
+ },
+ "gb.pokemon_red.047": {
+  "split": "val",
+  "text": "Speak to the gym leader"
+ },
+ "gb.pokemon_red.002": {
+  "split": "test",
+  "text": "Speak to Bill"
+ },
+ "gb.pokemon_red.003": {
+  "split": "test",
+  "text": "Pick up the item"
+ },
+ "gb.pokemon_red.005": {
+  "split": "test",
+  "text": "Speak to the aide inside the gym"
+ },
+ "gb.pokemon_red.006": {
+  "split": "test",
+  "text": "Defeat Gym Leader Brock"
+ },
+ "gb.pokemon_red.009": {
+  "split": "test",
+  "text": "Catch Pikachu"
+ },
+ "gb.pokemon_red.012": {
+  "split": "test",
+  "text": "Buy a Potion"
+ },
+ "gb.pokemon_red.013": {
+  "split": "test",
+  "text": "Use a not very effective attack on seaking"
+ },
+ "gb.pokemon_red.014": {
+  "split": "test",
+  "text": "Try to purchase a bike"
+ },
+ "gb.pokemon_red.015": {
+  "split": "test",
+  "text": "Discover the secret of the volcanobadge"
+ },
+ "gb.pokemon_red.018": {
+  "split": "test",
+  "text": "Click a secret switch"
+ },
+ "gb.pokemon_red.020": {
+  "split": "test",
+  "text": "Sell exactly 1 Psychic TM"
+ },
+ "gb.pokemon_red.021": {
+  "split": "test",
+  "text": "Encounter a ghost"
+ },
+ "gb.pokemon_red.025": {
+  "split": "test",
+  "text": "Use the Super Rod properly"
+ },
+ "gb.pokemon_red.035": {
+  "split": "test",
+  "text": "Get to Pallet Town without using Surf"
+ },
+ "gb.pokemon_red.040": {
+  "split": "test",
+  "text": "Catch Pidgey"
+ },
+ "gb.legend_of_zelda_links_awakening.002": {
+  "split": "train",
+  "text": "pick up the sword from the shore"
+ },
+ "gb.legend_of_zelda_links_awakening.003": {
+  "split": "train",
+  "text": "open inventory by pressing enter"
+ },
+ "gb.legend_of_zelda_links_awakening.004": {
+  "split": "train",
+  "text": "open inventory by pressing enter and remove sword"
+ },
+ "gb.legend_of_zelda_links_awakening.010": {
+  "split": "train",
+  "text": "make a call"
+ },
+ "gb.legend_of_zelda_links_awakening.012": {
+  "split": "train",
+  "text": "go inside the tunnel"
+ },
+ "gb.legend_of_zelda_links_awakening.018": {
+  "split": "train",
+  "text": "make another call from the chest shop"
+ },
+ "gb.legend_of_zelda_links_awakening.019": {
+  "split": "train",
+  "text": "go inside the skeleton house"
+ },
+ "gb.legend_of_zelda_links_awakening.021": {
+  "split": "train",
+  "text": "talk to diamond kid"
+ },
+ "gb.legend_of_zelda_links_awakening.022": {
+  "split": "train",
+  "text": "go inside the 2 door house"
+ },
+ "gb.legend_of_zelda_links_awakening.023": {
+  "split": "train",
+  "text": "go inside the pot room"
+ },
+ "gb.legend_of_zelda_links_awakening.024": {
+  "split": "train",
+  "text": "go near sign"
+ },
+ "gb.legend_of_zelda_links_awakening.025": {
+  "split": "train",
+  "text": "go in the water"
+ },
+ "gb.legend_of_zelda_links_awakening.027": {
+  "split": "train",
+  "text": "go inside the weird tunnel"
+ },
+ "gb.legend_of_zelda_links_awakening.028": {
+  "split": "train",
+  "text": "talk to witch"
+ },
+ "gb.legend_of_zelda_links_awakening.029": {
+  "split": "train",
+  "text": "keep going right until the screen changes completely"
+ },
+ "gb.legend_of_zelda_links_awakening.030": {
+  "split": "train",
+  "text": "go near calling booth"
+ },
+ "gb.legend_of_zelda_links_awakening.031": {
+  "split": "train",
+  "text": "go left to see the grandma then cross the boundary and go to the well"
+ },
+ "gb.legend_of_zelda_links_awakening.032": {
+  "split": "train",
+  "text": "get off the carpet"
+ },
+ "gb.legend_of_zelda_links_awakening.033": {
+  "split": "train",
+  "text": "get off the track"
+ },
+ "gb.legend_of_zelda_links_awakening.034": {
+  "split": "train",
+  "text": "leave the house"
+ },
+ "gb.legend_of_zelda_links_awakening.037": {
+  "split": "train",
+  "text": "climb the stairs"
+ },
+ "gb.legend_of_zelda_links_awakening.040": {
+  "split": "train",
+  "text": "head to the grass"
+ },
+ "gb.legend_of_zelda_links_awakening.041": {
+  "split": "train",
+  "text": "head to the grass 2"
+ },
+ "gb.legend_of_zelda_links_awakening.042": {
+  "split": "train",
+  "text": "keep going right then go down near the signboard"
+ },
+ "gb.legend_of_zelda_links_awakening.045": {
+  "split": "train",
+  "text": "jump2"
+ },
+ "gb.legend_of_zelda_links_awakening.046": {
+  "split": "train",
+  "text": "stay there and get hurt by the monster"
+ },
+ "gb.legend_of_zelda_links_awakening.049": {
+  "split": "train",
+  "text": "read sign board near the potholes"
+ },
+ "gb.legend_of_zelda_links_awakening.000": {
+  "split": "val",
+  "text": "The character is stuck behind the bed inside the initial spawning room and it has to get out of that room"
+ },
+ "gb.legend_of_zelda_links_awakening.005": {
+  "split": "val",
+  "text": "equip the sword"
+ },
+ "gb.legend_of_zelda_links_awakening.013": {
+  "split": "val",
+  "text": "in dark forest and kill all the bats to acquire money from the chest"
+ },
+ "gb.legend_of_zelda_links_awakening.014": {
+  "split": "val",
+  "text": "take the heart"
+ },
+ "gb.legend_of_zelda_links_awakening.038": {
+  "split": "val",
+  "text": "push the heavy stone"
+ },
+ "gb.legend_of_zelda_links_awakening.039": {
+  "split": "val",
+  "text": "finish dialogue"
+ },
+ "gb.legend_of_zelda_links_awakening.043": {
+  "split": "val",
+  "text": "finish dialogue"
+ },
+ "gb.legend_of_zelda_links_awakening.047": {
+  "split": "val",
+  "text": "keep going down until you see the chicken"
+ },
+ "gb.legend_of_zelda_links_awakening.001": {
+  "split": "test",
+  "text": "talk to tarin inside the spawn house to get the shield"
+ },
+ "gb.legend_of_zelda_links_awakening.006": {
+  "split": "test",
+  "text": "talk to kids outside the library"
+ },
+ "gb.legend_of_zelda_links_awakening.007": {
+  "split": "test",
+  "text": "talk to the statue"
+ },
+ "gb.legend_of_zelda_links_awakening.008": {
+  "split": "test",
+  "text": "read the sign board"
+ },
+ "gb.legend_of_zelda_links_awakening.009": {
+  "split": "test",
+  "text": "go inside the shop"
+ },
+ "gb.legend_of_zelda_links_awakening.011": {
+  "split": "test",
+  "text": "go inside the dark forest by chopping bushes"
+ },
+ "gb.legend_of_zelda_links_awakening.015": {
+  "split": "test",
+  "text": "take the shroom"
+ },
+ "gb.legend_of_zelda_links_awakening.016": {
+  "split": "test",
+  "text": "swap shroom with sword"
+ },
+ "gb.legend_of_zelda_links_awakening.017": {
+  "split": "test",
+  "text": "swap shroom with shield"
+ },
+ "gb.legend_of_zelda_links_awakening.020": {
+  "split": "test",
+  "text": "go underground"
+ },
+ "gb.legend_of_zelda_links_awakening.026": {
+  "split": "test",
+  "text": "go and see the pond"
+ },
+ "gb.legend_of_zelda_links_awakening.035": {
+  "split": "test",
+  "text": "go up and take a right from the chicken house to see overgrown grass"
+ },
+ "gb.legend_of_zelda_links_awakening.036": {
+  "split": "test",
+  "text": "go left see the blue house and then go up to the fan house"
+ },
+ "gb.legend_of_zelda_links_awakening.044": {
+  "split": "test",
+  "text": "jump"
+ },
+ "gb.legend_of_zelda_links_awakening.048": {
+  "split": "test",
+  "text": "visit the signboard and then go up"
+ },
+ "gb.pokemon_crystal.000": {
+  "split": "test_env",
+  "text": "Enter the Cherrygrove Pokemon Center"
+ },
+ "gb.pokemon_crystal.001": {
+  "split": "test_env",
+  "text": "Watch TV"
+ },
+ "gb.pokemon_crystal.002": {
+  "split": "test_env",
+  "text": "Look into the mirror"
+ },
+ "gb.pokemon_crystal.003": {
+  "split": "test_env",
+  "text": "Talk to the child"
+ },
+ "gb.pokemon_crystal.004": {
+  "split": "test_env",
+  "text": "Obtain a berry"
+ },
+ "gb.pokemon_crystal.005": {
+  "split": "test_env",
+  "text": "Take Dragonair's item back"
+ },
+ "gb.pokemon_crystal.006": {
+  "split": "test_env",
+  "text": "Make Pidgeot hold a Cleanse Tag"
+ },
+ "gb.pokemon_crystal.007": {
+  "split": "test_env",
+  "text": "Open Typhlosion's Pokedex entry"
+ },
+ "gb.pokemon_crystal.008": {
+  "split": "test_env",
+  "text": "Exit the cave"
+ },
+ "gb.pokemon_crystal.009": {
+  "split": "test_env",
+  "text": "Fish until you catch a Pokemon"
+ },
+ "gb.pokemon_crystal.010": {
+  "split": "test_env",
+  "text": "Read Elm's computer"
+ },
+ "gb.pokemon_crystal.011": {
+  "split": "test_env",
+  "text": "Talk to Prof. Elm's aide"
+ },
+ "gb.pokemon_crystal.012": {
+  "split": "test_env",
+  "text": "Immediately escape the tower"
+ },
+ "gb.pokemon_crystal.013": {
+  "split": "test_env",
+  "text": "Talk to the gym leader ahead"
+ },
+ "gb.pokemon_crystal.014": {
+  "split": "test_env",
+  "text": "Buy one Antidote"
+ },
+ "gb.pokemon_crystal.015": {
+  "split": "test_env",
+  "text": "Sell one Revive"
+ },
+ "gb.pokemon_crystal.016": {
+  "split": "test_env",
+  "text": "Teach Pidgeot Toxic"
+ },
+ "gb.pokemon_crystal.017": {
+  "split": "test_env",
+  "text": "Get the boy's phone number"
+ },
+ "gb.pokemon_crystal.018": {
+  "split": "test_env",
+  "text": "Interact with a tree that can be cut"
+ },
+ "gb.pokemon_crystal.019": {
+  "split": "test_env",
+  "text": "Pick up the item"
+ },
+ "gb.pokemon_crystal.020": {
+  "split": "test_env",
+  "text": "Read the book"
+ },
+ "gb.pokemon_crystal.021": {
+  "split": "test_env",
+  "text": "Speak to the gym leader ahead"
+ },
+ "gb.pokemon_crystal.022": {
+  "split": "test_env",
+  "text": "Enter the burned tower"
+ },
+ "gb.pokemon_crystal.023": {
+  "split": "test_env",
+  "text": "Refuse to give the Miltank a berry"
+ },
+ "gb.pokemon_crystal.024": {
+  "split": "test_env",
+  "text": "Get a fishing rod"
+ },
+ "gb.pokemon_crystal.025": {
+  "split": "test_env",
+  "text": "Enter the lighthouse"
+ },
+ "gb.pokemon_crystal.026": {
+  "split": "test_env",
+  "text": "Talk to the red haired girl"
+ },
+ "gb.pokemon_crystal.027": {
+  "split": "test_env",
+  "text": "Make Pidgeot forget Gust"
+ },
+ "gb.pokemon_crystal.028": {
+  "split": "test_env",
+  "text": "Exit via the ice path below"
+ },
+ "gb.pokemon_crystal.029": {
+  "split": "test_env",
+  "text": "Reach the other side of the ice maze"
+ },
+ "gb.pokemon_crystal.030": {
+  "split": "test_env",
+  "text": "Defeat Golbat with a super effective attack"
+ },
+ "gb.pokemon_crystal.031": {
+  "split": "test_env",
+  "text": "Catch Delibird"
+ },
+ "gb.pokemon_crystal.032": {
+  "split": "test_env",
+  "text": "Encounter a Tangela"
+ },
+ "gb.pokemon_crystal.033": {
+  "split": "test_env",
+  "text": "Talk to a Slowpoke"
+ },
+ "gb.pokemon_crystal.034": {
+  "split": "test_env",
+  "text": "Get some charcoal from the kiln"
+ },
+ "gb.pokemon_crystal.035": {
+  "split": "test_env",
+  "text": "Speak to the gym leader"
+ },
+ "gb.pokemon_crystal.036": {
+  "split": "test_env",
+  "text": "Get a Fast Ball from Kurt"
+ },
+ "gb.pokemon_crystal.037": {
+  "split": "test_env",
+  "text": "Commission Kurt to make a Poke Ball for you"
+ },
+ "gb.pokemon_crystal.038": {
+  "split": "test_env",
+  "text": "Try to fly out of the forest"
+ },
+ "gb.pokemon_crystal.039": {
+  "split": "test_env",
+  "text": "Headbutt a tree"
+ },
+ "gb.pokemon_crystal.040": {
+  "split": "test_env",
+  "text": "Take a picture of Suicune"
+ },
+ "gb.pokemon_crystal.041": {
+  "split": "test_env",
+  "text": "Surf onto the water"
+ },
+ "gb.pokemon_crystal.042": {
+  "split": "test_env",
+  "text": "Visit the Poke Seer and ask her about Alakazam"
+ },
+ "gb.pokemon_crystal.043": {
+  "split": "test_env",
+  "text": "Open your mailbox through the PC"
+ },
+ "gb.pokemon_crystal.044": {
+  "split": "test_env",
+  "text": "Call your mom"
+ },
+ "gb.pokemon_crystal.045": {
+  "split": "test_env",
+  "text": "Catch Ponyta"
+ },
+ "gb.pokemon_crystal.046": {
+  "split": "test_env",
+  "text": "Light up Silver Cave"
+ },
+ "gb.pokemon_crystal.047": {
+  "split": "test_env",
+  "text": "Get an explanation for the Battle Tower"
+ },
+ "gb.pokemon_crystal.048": {
+  "split": "test_env",
+  "text": "Defeat Will"
+ },
+ "gb.pokemon_crystal.049": {
+  "split": "test_env",
+  "text": "Defeat Koga"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.000": {
+  "split": "test_env",
+  "text": "go near the crowd"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.001": {
+  "split": "test_env",
+  "text": "talk to the girl after start"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.002": {
+  "split": "test_env",
+  "text": "jump from flowers"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.003": {
+  "split": "test_env",
+  "text": "talk to farmer"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.004": {
+  "split": "test_env",
+  "text": "go inside the library"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.005": {
+  "split": "test_env",
+  "text": "go inside the library and talk to parrot"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.006": {
+  "split": "test_env",
+  "text": "fall from the bridge"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.007": {
+  "split": "test_env",
+  "text": "hang out and watch the water"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.008": {
+  "split": "test_env",
+  "text": "read the signboard outside horror villlage"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.009": {
+  "split": "test_env",
+  "text": "go inside the shop"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.010": {
+  "split": "test_env",
+  "text": "talk to the shop person"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.011": {
+  "split": "test_env",
+  "text": "go to the girl house"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.012": {
+  "split": "test_env",
+  "text": "go to the girl house and move pots"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.013": {
+  "split": "test_env",
+  "text": "go inside the old man's tunnel"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.014": {
+  "split": "test_env",
+  "text": "talk to the artist"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.015": {
+  "split": "test_env",
+  "text": "go to the chicken house"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.016": {
+  "split": "test_env",
+  "text": "traverse the jiggly part and keep moving forward"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.017": {
+  "split": "test_env",
+  "text": "talk to the fairy"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.018": {
+  "split": "test_env",
+  "text": "open the gate by interacting with the block and then get in the top gate"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.019": {
+  "split": "test_env",
+  "text": "open inventory"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.020": {
+  "split": "test_env",
+  "text": "read signboard outside clock tower"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.021": {
+  "split": "test_env",
+  "text": "climb stairs"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.022": {
+  "split": "test_env",
+  "text": "go to girl's house and talk to her"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.023": {
+  "split": "test_env",
+  "text": "go see the ginger root at the platform"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.024": {
+  "split": "test_env",
+  "text": "go to the pier"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.025": {
+  "split": "test_env",
+  "text": "visit cat"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.026": {
+  "split": "test_env",
+  "text": "say meow"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.027": {
+  "split": "test_env",
+  "text": "talk to owner"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.028": {
+  "split": "test_env",
+  "text": "walk the bridge"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.029": {
+  "split": "test_env",
+  "text": "go see the dog"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.030": {
+  "split": "test_env",
+  "text": "go left and see the dog"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.031": {
+  "split": "test_env",
+  "text": "step off the grass"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.032": {
+  "split": "test_env",
+  "text": "avoid the building and see the shop"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.033": {
+  "split": "test_env",
+  "text": "go up inside the clock tower and see the clocks then get out and visit mickey on the left"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.034": {
+  "split": "test_env",
+  "text": "go right to see the arcade"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.035": {
+  "split": "test_env",
+  "text": "go inside joystick house"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.036": {
+  "split": "test_env",
+  "text": "go near red snake"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.037": {
+  "split": "test_env",
+  "text": "go near blue snake"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.038": {
+  "split": "test_env",
+  "text": "red snake talk"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.039": {
+  "split": "test_env",
+  "text": "blue snake talk"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.040": {
+  "split": "test_env",
+  "text": "go read the blue book"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.041": {
+  "split": "test_env",
+  "text": "go read the red book"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.042": {
+  "split": "test_env",
+  "text": "go to the lava floor"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.043": {
+  "split": "test_env",
+  "text": "go off track then go down"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.044": {
+  "split": "test_env",
+  "text": "go left into the gloomy place"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.045": {
+  "split": "test_env",
+  "text": "stay still and get hurt"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.046": {
+  "split": "test_env",
+  "text": "get off green carpet"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.047": {
+  "split": "test_env",
+  "text": "go up to see the trunk and then take the path to the right of the trunk"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.048": {
+  "split": "test_env",
+  "text": "go down near holes"
+ },
+ "gb.legend_of_zelda_the_oracle_of_seasons.049": {
+  "split": "test_env",
+  "text": "go left to see the bush near the bridge"
+ },
+ "web.Apple--0": {
+  "split": "train",
+  "text": "Compare the prices of the latest models of MacBook Air available on Apple's website."
+ },
+ "web.Apple--1": {
+  "split": "train",
+  "text": "Research the new features of the iOS 17 on Apple support and check its compatibility with the iPhone 12."
+ },
+ "web.Apple--11": {
+  "split": "train",
+  "text": "Get information about the latest iPad model released by Apple, including its release date, base storage capacity, and starting price available on Apple's official website."
+ },
+ "web.Apple--12": {
+  "split": "train",
+  "text": "What Apple Repair ways are mentioned on apple website, answer 2 of them."
+ },
+ "web.Apple--13": {
+  "split": "train",
+  "text": "How many colors does the latest MacBook Air come in?"
+ },
+ "web.Apple--14": {
+  "split": "train",
+  "text": "Identify the upgrade options available for the cheapest base model of the MacBook Pro 14-inch with M3 chip, and calculate the total price difference from the base model to the maximum upgrade (no Pre-Installed Software) offered by Apple."
+ },
+ "web.Apple--16": {
+  "split": "train",
+  "text": "Find on Apple website how many types of AirPods (3rd generation) are available and what is the price difference."
+ },
+ "web.Apple--17": {
+  "split": "train",
+  "text": "Search Apple for the accessory Smart Folio for iPad and check the closest pickup availability next to zip code 90038."
+ },
+ "web.Apple--19": {
+  "split": "train",
+  "text": "On Apple's website, what is the slogan for the Mac and what is the slogan for the Macbook pro."
+ },
+ "web.Apple--20": {
+  "split": "train",
+  "text": "Check the price for an Apple iPhone 14 Plus with 256GB storage in Purple color."
+ },
+ "web.Apple--21": {
+  "split": "train",
+  "text": "Identify the available storage options for the latest iPad Pro on the Apple website."
+ },
+ "web.Apple--22": {
+  "split": "train",
+  "text": "Find out the trade-in value for an iPhone 13 Pro Max in good condition on the Apple website."
+ },
+ "web.Apple--23": {
+  "split": "train",
+  "text": "Determine the price difference between the latest series of Apple Watch and Apple Watch SE on the Apple website."
+ },
+ "web.Apple--24": {
+  "split": "train",
+  "text": "Find out the starting price for the most recent model of the iMac on the Apple website."
+ },
+ "web.Apple--25": {
+  "split": "train",
+  "text": "On the Apple website, look up the processor for the latest model of the Apple TV."
+ },
+ "web.Apple--26": {
+  "split": "train",
+  "text": "Find the maximum video recording resolution supported by the latest iPad mini on the Apple website."
+ },
+ "web.Apple--27": {
+  "split": "train",
+  "text": "On Apple's website, check if the HomePod mini in store is available in multiple colors and list them."
+ },
+ "web.Apple--28": {
+  "split": "train",
+  "text": "On the Apple website, find out if the Mac Mini can be configured with a GPU larger than 16-core."
+ },
+ "web.Apple--29": {
+  "split": "train",
+  "text": "On Apple's website, check the estimated battery life of the latest MacBook Air during web browsing in Tech Specs."
+ },
+ "web.Apple--31": {
+  "split": "train",
+  "text": "On Apple's website, what is the slogan for the latest Apple Watch Series."
+ },
+ "web.Apple--32": {
+  "split": "train",
+  "text": "Investigate the trade-in value for an iPhone 11 Pro Max on Apple's website."
+ },
+ "web.Apple--34": {
+  "split": "train",
+  "text": "Identify the size and weight for the Apple TV 4K and list the Siri Remote features introduced."
+ },
+ "web.Apple--38": {
+  "split": "train",
+  "text": "Explore accessories for Apple Vision Pro, list at least three accessories."
+ },
+ "web.Apple--4": {
+  "split": "train",
+  "text": "How much does it cost to buy a Macbook pro, 16-inch, Apple M3 Max chip with 16-core CPU, 40-core GPU, 64GB unified memory, 1TB SSD."
+ },
+ "web.Apple--40": {
+  "split": "train",
+  "text": "Find information on Apple website, and tell me the device weight of Apple Vision Pro and list 5 Built-in Apps it supports."
+ },
+ "web.Apple--41": {
+  "split": "train",
+  "text": "How much does it cost to buy an ipad mini with 64GB storage and Wi-Fi + Cellular connectivity? (no engraving, no apple pencil, no smart folio, no apple trade-in)."
+ },
+ "web.Apple--42": {
+  "split": "train",
+  "text": "Find updates for Apple Watch Series 7,8,9 on Apple's website."
+ },
+ "web.Apple--5": {
+  "split": "train",
+  "text": "Check the release date and price for the latest version of the iPhone."
+ },
+ "web.Apple--7": {
+  "split": "train",
+  "text": "When and where the Apple Vision Pro will be released."
+ },
+ "web.Apple--9": {
+  "split": "train",
+  "text": "Check the Apple Store for the availability of the latest iPhone model and schedule an in-store pickup at the nearest Apple Store for January 10, 2024."
+ },
+ "web.ArXiv--0": {
+  "split": "train",
+  "text": "Search for the latest preprints about 'quantum computing'."
+ },
+ "web.ArXiv--10": {
+  "split": "train",
+  "text": "Visit ArXiv Help on how to withdraw an article if the submission is not yet announced."
+ },
+ "web.ArXiv--11": {
+  "split": "train",
+  "text": "For Non-English submissions, do I need to provide a multi-language abstract, if need, answer the separator between the multiple abstracts."
+ },
+ "web.ArXiv--13": {
+  "split": "train",
+  "text": "How many articles on ArXiv with 'SimCSE' in the title?"
+ },
+ "web.ArXiv--16": {
+  "split": "train",
+  "text": "Locate the latest research about gravitational waves that were uploaded to ArXiv this week and provide a brief summary of one article's main findings."
+ },
+ "web.ArXiv--19": {
+  "split": "train",
+  "text": "Which university maintains and manages ArXiv. Accessing the university's website from ArXiv, how many underegraduate students are currently at the university."
+ },
+ "web.ArXiv--2": {
+  "split": "train",
+  "text": "Look up the most recent papers related to 'cs.CL', select one and show its abstract."
+ },
+ "web.ArXiv--20": {
+  "split": "train",
+  "text": "Find the latest paper on 'machine learning in the Statistics section of ArXiv and provide its abstract."
+ },
+ "web.ArXiv--21": {
+  "split": "train",
+  "text": "Search for papers on 'neural networks for image processing' in the Computer Science category on ArXiv and report how many were submitted in the last week."
+ },
+ "web.ArXiv--23": {
+  "split": "train",
+  "text": "Determine how many articles with the keyword 'autonomous vehicles' were published in the 'Electrical Engineering and Systems Science' section of ArXiv yesterday."
+ },
+ "web.ArXiv--24": {
+  "split": "train",
+  "text": "Identify the most recent paper related to 'graph neural networks' on ArXiv and determine the affiliation of the first author."
+ },
+ "web.ArXiv--26": {
+  "split": "train",
+  "text": "Search for papers related to 'climate change modeling' on ArXiv and find out how many have been published in the Earth and Planetary Astrophysics (astro-ph.EP) category in the last week."
+ },
+ "web.ArXiv--27": {
+  "split": "train",
+  "text": "On ArXiv, what categories does Economics include, and what are their abbreviations?"
+ },
+ "web.ArXiv--30": {
+  "split": "train",
+  "text": "Look up the submission guidelines on ArXiv for submitting a paper and tell me the formats for figures."
+ },
+ "web.ArXiv--31": {
+  "split": "train",
+  "text": "Search ArXiv for papers with 'Graph Neural Networks' in the abstract that were submitted between Jan 1, 2024, and Jan 3, 2024, and determine how many of these papers have more than five authors."
+ },
+ "web.ArXiv--32": {
+  "split": "train",
+  "text": "Locate the latest paper on ArXiv within the 'Nonlinear Sciences - Chaotic Dynamics' category, summarize the abstract and note the submission date."
+ },
+ "web.ArXiv--33": {
+  "split": "train",
+  "text": "Query ArXiv for the latest research article in the category of Systems and Control under Computer Science. Summarize the main objective or hypothesis presented in the paper and provide the names of the authors."
+ },
+ "web.ArXiv--34": {
+  "split": "train",
+  "text": "Search for the most recent paper related to non-commutative geometry submitted by an author with the first name John. Provide the title and the abstract."
+ },
+ "web.ArXiv--37": {
+  "split": "train",
+  "text": "Find the names of people in ArXiv's Leadership Team."
+ },
+ "web.ArXiv--4": {
+  "split": "train",
+  "text": "Find the most recent research papers in Astrophysics of Galaxies. How many papers have been announced in the last day?"
+ },
+ "web.ArXiv--5": {
+  "split": "train",
+  "text": "Search papers about \"quantum computing\" which has been submitted to the Quantum Physics category on ArXiv. How many results in total. What if search in all archives?"
+ },
+ "web.ArXiv--6": {
+  "split": "train",
+  "text": "How many figures and tables are in the paper \"On the Sentence Embeddings from Pre-trained Language Models\"?"
+ },
+ "web.ArXiv--9": {
+  "split": "train",
+  "text": "Find the latest research paper about neural networks published on ArXiv which has been submitted within the last week."
+ },
+ "web.Booking--0": {
+  "split": "train",
+  "text": "Find a Mexico hotel with deals for December 25-26."
+ },
+ "web.Booking--1": {
+  "split": "train",
+  "text": "Find the cheapest available hotel room for a three night stay from 1st Jan in Jakarta. The room is for 2 adults, just answer the cheapest hotel room and the price."
+ },
+ "web.Booking--10": {
+  "split": "train",
+  "text": "Find a well-reviewed hotel in Paris with available bookings suitable for a couple (2 adults) on Valentine's Day week, February 14-21, 2024, that offers free cancellation options."
+ },
+ "web.Booking--12": {
+  "split": "train",
+  "text": "Find a hotel in Paris with a customer review score of 8 or higher, free Wi-Fi, and available for a 5-night stay starting on January 5th, 2024."
+ },
+ "web.Booking--13": {
+  "split": "train",
+  "text": "Find and book a hotel in Paris with suitable accommodations for a family of four (two adults and two children) offering free cancellation for the dates of February 14-21, 2024."
+ },
+ "web.Booking--14": {
+  "split": "train",
+  "text": "Book a highly-rated hotel with a swimming pool and free WiFi near the Louvre Museum in Paris for the weekend of March 3-5, 2024."
+ },
+ "web.Booking--15": {
+  "split": "train",
+  "text": "Find the highest-rated luxury hotel in Rome available for booking from January 10, 2024, to January 20, 2024, for 2 adults. Include the cost, amenities offered, and customer rating."
+ },
+ "web.Booking--18": {
+  "split": "train",
+  "text": "Search a hotel in London with a user rating of 8 or higher for a stay between February 14th, 2024, and February 21st, 2024, suitable for a couple. Provide the name and a short description of the hotel."
+ },
+ "web.Booking--22": {
+  "split": "train",
+  "text": "Search for a hotel in Amsterdam with a customer review score of 9 or higher, offering bicycle rentals, for a week-long stay from March 15 to March 22, 2024, for two adults."
+ },
+ "web.Booking--24": {
+  "split": "train",
+  "text": "Find a hotel in Barcelona for a stay from February 25-28, 2024. Please sort the results by distance from the beach and make sure they offer free Wi-Fi and breakfast."
+ },
+ "web.Booking--25": {
+  "split": "train",
+  "text": "Search for a hotel in Lisbon with airport shuttle, rated 8.5 or above, available for a six-night stay from March 1 to March 7, 2024, for two adults, breakfast included."
+ },
+ "web.Booking--28": {
+  "split": "train",
+  "text": "Find a hotel in Dubai with a swimming pool, for a week-long stay from February 22 to February 29, 2024."
+ },
+ "web.Booking--29": {
+  "split": "train",
+  "text": "Search for a hotel in Toronto with a fitness center and a rating of 8+, available for a two-night stay from March 5 to March 7, 2024."
+ },
+ "web.Booking--3": {
+  "split": "train",
+  "text": "Find a hotel with 4 star and above rating in Los Angeles for 3 days from Dec 18th."
+ },
+ "web.Booking--30": {
+  "split": "train",
+  "text": "Search for hotels in London from March 20 to March 23, 2024, on Booking. How many hotels are left after applying the Breakfast included and Fitness center filters?"
+ },
+ "web.Booking--31": {
+  "split": "train",
+  "text": "Search for hotels in Rio de Janeiro from March 1-7, 2024, check the Brands filter to see which brand has the most hotels and which brand has the fewest."
+ },
+ "web.Booking--32": {
+  "split": "train",
+  "text": "Look for hotels in Sydney from February 24 to February 27, 2024, on Booking. Once the Swimming Pool and Airport Shuttle filters are applied, what is the total number of hotels available?"
+ },
+ "web.Booking--33": {
+  "split": "train",
+  "text": "Find the Customer Service on the Booking website, browse the questions about cancellation, and tell me 'how do I know whether my booking has been cancelled'."
+ },
+ "web.Booking--34": {
+  "split": "train",
+  "text": "Search for a hotel in Berlin available for a three-night stay from March 15 to March 18, 2024, for one adult. Tell me the price in USD and CNY for the three-night stay."
+ },
+ "web.Booking--36": {
+  "split": "train",
+  "text": "Search for a budget hotel in Rome under $100 per night for one adult from March 20 to March 23, 2024. Sort the results by price, identify if any of top three results offer breakfast."
+ },
+ "web.Booking--37": {
+  "split": "train",
+  "text": "Search for a resort (not hotel) in Bali, detailing the available dates between March 20, 2024, and March 25, 2024, and checking any provided tour or cultural experiences."
+ },
+ "web.Booking--39": {
+  "split": "train",
+  "text": "Find a pet-friendly hotel with parking available in downtown Toronto for the stay of February 24-26, 2024."
+ },
+ "web.Booking--42": {
+  "split": "train",
+  "text": "Search for a hotel in Hokkaido for the period March 1 to March 7, 2024, with a rating of 9+, check out its user reviews, which categories are greater than 9 and which are less than 9?"
+ },
+ "web.Booking--43": {
+  "split": "train",
+  "text": "Search for properties in Los Angeles, browse the results page to see what filters are available, list some of them."
+ },
+ "web.Booking--7": {
+  "split": "train",
+  "text": "Find a hotel room on January 3-6 that is closest to National University of Singapore and costs less than $500"
+ },
+ "web.Coursera--10": {
+  "split": "train",
+  "text": "Locate an introductory course related to artificial intelligence on Coursera, ensuring it's suitable for beginners and contains at least one module discussing Ethical Considerations."
+ },
+ "web.Coursera--11": {
+  "split": "train",
+  "text": "Search for a Specialization on Coursera about project management that is produced by a university, show a testimonial for this Specialization."
+ },
+ "web.Coursera--12": {
+  "split": "train",
+  "text": "Look for a Coursera course (not Specialization) that teaches Java programming basics."
+ },
+ "web.Coursera--13": {
+  "split": "train",
+  "text": "Look for a Specialization on Coursera that teaches Python programming, and identify the skills you will learn by taking this Specialization."
+ },
+ "web.Coursera--14": {
+  "split": "train",
+  "text": "Find a course on Coursera related to Introductory Project Management that includes modules on Agile methodology."
+ },
+ "web.Coursera--16": {
+  "split": "train",
+  "text": "Identify a course on Coursera named 'Introduction to Finance: The Basics', who is the course instructor and what other courses does he/she teach."
+ },
+ "web.Coursera--18": {
+  "split": "train",
+  "text": "Identify a Coursera course that teaches JavaScript, which is beginner-friendly and includes a certificate upon completion."
+ },
+ "web.Coursera--19": {
+  "split": "train",
+  "text": "Identify a course on Coursera that provides an introduction to Psychology, list the instructor's name, the institution offering it, and how many hours it will approximately take to complete."
+ },
+ "web.Coursera--20": {
+  "split": "train",
+  "text": "Find an Intermediate-level online course on Coursera about 'Blockchain Technology' which lasts between 1 to 4 weeks, and is provided by a well-known institution. Also, note the course's main goals and the instructor's name."
+ },
+ "web.Coursera--21": {
+  "split": "train",
+  "text": "Search for an online course on Coursera about 'Digital Marketing', suitable for beginner-level learners. Specify the course duration, the main learning outcomes, and the institution offering the course."
+ },
+ "web.Coursera--27": {
+  "split": "train",
+  "text": "Search for a Specialization on Coursera about 'Data Visualization' that includes a project. Provide the name of the Specialization, the institution offering it, and the skills that will be developed by completing it."
+ },
+ "web.Coursera--28": {
+  "split": "train",
+  "text": "Locate a Coursera Guided project related to 'Astrophysics' suitable for advanced learners. Mention the course duration, the institution offering it, and the main subjects covered in the course."
+ },
+ "web.Coursera--29": {
+  "split": "train",
+  "text": "Browse the Coursera website and find the price required for one year of Coursera Plus. How much is the discount? Then list 3 companies that work with Coursera."
+ },
+ "web.Coursera--3": {
+  "split": "train",
+  "text": "Identify a new course or Specialization on Coursera related to Python Data Science, sort the courses by newest, what the first course is and which institution offers it."
+ },
+ "web.Coursera--30": {
+  "split": "train",
+  "text": "Locate the course 'Modern Art & Ideas' on Coursera offered by The Museum of Modern Art. Find out the percentage (rounded) of 3-star ratings in the reviews and note which star level has the lowest percentage."
+ },
+ "web.Coursera--31": {
+  "split": "train",
+  "text": "Search for the course 'Exploring Quantum Physics' on Coursera, offered by the University of Maryland, College Park. Identify the percentage (rounded) of 5-star ratings in the reviews."
+ },
+ "web.Coursera--32": {
+  "split": "train",
+  "text": "Search for 'Data Analysis' courses on Coursera. Apply filters to find courses that are 'Beginner Level' and have a duration ranging from 1 to 3 months. Determine the total count of courses that match these specifications."
+ },
+ "web.Coursera--33": {
+  "split": "train",
+  "text": "Find a beginner level Coursera course related to \"Internet of Things (IoT)\" with a high rating. Provide the course name, instructor's name, and a brief summary of the skills that will be taught."
+ },
+ "web.Coursera--34": {
+  "split": "train",
+  "text": "Find the course on Coursera named 'Essentials of Global Health'. Determine the instructor of this course and summarize his bio, note if there are any additional courses he offers on Coursera."
+ },
+ "web.Coursera--36": {
+  "split": "train",
+  "text": "Browse Coursera, which universities offer Master of Advanced Study in Engineering degrees? Tell me what is the latest application deadline for this degree?"
+ },
+ "web.Coursera--37": {
+  "split": "train",
+  "text": "Browse the Coursera homepage and list at least three free courses."
+ },
+ "web.Coursera--41": {
+  "split": "train",
+  "text": "Browse online degrees section on Coursera and list 3 Bachelor's degree programmes."
+ },
+ "web.Coursera--5": {
+  "split": "train",
+  "text": "Identify a Specialization on Coursera that teaches C++ programming for beginners, provide the name and what the learning outcomes are."
+ },
+ "web.Coursera--6": {
+  "split": "train",
+  "text": "Identify a course on Coursera related to 'Artificial Intelligence for Healthcare' and note the course duration along with the number of quizzes in Assessments."
+ },
+ "web.Coursera--7": {
+  "split": "train",
+  "text": "Find a course on Coursera that teaches Reinforcement Learning for Intermediate with a rating of at least 4.5. Provide the name of the course, the institution offering it, and the number of reviews it has received."
+ },
+ "web.Coursera--8": {
+  "split": "train",
+  "text": "Find a free course related to 'R for Data Science' available on Coursera. Scroll to find a course with the Free tag. What language the course is taught in?"
+ },
+ "web.ESPN--0": {
+  "split": "train",
+  "text": "Look up the current standings for the NBA Eastern Conference on ESPN."
+ },
+ "web.ESPN--1": {
+  "split": "train",
+  "text": "Check the latest articles on ESPN for updates on any trades that occurred in the NBA within the past 2 days."
+ },
+ "web.ESPN--10": {
+  "split": "train",
+  "text": "Check ESPN for the score and a brief recap of the latest college football championship game."
+ },
+ "web.ESPN--11": {
+  "split": "train",
+  "text": "How many NBA teams are there and list all the teams with 'New' in their name."
+ },
+ "web.ESPN--12": {
+  "split": "train",
+  "text": "The first three Top Headlines in the current ESPN home page correspond to which sports leagues?"
+ },
+ "web.ESPN--13": {
+  "split": "train",
+  "text": "Identify today's top headline in the Basketball section of ESPN, and summarize the main points of that article."
+ },
+ "web.ESPN--15": {
+  "split": "train",
+  "text": "Check the scores of the NBA games played on December 25, 2023."
+ },
+ "web.ESPN--16": {
+  "split": "train",
+  "text": "Check the schedule for the NBA game on December 25, 2023, and provide the teams that are playing and their current standings in their respective conferences."
+ },
+ "web.ESPN--17": {
+  "split": "train",
+  "text": "Check out the NBA Basketball Power Index 2023-24 to see which teams are in first place and which are in last place."
+ },
+ "web.ESPN--18": {
+  "split": "train",
+  "text": "How many sports leagues can you choose from on the ESPN home page?"
+ },
+ "web.ESPN--25": {
+  "split": "train",
+  "text": "Identify the player with the most assists in the latest NBA game and show me the assists, the team they play for, and their position."
+ },
+ "web.ESPN--26": {
+  "split": "train",
+  "text": "Find information on ESPN NBA schedule. Tell me yesterday's matchups in which the loser high was higher than the winner high."
+ },
+ "web.ESPN--27": {
+  "split": "train",
+  "text": "Search on ESPN for how many teams have 'Golden' in their name and how many of them are in the NHL."
+ },
+ "web.ESPN--28": {
+  "split": "train",
+  "text": "How many MLB teams are there and list all the teams with 'City' in their name."
+ },
+ "web.ESPN--3": {
+  "split": "train",
+  "text": "Retrieve the final score from the most recent NBA game broadcast on ESPN, including the playing teams' names and the date of the match."
+ },
+ "web.ESPN--31": {
+  "split": "train",
+  "text": "Who has the heaviest weight among infielders in the New York Yankees Roster 2023-24?"
+ },
+ "web.ESPN--33": {
+  "split": "train",
+  "text": "Locate the latest ESPN articles discussing potential MVP candidates in the NFL for 2023 season."
+ },
+ "web.ESPN--34": {
+  "split": "train",
+  "text": "Visit ESPN to view the Philadelphia 76ers' latest injuries."
+ },
+ "web.ESPN--35": {
+  "split": "train",
+  "text": "Browse ESPN to find out when the next game of the Los Angeles Lakers will start. Then navigate to the ticket purchasing website from ESPN, what is the cheapest ticket available."
+ },
+ "web.ESPN--37": {
+  "split": "train",
+  "text": "Check out LeBron James' Stats to see how many games he has played in his career so far."
+ },
+ "web.ESPN--38": {
+  "split": "train",
+  "text": "Check Los Angeles Lakers Stats 2023-24, calculate Anthony Davis' games played (GP) percentage, tell me if there are other players with the same games played percentage as Anthony Davis."
+ },
+ "web.ESPN--39": {
+  "split": "train",
+  "text": "Check the New York Jets Depth Chart in the NFL section of ESPN and identify the players listed as injured in the 2ND position."
+ },
+ "web.ESPN--40": {
+  "split": "train",
+  "text": "Browse the ESPN+ page from ESPN for a brief summary of what ESPN+ Tools is used for."
+ },
+ "web.ESPN--42": {
+  "split": "train",
+  "text": "Check out NCAAM standings on ESPN, what are the teams with equal wins and losses in the America East Conference currently?"
+ },
+ "web.ESPN--43": {
+  "split": "train",
+  "text": "Check out NCAAW recruiting on ESPN, what colleges are the top three players from?"
+ },
+ "web.ESPN--8": {
+  "split": "train",
+  "text": "Find information on ESPN about the top three scoring leaders in the NBA as of the last day of the regular season, and note which teams they play for."
+ },
+ "web.ESPN--9": {
+  "split": "train",
+  "text": "Search on ESPN for how many teams have Los Angeles in their name and how many of them are NBA."
+ },
+ "web.GitHub--1": {
+  "split": "train",
+  "text": "Search for an open-source repository for machine learning in Python, specifically focused on decision trees, updated within the last 2 days."
+ },
+ "web.GitHub--12": {
+  "split": "train",
+  "text": "Retrieve the latest release from the 'electron/electron' repository on GitHub and note down the release version number and date."
+ },
+ "web.GitHub--14": {
+  "split": "train",
+  "text": "Locate the repository for the open-source project \"vscode\" and identify the top three contributors."
+ },
+ "web.GitHub--15": {
+  "split": "train",
+  "text": "Locate a repository on GitHub related to 'quantum computing' that has been updated within the last week and has at least 50 stars. Provide a brief description of the project."
+ },
+ "web.GitHub--17": {
+  "split": "train",
+  "text": "Locate a C++ project on GitHub that has been recently updated in the last week and has at least 500 stars, then describe its main purpose."
+ },
+ "web.GitHub--18": {
+  "split": "train",
+  "text": "Identify and report the most popular (in terms of stars) open-source image processing tool on GitHub."
+ },
+ "web.GitHub--20": {
+  "split": "train",
+  "text": "Open GitHub Copilot's FAQs to find the official answer to when Copilot chat can be used on mobile."
+ },
+ "web.GitHub--25": {
+  "split": "train",
+  "text": "Search for a 'virtual reality' related repository on GitHub updated in the last 10 days with at least 200 stars and summarize its main objective."
+ },
+ "web.GitHub--27": {
+  "split": "train",
+  "text": "Find a Ruby repository on GitHub that has been updated in the past 3 days and has at least 1000 stars."
+ },
+ "web.GitHub--28": {
+  "split": "train",
+  "text": "Identify the most starred JavaScript repositories on GitHub that were created after 2023-12-29."
+ },
+ "web.GitHub--3": {
+  "split": "train",
+  "text": "Find out how much more package storage the Enterprise version has over Team in GitHub Pricing."
+ },
+ "web.GitHub--33": {
+  "split": "train",
+  "text": "Find Customer Stories on the GitHub page and list the 2 stories that appear on the web page."
+ },
+ "web.GitHub--34": {
+  "split": "train",
+  "text": "Search for an open-source project on GitHub related to 'Protein prediction' and identify the project with the highest number of forks."
+ },
+ "web.GitHub--36": {
+  "split": "train",
+  "text": "Identify a new open-source project on GitHub related to 'AI agriculture' that created in 2022, and note its main programming language and description."
+ },
+ "web.GitHub--37": {
+  "split": "train",
+  "text": "List the 3 features mentioned in GitHub's Copilot product page."
+ },
+ "web.GitHub--38": {
+  "split": "train",
+  "text": "Identify and report the most popular (by stars) open-source repo related to cybersecurity on GitHub."
+ },
+ "web.GitHub--39": {
+  "split": "train",
+  "text": "Browse the GitHub Trending and find out which developer is currently ranked first this month and the corresponding repository."
+ },
+ "web.GitHub--4": {
+  "split": "train",
+  "text": "Find a popular JavaScript repository created in the last 30 days on GitHub with a Readme file."
+ },
+ "web.GitHub--40": {
+  "split": "train",
+  "text": "Select Sign up on the GitHub homepage to see if email 'test123@gmail.com' already exists."
+ },
+ "web.GitHub--5": {
+  "split": "train",
+  "text": "Find a Python repository on GitHub that has been updated in the past 2 days and has at least 500 stars."
+ },
+ "web.GitHub--6": {
+  "split": "train",
+  "text": "Search for an open-source project related to 'cryptocurrency wallet' updated in the past 30 days and provide the top three contributors."
+ },
+ "web.GitHub--7": {
+  "split": "train",
+  "text": "Find the official GitHub repository for ALBERT and show me what files the repo changed in the most recent commit."
+ },
+ "web.Huggingface--0": {
+  "split": "train",
+  "text": "Find a pre-trained natural language processing model on Hugging Face that can perform sentiment analysis, and make sure the model's last update is within March 2023."
+ },
+ "web.Huggingface--1": {
+  "split": "train",
+  "text": "Use the Huggingface Inference API to generate a short story about a dragon and a wizard."
+ },
+ "web.Huggingface--10": {
+  "split": "train",
+  "text": "Open space: argilla/notux-chat-ui and interact with it by asking it 'which team trained you'. What is its answer."
+ },
+ "web.Huggingface--11": {
+  "split": "train",
+  "text": "Identify the latest updated image to video model available on Huggingface and summarize its main features."
+ },
+ "web.Huggingface--14": {
+  "split": "train",
+  "text": "How much is the Pro account of Hugging face for a month and what are the features?"
+ },
+ "web.Huggingface--15": {
+  "split": "train",
+  "text": "Identify the most downloaded models on Hugging face that use the PaddlePaddle library."
+ },
+ "web.Huggingface--18": {
+  "split": "train",
+  "text": "Look up TRL's forward modelling in the hugging face documentation on how to add a margin to a loss."
+ },
+ "web.Huggingface--2": {
+  "split": "train",
+  "text": "Discover three new and popular open-source NLP models for language translation released in the past month on Huggingface."
+ },
+ "web.Huggingface--20": {
+  "split": "train",
+  "text": "Locate a pre-trained natural language processing model on Hugging Face that specializes in named entity recognition (NER), confirm that the model was last updated in 2022 and has 1M+ downloads."
+ },
+ "web.Huggingface--21": {
+  "split": "train",
+  "text": "Look up the tour about how to use the 'pipeline' feature in the Hugging Face Transformers library for sentiment analysis, and identify the default model it uses."
+ },
+ "web.Huggingface--22": {
+  "split": "train",
+  "text": "Identify the steps to convert a PyTorch model to TensorFlow using the Hugging Face Transformers library as described in their documentation."
+ },
+ "web.Huggingface--23": {
+  "split": "train",
+  "text": "Identify three innovative and widely recognized open-source NLP models for automatic speech recognition released in the past month on Huggingface."
+ },
+ "web.Huggingface--27": {
+  "split": "train",
+  "text": "Determine the most downloaded dataset related to Text Retrieval in NLP on Hugging Face."
+ },
+ "web.Huggingface--28": {
+  "split": "train",
+  "text": "Retrieve an example of a pre-trained model on Hugging Face that is optimized for question answering tasks and detail the languages it supports."
+ },
+ "web.Huggingface--3": {
+  "split": "train",
+  "text": "Look up a model with a license of cc-by-sa-4.0 with the most likes on Hugging face."
+ },
+ "web.Huggingface--33": {
+  "split": "train",
+  "text": "List three hugging face docs. How many GitHub stars have they earned so far?"
+ },
+ "web.Huggingface--34": {
+  "split": "train",
+  "text": "List the benefits of hugging face classroom mentioned on Hugging face website."
+ },
+ "web.Huggingface--35": {
+  "split": "train",
+  "text": "Find the latest Diffusion-related blog on Hugging Face, and read its intro or overview section to roughly summarize the content of the blog."
+ },
+ "web.Huggingface--37": {
+  "split": "train",
+  "text": "Browse the daily paper on Hugging Face. What is the title of the first article, how many upvotes has it received, and is there any related model or data release?"
+ },
+ "web.Huggingface--39": {
+  "split": "train",
+  "text": "Investigate in the Hugging Face documentation how to utilize the 'Trainer' API for training a model on a custom dataset, and note the configurable parameters of the Trainer class."
+ },
+ "web.Huggingface--40": {
+  "split": "train",
+  "text": "Check out Text Embeddings Inference in Hugging face's Doc to summarise the strengths of the toolkit."
+ },
+ "web.Huggingface--41": {
+  "split": "train",
+  "text": "What is the current Text-to-3D model with the highest number of downloads and tell me are there Spaces that use the model."
+ },
+ "web.Huggingface--42": {
+  "split": "train",
+  "text": "Check the Dataset Viewer for ai2lumos/lumos_complex_qa_plan_onetime on Hugging face. what is the content corresponding to user in the first message?"
+ },
+ "web.Huggingface--5": {
+  "split": "train",
+  "text": "Find a model released on Hugging Face for recipe generation. Retrieve the information of the model, including its name, model size and tensor type."
+ },
+ "web.Huggingface--7": {
+  "split": "train",
+  "text": "Which is the most downloaded audio related dataset on Hugging face currently."
+ },
+ "web.Huggingface--8": {
+  "split": "train",
+  "text": "Retrieve an example of a pre-trained language model in natural language processing and identify the tasks it is specifically designed for, like translation or text summarization."
+ },
+ "web.Huggingface--9": {
+  "split": "train",
+  "text": "Find the most download machine translation model on Huggingface which focuses on English and Japanese (en-ja) and report the evaluation metrics stated for it."
+ },
+ "web.Apple--10": {
+  "split": "val",
+  "text": "Find information on the latest (as of today's date) MacBook model, including its key features such as processor type, memory size, and storage capacity."
+ },
+ "web.Apple--18": {
+  "split": "val",
+  "text": "Check if there are trade-in offers for the latest model of iPhone."
+ },
+ "web.Apple--2": {
+  "split": "val",
+  "text": "Compare the prices and chips for the iPhone 14 Pro and iPhone 15 Pro models directly from Apple's website."
+ },
+ "web.Apple--3": {
+  "split": "val",
+  "text": "Find the latest model of the iPhone and compare the price and screen size between the pro and pro max."
+ },
+ "web.Apple--30": {
+  "split": "val",
+  "text": "Check the storage options and prices for the latest iPad Pro models on Apple's website."
+ },
+ "web.Apple--35": {
+  "split": "val",
+  "text": "How many types of Apple Pencil are currently available on the Apple's website? Which one supports Wireless pairing and charging."
+ },
+ "web.ArXiv--1": {
+  "split": "val",
+  "text": "Search for the latest research papers on quantum computing submitted to ArXiv within the last two days."
+ },
+ "web.ArXiv--12": {
+  "split": "val",
+  "text": "Find store in arXiv Help, tell me how many styles of arXiv Logo Shirt are available?"
+ },
+ "web.ArXiv--14": {
+  "split": "val",
+  "text": "On ArXiv, how many articles have 'SimCSE' in the article and are originally announced in October 2023?"
+ },
+ "web.ArXiv--22": {
+  "split": "val",
+  "text": "Locate the ArXiv Help section and find instructions on how to subscribe to daily listing emails for new submissions in a specific category."
+ },
+ "web.ArXiv--25": {
+  "split": "val",
+  "text": "Browse the ArXiv store and let me know how many different types of merchandise are available."
+ },
+ "web.ArXiv--3": {
+  "split": "val",
+  "text": "Locate the most recent research paper about 'Algebraic Topology' under Mathematics published on ArXiv. Provide the title of the paper, the name of the authors, and the abstract."
+ },
+ "web.ArXiv--36": {
+  "split": "val",
+  "text": "Search 'CVPR 2023' and 'CVPR2023' through journal ref on ArXiv to see how many results there are respectively."
+ },
+ "web.Booking--11": {
+  "split": "val",
+  "text": "Reserve a hotel in downtown Chicago with a rating of 9 or higher for a stay from March 20-27, 2024, which offers free cancellation and includes a fitness center."
+ },
+ "web.Booking--16": {
+  "split": "val",
+  "text": "Look for a hotel in Paris with a user rating of 9 or higher and available for a 5-night stay starting January 15, 2024. The hotel should also offer free Wi-Fi and breakfast included in the price. Provide the name, location, and price per night."
+ },
+ "web.Booking--17": {
+  "split": "val",
+  "text": "Find a hotel in Paris with a fitness center and a rating of 8 or higher available for a 5-night stay starting from February 14, 2024, and sort the results by best reviewed."
+ },
+ "web.Booking--21": {
+  "split": "val",
+  "text": "Find a hotel in Sydney with a rating of 8 or higher, providing free Wi-Fi and parking, available for a four-night stay starting on March 10, 2024."
+ },
+ "web.Booking--23": {
+  "split": "val",
+  "text": "Identify a hotel in Tokyo with a spa and wellness center, rated 9 or above, with availability for a five-night stay starting on February 20, 2024. Check if free cancellation is offered."
+ },
+ "web.Booking--26": {
+  "split": "val",
+  "text": "Check Booking.com for a 3-star hotel or higher in Paris with a guest rating above 8.0 and available parking for dates February 20-23, 2024."
+ },
+ "web.Booking--27": {
+  "split": "val",
+  "text": "Locate a hotel in Melbourne offering free parking and free WiFi, for a stay from February 28 to March 4, 2024."
+ },
+ "web.Booking--41": {
+  "split": "val",
+  "text": "Browse Booking's homepage to find out which company it belongs to."
+ },
+ "web.Coursera--15": {
+  "split": "val",
+  "text": "Find a course on Coursera named 'Introduction to Mathematical Thinking' offered by Stanford, what is the percentage (rounded) of 5 star ratings in reviews and which level has the least percentage?."
+ },
+ "web.Coursera--17": {
+  "split": "val",
+  "text": "How many results are there for a search on Coursera for Machine Learning, then filtered by Credit Eligible and 1-4 Years duration?"
+ },
+ "web.Coursera--38": {
+  "split": "val",
+  "text": "Browse Coursera, which universities and companies from Australia are partners of Coursera? List all of them."
+ },
+ "web.Coursera--39": {
+  "split": "val",
+  "text": "Find the Space Safety course offered by TUM on Coursera. How many videos are there in module 2? What is the name of each video?"
+ },
+ "web.Coursera--9": {
+  "split": "val",
+  "text": "Identify a Coursera course on artificial intelligence ethics that has a duration of less than 20 hours to complete and has been rated 4+ stars by participants."
+ },
+ "web.ESPN--19": {
+  "split": "val",
+  "text": "Who has the highest salary in Boston Celtics Roster 2023-24?"
+ },
+ "web.ESPN--2": {
+  "split": "val",
+  "text": "Show the scores and main highlight of the Milwaukee Bucks game that took place within the last 2 days on ESPN."
+ },
+ "web.ESPN--22": {
+  "split": "val",
+  "text": "Find the latest Team transactions in the NBA within the past week."
+ },
+ "web.ESPN--24": {
+  "split": "val",
+  "text": "Find the final score from the most recent NFL game broadcast on ESPN, including the teams' names and the date of the match."
+ },
+ "web.ESPN--30": {
+  "split": "val",
+  "text": "Check out the NHL Standings 2023-24 on ESPN to see which teams are at the top and which are at the bottom in Eastern and Western Conference. What about the situation in Division."
+ },
+ "web.ESPN--36": {
+  "split": "val",
+  "text": "Search for Lionel Messi's last 5 games, which teams has he played for, and what are the results?"
+ },
+ "web.ESPN--4": {
+  "split": "val",
+  "text": "Check ESPN for the final scores of NBA games that were played yesterday."
+ },
+ "web.GitHub--13": {
+  "split": "val",
+  "text": "Identify the latest top-trending open-source project in the category of 'Machine Learning' on GitHub, and check the number of stars it has received."
+ },
+ "web.GitHub--16": {
+  "split": "val",
+  "text": "Find the GitHub Skill section and how many courses are under the 'First day on GitHub' heading."
+ },
+ "web.GitHub--24": {
+  "split": "val",
+  "text": "Locate the GitHub repository for the open-source project \"angular\" and identify the last three issues closed."
+ },
+ "web.GitHub--30": {
+  "split": "val",
+  "text": "Search for an open-source project related to 'blockchain technology' on GitHub updated in the past 15 days and list the top five contributors."
+ },
+ "web.GitHub--31": {
+  "split": "val",
+  "text": "Find the official GitHub repository for TensorFlow and list the files changed in the last commit. Tell me the name of changed files, total additions and total deletion."
+ },
+ "web.GitHub--32": {
+  "split": "val",
+  "text": "Discover the latest C# repository on GitHub related to 'game development' and having over 150 stars, and describe its main features."
+ },
+ "web.Huggingface--12": {
+  "split": "val",
+  "text": "Find the most recently updated machine learning model on Huggingface which focuses on Error Correction."
+ },
+ "web.Huggingface--13": {
+  "split": "val",
+  "text": "Search for LLaMA in the huggingface doc, what type is the spaces_between_special_tokens parameter in LlamaTokenizer and what is its default value."
+ },
+ "web.Huggingface--29": {
+  "split": "val",
+  "text": "Summarize the description of the recent open-source NLP model released on Hugging Face for medical summarization."
+ },
+ "web.Huggingface--31": {
+  "split": "val",
+  "text": "Identify the latest machine learning model on Huggingface that specializes in detecting fake news, including the date of its last update."
+ },
+ "web.Huggingface--32": {
+  "split": "val",
+  "text": "On the Hugging Face website, search for the model 'GPT-J-6B' and find the 'temperature' parameter in its settings. What is the default value of this parameter?"
+ },
+ "web.Huggingface--4": {
+  "split": "val",
+  "text": "Locate an open-source conversational AI model on Hugging Face, trained in English and list its main features and applications."
+ },
+ "web.Apple--15": {
+  "split": "test",
+  "text": "On Apple's website, how many different types of keyboards are available when customizing your 14-inch MacBook Pro?"
+ },
+ "web.Apple--33": {
+  "split": "test",
+  "text": "Look for the color options available for the newest iMac."
+ },
+ "web.Apple--36": {
+  "split": "test",
+  "text": "Browse Apple Music on the entertainment section of the Apple's website, and see which singers' names are included in the pictures on this page."
+ },
+ "web.Apple--37": {
+  "split": "test",
+  "text": "Compare the color options of iPhone 13 Pro, iPhone 14 Pro and iPhone 15 Pro."
+ },
+ "web.Apple--39": {
+  "split": "test",
+  "text": "Find solutions on Apple's website if you forgot your Apple ID password."
+ },
+ "web.Apple--6": {
+  "split": "test",
+  "text": "Find AirPods on Apple and how many types are currently available."
+ },
+ "web.Apple--8": {
+  "split": "test",
+  "text": "Identify and list the specifications of the latest iPad model released by Apple, including its storage options, processor type, and display features."
+ },
+ "web.ArXiv--15": {
+  "split": "test",
+  "text": "Searching Chinese Benchmark on ArXiv, how many papers announced in December 2023 mention being accepted for AAAI 2024?"
+ },
+ "web.ArXiv--17": {
+  "split": "test",
+  "text": "Find the paper 'GPT-4 Technical Report', when was v3 submitted?"
+ },
+ "web.ArXiv--18": {
+  "split": "test",
+  "text": "Download the paper 'Dense Passage Retrieval for Open-Domain Question Answering'. How many formulas are in the article and which one is the loss function?"
+ },
+ "web.ArXiv--28": {
+  "split": "test",
+  "text": "Search 'Poly encoder' by title on ArXiv and check whether the articles in the search results provide HTML access."
+ },
+ "web.ArXiv--29": {
+  "split": "test",
+  "text": "On ArXiv, search for papers with 'Neural Network Optimization' in the title published in 2023, and provide the number of such papers."
+ },
+ "web.ArXiv--35": {
+  "split": "test",
+  "text": "Retrieve the latest research paper in Quantum Physics from ArXiv and provide the title, author(s), and date of submission."
+ },
+ "web.ArXiv--38": {
+  "split": "test",
+  "text": "Find the ArXiv Blog on the ArXiv website and summarize the content of its latest article."
+ },
+ "web.ArXiv--39": {
+  "split": "test",
+  "text": "Search the title 'GPT-4 Technical Report' and access this paper through HTML format. Read the paper on this page and tell me what is 'one of the main goals of developing such models' mentioned in the Introduction."
+ },
+ "web.ArXiv--40": {
+  "split": "test",
+  "text": "How many articles are there on each of the three most recent announce days in the Solar and Stellar Astrophysics section of ArXiv. Choose one at random and answer its title and when the first version was uploaded?"
+ },
+ "web.ArXiv--41": {
+  "split": "test",
+  "text": "Find the button to share arxiv non-profit store and follow the QR code to share the shop. Then add arXiv Forever short sleeve (XL) to your cart."
+ },
+ "web.ArXiv--42": {
+  "split": "test",
+  "text": "Find an article published between 1 January 2000 and 1 January 2005 that requires Support Vector Machines in the title and its Journey ref is ACL Workshop."
+ },
+ "web.ArXiv--7": {
+  "split": "test",
+  "text": "Find the most recent paper submitted on machine learning in the Computer Science category posted on ArXiv."
+ },
+ "web.ArXiv--8": {
+  "split": "test",
+  "text": "What is the latest news on ArXiv?"
+ },
+ "web.Booking--19": {
+  "split": "test",
+  "text": "Look for a hotel with customer ratings above an 8.0 in Paris, France for a weekend stay from March 18, 2024, to March 20, 2024, and list top three suggestions based on user reviews."
+ },
+ "web.Booking--2": {
+  "split": "test",
+  "text": "Find a hotel in Ohio From December 20th to December 23th for 3 adults and 2 rooms."
+ },
+ "web.Booking--20": {
+  "split": "test",
+  "text": "Locate a hotel in Rome with a good rating (7 or above) that offers free cancellation and breakfast included, for a three-night stay from February 28 to March 2, 2024, for two adults."
+ },
+ "web.Booking--35": {
+  "split": "test",
+  "text": "Browse the booking website to get inspiration for your next trip, and summarize at least three places mentioned in one of the travel articles."
+ },
+ "web.Booking--38": {
+  "split": "test",
+  "text": "Look up Vienna hotel options with availability for a 4-night stay from February 28 to March 4, 2024, with amenities that include a Parking, breakfast included, and a rating of 8+ on Booking.com."
+ },
+ "web.Booking--4": {
+  "split": "test",
+  "text": "Search for the cheapest Hotel near Kashi Vishwanath Temple that offer breakfast from Dec 25th - Dec 26th."
+ },
+ "web.Booking--40": {
+  "split": "test",
+  "text": "I need to choose a hotel in Shenzhen, please select date (6 March to 8 March 2024) and click the search button. How much it costs when convert the price to Chinese Yuan on the page."
+ },
+ "web.Booking--5": {
+  "split": "test",
+  "text": "Search a hotel with free WiFi and air conditioning in Bali from Jan 1 to Jan 4, 2024."
+ },
+ "web.Booking--6": {
+  "split": "test",
+  "text": "Book one room which provides breakfast, and airport shuttle from Jan 22 to 25 in Los Angeles."
+ },
+ "web.Booking--8": {
+  "split": "test",
+  "text": "Get the hotel with highest review score and free cancelation in Chennai for 20/12/2023 - 21/12/2023."
+ },
+ "web.Booking--9": {
+  "split": "test",
+  "text": "Find hotels for 2 adults in London with a price less than 250 dollars for four days starting from December 25. You must browse the page and offer at least 3 options."
+ },
+ "web.Coursera--0": {
+  "split": "test",
+  "text": "Find a beginner-level online course about '3d printing' which lasts 1-3 months, and is provided by a renowned university."
+ },
+ "web.Coursera--1": {
+  "split": "test",
+  "text": "Search for a beginner-level online course about Python programming, suitable for someone who has no programming experience on Coursera."
+ },
+ "web.Coursera--2": {
+  "split": "test",
+  "text": "Find a Beginner's Spanish Specialization on Coursera and show all the courses in this Specialization."
+ },
+ "web.Coursera--22": {
+  "split": "test",
+  "text": "Identify a Specialization on Coursera that focuses on 'Human Resource', list the courses included in this Specialization, and the institution offering it."
+ },
+ "web.Coursera--23": {
+  "split": "test",
+  "text": "Find a course on Coursera about 'Artificial Intelligence Ethics', which has a duration of less than 5 weeks and has been rated 4.5 stars or higher. Provide the course name and the instructor's name."
+ },
+ "web.Coursera--24": {
+  "split": "test",
+  "text": "Locate an online course on Coursera related to 'Sustainability' that belongs to Physical Science and Engineering subject. The course should include a module on Measuring Sustainability. Note the course duration and the offering institution."
+ },
+ "web.Coursera--25": {
+  "split": "test",
+  "text": "Find a course on Coursera about 'Relativity' for beginners. List the course's main topics and the estimated time (in hours) required to complete it."
+ },
+ "web.Coursera--26": {
+  "split": "test",
+  "text": "Identify a Specialization on Coursera that offers an overview of 'Renewable Energy'. The Specialization should be beginner-level and include a course on Renewable Energy Futures. Note the instructor's name and the number of weeks required to complete the course if I spend 5 hours a week."
+ },
+ "web.Coursera--35": {
+  "split": "test",
+  "text": "Find a Coursera course on Sustainable Agriculture practices, and detail the course's objectives and the background of the lead instructor."
+ },
+ "web.Coursera--4": {
+  "split": "test",
+  "text": "Identify a course or Specialization on Coursera that helps business process management with with a rating 4.7."
+ },
+ "web.Coursera--40": {
+  "split": "test",
+  "text": "Browse Coursera for Business and Coursera for Teams and summarise some of their advantages."
+ },
+ "web.ESPN--14": {
+  "split": "test",
+  "text": "Find the latest news about NBA trades or player movements on ESPN and report the most recent trade deal OR player acquisition."
+ },
+ "web.ESPN--20": {
+  "split": "test",
+  "text": "Look up the current leaders in rebounds and assists in the NBA Western Conference on ESPN."
+ },
+ "web.ESPN--21": {
+  "split": "test",
+  "text": "Show the scores and main highlight of the Denver Nuggets game that occurred within the last 3 days on ESPN."
+ },
+ "web.ESPN--23": {
+  "split": "test",
+  "text": "Find the result of the latest basketball game between the Miami Heat and the New York Knicks, including the final score and top rebounder from the match."
+ },
+ "web.ESPN--29": {
+  "split": "test",
+  "text": "Identify today's top headline in the Soccer section of ESPN, and summarize the main points of that article."
+ },
+ "web.ESPN--32": {
+  "split": "test",
+  "text": "Review yesterday's NHL game results on ESPN, focusing on teams' performance."
+ },
+ "web.ESPN--41": {
+  "split": "test",
+  "text": "Find out which four teams the NFC North contains in the NFL on ESPN."
+ },
+ "web.ESPN--5": {
+  "split": "test",
+  "text": "Identify the top scorer in the NBA from the latest completed game and note down the points scored, the team they play for, and their position on the team."
+ },
+ "web.ESPN--6": {
+  "split": "test",
+  "text": "Find the result of the latest basketball game between the Los Angeles Lakers and the Boston Celtics, including the final score and top scorer from the match."
+ },
+ "web.ESPN--7": {
+  "split": "test",
+  "text": "Retrieve the final score and a brief summary of the latest NBA game played by the Los Angeles Lakers as reported on ESPN."
+ },
+ "web.GitHub--0": {
+  "split": "test",
+  "text": "Search for an open-source project related to 'climate change data visualization' on GitHub and report the project with the most stars."
+ },
+ "web.GitHub--10": {
+  "split": "test",
+  "text": "If I start using Copilot Individual, how much US dollars will it cost per year and what features does it have?"
+ },
+ "web.GitHub--11": {
+  "split": "test",
+  "text": "Find a newly created open-source project on GitHub related to 'climate change' that has been initiated in January 2023; check the main programming language used and the project's description."
+ },
+ "web.GitHub--19": {
+  "split": "test",
+  "text": "Look up the most recently updated Python repository on GitHub that is tagged with 'web scraping' and has over 100 stars."
+ },
+ "web.GitHub--2": {
+  "split": "test",
+  "text": "Look for the trending Python repositories on GitHub with most stars."
+ },
+ "web.GitHub--21": {
+  "split": "test",
+  "text": "Find the Security topic in GitHub Resources and answer the role of GitHub Advanced Security."
+ },
+ "web.GitHub--22": {
+  "split": "test",
+  "text": "Find an open-source repository on GitHub focused on natural language processing in Ruby, updated within the last week."
+ },
+ "web.GitHub--23": {
+  "split": "test",
+  "text": "Find the wiki page of ohmyzsh on GitHub and tell me how to change the theme of zsh to agnoster."
+ },
+ "web.GitHub--26": {
+  "split": "test",
+  "text": "Find the Resolve merge conflicts course in GitHub Skills and what actions learners will perform in this course."
+ },
+ "web.GitHub--29": {
+  "split": "test",
+  "text": "Compare the maximum number of private repositories allowed in the Free and Pro plans in GitHub Pricing."
+ },
+ "web.GitHub--35": {
+  "split": "test",
+  "text": "Check the latest release version of React and the date it was published on GitHub."
+ },
+ "web.GitHub--8": {
+  "split": "test",
+  "text": "Look up the latest stable release version of Vuex and find out when it was published."
+ },
+ "web.GitHub--9": {
+  "split": "test",
+  "text": "Locate a repository on GitHub that was created in the last week and has 50 or more stars. Provide brief details about the project's purpose and its programming language."
+ },
+ "web.Huggingface--16": {
+  "split": "test",
+  "text": "Find information on the latest (as of today's date) pre-trained language model on Huggingface suitable for text classification and briefly describe its intended use case and architecture."
+ },
+ "web.Huggingface--17": {
+  "split": "test",
+  "text": "Find the most recently updated open-source project related to natural language processing on the Huggingface platform. Provide the project's name, creator, and a brief description of its functionality."
+ },
+ "web.Huggingface--19": {
+  "split": "test",
+  "text": "Explore and summarize the features of the most recent open-source NLP model released by Hugging Face for English text summarization."
+ },
+ "web.Huggingface--24": {
+  "split": "test",
+  "text": "Search for a model on Hugging Face with an Apache-2.0 license that has received the highest number of likes."
+ },
+ "web.Huggingface--25": {
+  "split": "test",
+  "text": "In the Hugging Face documentation, find the tutorial on loading adapters with PEFT, tell me how to load in 8bit or 4bit."
+ },
+ "web.Huggingface--26": {
+  "split": "test",
+  "text": "Identify a model on Hugging Face designed for generating travel chats. Obtain information about the model, including its name, size and training framwork."
+ },
+ "web.Huggingface--30": {
+  "split": "test",
+  "text": "Identify the most downloaded English-Chinese (en-zh) machine translation model on Huggingface and report its latest performance metrics and usage guidelines."
+ },
+ "web.Huggingface--36": {
+  "split": "test",
+  "text": "Summarize all the payment plans and their advantages in huggingface pricing."
+ },
+ "web.Huggingface--38": {
+  "split": "test",
+  "text": "Investigate the 'transformers' library in the Hugging Face documentation, focusing on how to add new tokens to a tokenizer."
+ },
+ "web.Huggingface--6": {
+  "split": "test",
+  "text": "Find the model sentence-transformers/all-MiniLM-L6-v2 and use the Inference API on the webpage to get the similarity of the following two sentences: 'Tomorrow is Sunday', 'Eat a burger on Sunday'."
+ },
+ "web.Google Flights--0": {
+  "split": "test_env",
+  "text": "Book a journey with return option on same day from Edinburg to Manchester on December 28th and show me the lowest price option available."
+ },
+ "web.Google Flights--1": {
+  "split": "test_env",
+  "text": "Show me the list of one-way flights today (February 17, 2024) from Chicago to Paris."
+ },
+ "web.Google Flights--10": {
+  "split": "test_env",
+  "text": "Locate the cheapest round-trip flights from New York to Tokyo leaving on January 25, 2024, and returning on February 15, 2024."
+ },
+ "web.Google Flights--11": {
+  "split": "test_env",
+  "text": "Compare the prices for round-trip flights from New York to Tokyo for a departure on February 10, 2024, and a return on February 24, 2024, and select the option with the least number of stops."
+ },
+ "web.Google Flights--12": {
+  "split": "test_env",
+  "text": "Find the best-priced round-trip flight from New York to London leaving on December 25, 2023, and returning on January 5, 2024, with one stop or fewer."
+ },
+ "web.Google Flights--13": {
+  "split": "test_env",
+  "text": "Find the cheapest round-trip flight option from New York City to Tokyo for a departure on January 10, 2024, and a return on January 24, 2024."
+ },
+ "web.Google Flights--14": {
+  "split": "test_env",
+  "text": "Compare flight options and find the lowest round trip fare from New York to London departing on January 10, 2024, and returning on January 17, 2024."
+ },
+ "web.Google Flights--15": {
+  "split": "test_env",
+  "text": "Compare the prices and total duration of non-stop flights from New York to Tokyo Narita Airport departing on February 12th, 2024, and returning on February 26th, 2024."
+ },
+ "web.Google Flights--16": {
+  "split": "test_env",
+  "text": "Find the cheapest one-way flight from New York to Tokyo departing on January 15, 2024, and provide the airline and total flight duration."
+ },
+ "web.Google Flights--17": {
+  "split": "test_env",
+  "text": "Find the cheapest round-trip flight from New York to Paris leaving on December 27, 2023, and returning on January 10, 2024."
+ },
+ "web.Google Flights--18": {
+  "split": "test_env",
+  "text": "Compare flight options from New York to Tokyo for a round trip leaving on January 25, 2024, and returning on February 15, 2024, for one adult. Prioritize the comparisons by the shortest travel time."
+ },
+ "web.Google Flights--19": {
+  "split": "test_env",
+  "text": "Find the cheapest one-way flight from London to Paris, departing on January 25, 2024. Include the airline, total travel time, and layovers for the chosen flight."
+ },
+ "web.Google Flights--2": {
+  "split": "test_env",
+  "text": "Find the lowest fare from all eligible one-way flights for 1 adult from JFK to Heathrow on Jan. 22."
+ },
+ "web.Google Flights--20": {
+  "split": "test_env",
+  "text": "Book a round-trip flight from San Francisco to Berlin, departing on March 5, 2024, and returning on March 12, 2024, and find the option with the shortest total travel time."
+ },
+ "web.Google Flights--21": {
+  "split": "test_env",
+  "text": "Locate the lowest-priced one-way flight from Tokyo to Sydney for an adult, departing on February 25, 2024, and include the flight duration and number of layovers."
+ },
+ "web.Google Flights--22": {
+  "split": "test_env",
+  "text": "Find a round-trip flight from Rio de Janeiro to Los Angeles, leaving on March 15, 2024, and returning on March 22, 2024, and select the option with the least carbon dioxide emissions."
+ },
+ "web.Google Flights--23": {
+  "split": "test_env",
+  "text": "Search for a one-way flight from Mumbai to Vancouver on February 28, 2024, filtering the results to show only 1-stop flights."
+ },
+ "web.Google Flights--24": {
+  "split": "test_env",
+  "text": "Compare prices for economy class round-trip flights from Dubai to Rome, departing on March 1, 2024, and returning on March 8, 2024, and select the option with the fewest stops."
+ },
+ "web.Google Flights--25": {
+  "split": "test_env",
+  "text": "Find a one-way business class flight from Buenos Aires to Amsterdam on March 10, 2024, and provide the details of the flight with the shortest duration."
+ },
+ "web.Google Flights--26": {
+  "split": "test_env",
+  "text": "Search for the cheapest round-trip flights from Bangkok to Madrid, leaving on February 26, 2024, and returning on February 28, 2024, and provide options under $1000."
+ },
+ "web.Google Flights--27": {
+  "split": "test_env",
+  "text": "Locate a one-way flight from Johannesburg to Toronto on March 30, 2024, for one adult, and analyze the price trends for the following month."
+ },
+ "web.Google Flights--28": {
+  "split": "test_env",
+  "text": "Find the best-priced round-trip flight from Seattle to Paris, departing on February 27, 2024, and returning on March 1, 2024, with a maximum of one stop."
+ },
+ "web.Google Flights--29": {
+  "split": "test_env",
+  "text": "Compare the prices and total travel time of non-stop flights from Mexico City to Frankfurt, departing on March 5, 2024, and returning on March 15, 2024."
+ },
+ "web.Google Flights--3": {
+  "split": "test_env",
+  "text": "Search for the one-way flight available from Calgary to New York on Jan. 1st with the lowest carbon dioxide emissions."
+ },
+ "web.Google Flights--30": {
+  "split": "test_env",
+  "text": "Find the most affordable one-way flight from Cape Town to Singapore, departing on March 20, 2024, and include the airline and total number of layovers."
+ },
+ "web.Google Flights--31": {
+  "split": "test_env",
+  "text": "Find a one-way economy flight from Auckland to Honolulu on March 25, 2024, browse the full page and display a flight option with the most stops."
+ },
+ "web.Google Flights--32": {
+  "split": "test_env",
+  "text": "Search for round-trip flights from Stockholm to Toronto, departing on March 3, 2024, and returning on March 10, 2024, and sort the results to find the shortest total travel time."
+ },
+ "web.Google Flights--33": {
+  "split": "test_env",
+  "text": "Find a one-way flight from Shanghai to Vancouver on February 27, 2024, and compare the options based on carbon dioxide emissions."
+ },
+ "web.Google Flights--34": {
+  "split": "test_env",
+  "text": "Compare business class flight options from Lisbon to Singapore for a one-way trip on March 15, 2024, select one of the flights and see which websites offer its booking options. Which one is the cheapest."
+ },
+ "web.Google Flights--35": {
+  "split": "test_env",
+  "text": "Find the lowest-priced one-way flight from Cairo to Montreal on February 21, 2024, including the total travel time and number of stops."
+ },
+ "web.Google Flights--36": {
+  "split": "test_env",
+  "text": "Search for round-trip flights from Helsinki to New Delhi, departing on March 28, 2024, and returning on April 4, 2024, and filter the results to show only flights under $1000."
+ },
+ "web.Google Flights--37": {
+  "split": "test_env",
+  "text": "Locate a round-trip flight from Buenos Aires to Beijing, leaving on February 28, 2024, and returning on March 3, 2024, check out one of the options and tell me if the airline for my return flight is the same as my departure flight."
+ },
+ "web.Google Flights--38": {
+  "split": "test_env",
+  "text": "Compare the prices and flight durations for economy class flights from Oslo to Dubai, departing on March 8, 2024, and show the options with no more than two layovers."
+ },
+ "web.Google Flights--39": {
+  "split": "test_env",
+  "text": "Find a one-way flight from Prague to a city in Japan on March 20, 2024, which city in Japan is cheaper to go to, Tokyo or a certain city in Hokkaido?"
+ },
+ "web.Google Flights--4": {
+  "split": "test_env",
+  "text": "Search for one-way flights from New York to London on Dec. 26th and filter the results to show only non-stop flights."
+ },
+ "web.Google Flights--40": {
+  "split": "test_env",
+  "text": "Browse destinations on the Google Flights homepage from Seattle, look at destinations on a map, and recommend some famous places to travel that are within a reasonable distance and price."
+ },
+ "web.Google Flights--41": {
+  "split": "test_env",
+  "text": "Choose one way business class ticket from Hong Kong to Glacier National Park on 8 March 2024, offering a 1 stop ticket."
+ },
+ "web.Google Flights--5": {
+  "split": "test_env",
+  "text": "Find flights from Chicago to London on 20 December and return on 23 December."
+ },
+ "web.Google Flights--6": {
+  "split": "test_env",
+  "text": "Search for a flight on December 19 and return on December 26 from Tel Aviv to Venice and Select First Class."
+ },
+ "web.Google Flights--7": {
+  "split": "test_env",
+  "text": "Find a round trip from Phoenix to Miami (Dec. 25th - Dec. 28th), show the First Class plane tickets for me that do not exceed $1320.."
+ },
+ "web.Google Flights--8": {
+  "split": "test_env",
+  "text": "Search a one-way filght from Dublin To Athens Greece for 1 Adult that leaves on December 30 and analyse the price graph for the next 2 months."
+ },
+ "web.Google Flights--9": {
+  "split": "test_env",
+  "text": "Find a one way economy flight from Pune to New York in Jan. 15th and show me how long it will take for flight transfer."
+ },
+ "web.Google Map--0": {
+  "split": "test_env",
+  "text": "Find 5 beauty salons with ratings greater than 4.8 in Seattle, WA."
+ },
+ "web.Google Map--1": {
+  "split": "test_env",
+  "text": "Tell me one bus stop that is nearest to the intersection of main street and Amherst street in Altavista."
+ },
+ "web.Google Map--10": {
+  "split": "test_env",
+  "text": "Search for a park in the state of California called Castle Mountains National Monument and find out it's Basic Information."
+ },
+ "web.Google Map--11": {
+  "split": "test_env",
+  "text": "Locate a large store in Washington that has kids' and maternity products, also check if it has a parking lot."
+ },
+ "web.Google Map--12": {
+  "split": "test_env",
+  "text": "Find 5 places that serve burgers near 44012 zip code and sort these 5 places by highest rating."
+ },
+ "web.Google Map--13": {
+  "split": "test_env",
+  "text": "Find a parking lot in Gloucester and book a ride from there to North Plymouth, view the map to understand the route better."
+ },
+ "web.Google Map--14": {
+  "split": "test_env",
+  "text": "Find motorcycle parking near Radio City Music Hall."
+ },
+ "web.Google Map--15": {
+  "split": "test_env",
+  "text": "Find daytime only parking nearest to Madison Square Garden. Summarize what people are saying about it. "
+ },
+ "web.Google Map--16": {
+  "split": "test_env",
+  "text": "Find EV charging supported parking closest to Smithsonian museum."
+ },
+ "web.Google Map--17": {
+  "split": "test_env",
+  "text": "Search for locksmiths open now but not open 24 hours in Texas City."
+ },
+ "web.Google Map--18": {
+  "split": "test_env",
+  "text": "Find a route between Chicago to Los Angeles, then print the route details."
+ },
+ "web.Google Map--19": {
+  "split": "test_env",
+  "text": "I will arrive Pittsburgh Airport soon. Provide the name of the Hilton hotel closest to the airport. Then, tell me the the walking time to the nearest supermarket from the hotel."
+ },
+ "web.Google Map--2": {
+  "split": "test_env",
+  "text": "Find Apple Stores close to zip code 90028"
+ },
+ "web.Google Map--20": {
+  "split": "test_env",
+  "text": "Find Tesla Destination Charger closest to the National Air and Space Museum."
+ },
+ "web.Google Map--21": {
+  "split": "test_env",
+  "text": "Identify the nearest bus stop to the corner of Elm Street and Oak Street in Massachusetts."
+ },
+ "web.Google Map--22": {
+  "split": "test_env",
+  "text": "Find a Best Buy store near zip code 33139."
+ },
+ "web.Google Map--23": {
+  "split": "test_env",
+  "text": "Determine the shortest walking route from The Metropolitan Museum of Art to Times Square in New York."
+ },
+ "web.Google Map--24": {
+  "split": "test_env",
+  "text": "Plan a journey from San Francisco International Airport to Union Square via driving."
+ },
+ "web.Google Map--25": {
+  "split": "test_env",
+  "text": "Search for a parking facility near the Fox Theater in Detroit that closes at night."
+ },
+ "web.Google Map--26": {
+  "split": "test_env",
+  "text": "Search for Los Angeles on Google Map, try to print the map as PDF and summarize the information on the map."
+ },
+ "web.Google Map--27": {
+  "split": "test_env",
+  "text": "Locate the Target stores in Atlanta, GA. How many results are shown on the map."
+ },
+ "web.Google Map--28": {
+  "split": "test_env",
+  "text": "Find the search settings for Google Map, what options are shown on that page?"
+ },
+ "web.Google Map--29": {
+  "split": "test_env",
+  "text": "Identify bus stops in Ypsilanti, MI, list three of them."
+ },
+ "web.Google Map--3": {
+  "split": "test_env",
+  "text": "The least amount of walking from Central Park Zoo to the Broadway Theater in New York."
+ },
+ "web.Google Map--30": {
+  "split": "test_env",
+  "text": "Locate a parking lot near the Brooklyn Bridge that open 24 hours. Review the user comments about it."
+ },
+ "web.Google Map--31": {
+  "split": "test_env",
+  "text": "First search New York's Central Park Zoo on Google Map, and then find the way to share the map. What is the generated sharing link?"
+ },
+ "web.Google Map--32": {
+  "split": "test_env",
+  "text": "Search for plumbers available now but not open 24 hours in Orlando, FL."
+ },
+ "web.Google Map--33": {
+  "split": "test_env",
+  "text": "Check out Denver International Airport's information and tell me: 1) which level has the least proportion in reviews; 2) what are its Accessibility and Amenities."
+ },
+ "web.Google Map--34": {
+  "split": "test_env",
+  "text": "Find a hiking trail within 2 miles of zip code 80202."
+ },
+ "web.Google Map--35": {
+  "split": "test_env",
+  "text": "Search for a natural reserve in Texas called Big Bend National Park and gather its Basic Information."
+ },
+ "web.Google Map--36": {
+  "split": "test_env",
+  "text": "Identify 5 restaurants serving pizza near the 30309 zip code and rank them by their ratings."
+ },
+ "web.Google Map--37": {
+  "split": "test_env",
+  "text": "Locate a parking area in Salem and find a route from there to Marblehead, including map directions for better understanding."
+ },
+ "web.Google Map--38": {
+  "split": "test_env",
+  "text": "Search for bicycle parking near the Empire State Building."
+ },
+ "web.Google Map--39": {
+  "split": "test_env",
+  "text": "Find a route from Miami to New Orleans, and provide the detailed route information."
+ },
+ "web.Google Map--4": {
+  "split": "test_env",
+  "text": "Plan a trip from Boston Logan Airport to North Station."
+ },
+ "web.Google Map--40": {
+  "split": "test_env",
+  "text": "Find a restaurant in Boston that eats Boston lobster and asks for a rating of 4.6 or higher, and check out what a one-star review says."
+ },
+ "web.Google Map--5": {
+  "split": "test_env",
+  "text": "Search for a parking garage near Thalia Hall in Chicago that isn't open 24 hours."
+ },
+ "web.Google Map--6": {
+  "split": "test_env",
+  "text": "Find all Uniqlo locations in Chicago, IL."
+ },
+ "web.Google Map--7": {
+  "split": "test_env",
+  "text": "Find bus stops in Alanson, MI"
+ },
+ "web.Google Map--8": {
+  "split": "test_env",
+  "text": "Find a place to climb within 2 miles of zip code 90028."
+ },
+ "web.Google Map--9": {
+  "split": "test_env",
+  "text": "Find the art gallery that is nearest to Los Angeles Hindu Temple."
+ },
+ "web.Wolfram Alpha--0": {
+  "split": "test_env",
+  "text": "derivative of x^2 when x=5.6"
+ },
+ "web.Wolfram Alpha--1": {
+  "split": "test_env",
+  "text": "Give a constraint on the set of inequalities for the inner region of the pentagram."
+ },
+ "web.Wolfram Alpha--10": {
+  "split": "test_env",
+  "text": "Give the geomagnetic field on June 20, 2023 in Oslo."
+ },
+ "web.Wolfram Alpha--11": {
+  "split": "test_env",
+  "text": "Show the electrical resistivity of UNS A92024 and UNS G10800 at 20 degrees Celsius."
+ },
+ "web.Wolfram Alpha--12": {
+  "split": "test_env",
+  "text": "Which character in unicode 8900 to 8920 looks like a snowflake"
+ },
+ "web.Wolfram Alpha--13": {
+  "split": "test_env",
+  "text": "What is 10,000 US dollars worth now in 1980 and in 1970?"
+ },
+ "web.Wolfram Alpha--14": {
+  "split": "test_env",
+  "text": "Compare the total Calories: whopper vs baconator vs big mac. Assume that each serving of food is 300g."
+ },
+ "web.Wolfram Alpha--15": {
+  "split": "test_env",
+  "text": "Show the blood relationship fraction between you and your father's mother's sister's son."
+ },
+ "web.Wolfram Alpha--16": {
+  "split": "test_env",
+  "text": "Weight lose for a male with current weight 90 kg, 40 year old, 175 cm. If he intakes 1500 calories every day, how long will it take to lose 17 kg."
+ },
+ "web.Wolfram Alpha--17": {
+  "split": "test_env",
+  "text": "Show the average price of movie ticket in Providence, Nashville, Boise in 2023."
+ },
+ "web.Wolfram Alpha--18": {
+  "split": "test_env",
+  "text": "Plot Albert Einstein curve with Parametric equations."
+ },
+ "web.Wolfram Alpha--19": {
+  "split": "test_env",
+  "text": "Standing in the sun from 11:00 am with SPF 5 in Australia. Approximate time to sunburn for each skin type."
+ },
+ "web.Wolfram Alpha--2": {
+  "split": "test_env",
+  "text": "Calculate 3^71 and retain 5 significant figures in scientific notation."
+ },
+ "web.Wolfram Alpha--20": {
+  "split": "test_env",
+  "text": "Compute the integral of 3e^(2x) from x=0 to x=5."
+ },
+ "web.Wolfram Alpha--21": {
+  "split": "test_env",
+  "text": "Calculate (1+0.1*i)^8 + (1\u22120.2*i)^8  where i is a complex number."
+ },
+ "web.Wolfram Alpha--22": {
+  "split": "test_env",
+  "text": "Determine the area of a regular hexagon with a side length of 7 cm."
+ },
+ "web.Wolfram Alpha--23": {
+  "split": "test_env",
+  "text": "Calculate the population growth rate of Canada from 2020 to 2023 using Wolfram Alpha."
+ },
+ "web.Wolfram Alpha--24": {
+  "split": "test_env",
+  "text": "Solve the differential equation y''(t) - 2y'(t) + 10y(t) = 0 and display its general solution."
+ },
+ "web.Wolfram Alpha--25": {
+  "split": "test_env",
+  "text": "Calculate the final position and velocity of a projectile launched at 45 degrees with an initial speed of 30 m/s after 3 seconds."
+ },
+ "web.Wolfram Alpha--26": {
+  "split": "test_env",
+  "text": "Convert 15 kilograms of sulfuric acid to moles and display the percentage composition of H, S, and O by weight."
+ },
+ "web.Wolfram Alpha--27": {
+  "split": "test_env",
+  "text": "Display the thermal conductivity of Copper (Cu) and Aluminum (Al) at 25 degrees Celsius."
+ },
+ "web.Wolfram Alpha--28": {
+  "split": "test_env",
+  "text": "Identify the character in Unicode range 9632 to 9650 that represents a hollow parallelogram."
+ },
+ "web.Wolfram Alpha--29": {
+  "split": "test_env",
+  "text": "Create a plot of cat curve using wolfram alpha."
+ },
+ "web.Wolfram Alpha--3": {
+  "split": "test_env",
+  "text": "Let g(x) be the integral of x^2 cos(2x). Write the expression of g(x)."
+ },
+ "web.Wolfram Alpha--30": {
+  "split": "test_env",
+  "text": "Calculate the estimated time to sunburn for different skin types when exposed to the sun at 1:00 pm with SPF 1 in Brazil."
+ },
+ "web.Wolfram Alpha--31": {
+  "split": "test_env",
+  "text": "Using Wolfram Alpha, determine the current temperature and wind speed in Chicago, IL."
+ },
+ "web.Wolfram Alpha--32": {
+  "split": "test_env",
+  "text": "Print all prime numbers between 1000 and 1200 using Wolfram alpha."
+ },
+ "web.Wolfram Alpha--33": {
+  "split": "test_env",
+  "text": "Identify the electrical energy output of a hydroelectric power plant named Itaipu Dam in 2023 using Wolfram Alpha."
+ },
+ "web.Wolfram Alpha--34": {
+  "split": "test_env",
+  "text": "Calculate the mass of Jupiter compared to Earth using Wolfram Alpha. Also, find the length of one day on Jupiter."
+ },
+ "web.Wolfram Alpha--35": {
+  "split": "test_env",
+  "text": "Calculate the determinant of a 6x6 Hilbert matrix."
+ },
+ "web.Wolfram Alpha--36": {
+  "split": "test_env",
+  "text": "Determine the convergence or divergence of the series \u03a3 (n=1 to \u221e) of 1/(n^3 + 1)."
+ },
+ "web.Wolfram Alpha--37": {
+  "split": "test_env",
+  "text": "How many days are there between February 12, 2024 and August 9, 2050?"
+ },
+ "web.Wolfram Alpha--38": {
+  "split": "test_env",
+  "text": "Compute the length of a curve defined by y = 2x^3 - 3x^2 + 4x - 5 from x = 0 to x = 3."
+ },
+ "web.Wolfram Alpha--39": {
+  "split": "test_env",
+  "text": "Use Wolfram alpha to write the expression of the ellipse x^2 + 3 y^2 = 4 rotated 33 degrees counterclockwise."
+ },
+ "web.Wolfram Alpha--4": {
+  "split": "test_env",
+  "text": "Pack 24 circles in a circle radius r. Compare Densest known packing and Square packing. Then tell me the radius of the inner circles."
+ },
+ "web.Wolfram Alpha--40": {
+  "split": "test_env",
+  "text": "Approximate amount of fat burned by a 28yo, 172cm tall, 70kg woman running for 30min at a pace of 6min/mile."
+ },
+ "web.Wolfram Alpha--41": {
+  "split": "test_env",
+  "text": "What is the approximate Heart Rate Reserve of a 50 year old man who has a heart rate of 60bpm at rest."
+ },
+ "web.Wolfram Alpha--42": {
+  "split": "test_env",
+  "text": "What is the raw memory of a 100.2\" * 123.5\" true colour picture at 72 ppi?"
+ },
+ "web.Wolfram Alpha--43": {
+  "split": "test_env",
+  "text": "A polyominoes of order 6 means you have 6 identical squares to combine different shapes (2-sided). How many combinations are there? Looking at all the shapes in the result, how many of them have only 2 rows in total?"
+ },
+ "web.Wolfram Alpha--44": {
+  "split": "test_env",
+  "text": "Solve the ODE, g' + cos(g) = 0, if there is a constant in the result, determine the value of the constant by the condition that g(0) = 1."
+ },
+ "web.Wolfram Alpha--45": {
+  "split": "test_env",
+  "text": "A 175cm tall, 85kg, 40yo man climbs 2500 steps at about 18cm per step and 40 steps per minute. summarise the Metabolic properties."
+ },
+ "web.Wolfram Alpha--5": {
+  "split": "test_env",
+  "text": "Show the solution of y\"(z) + sin(y(z)) = 0 from wolframalpha."
+ },
+ "web.Wolfram Alpha--6": {
+  "split": "test_env",
+  "text": "Simplify x^5-20x^4+163x^3-676x^2+1424x-1209 so that it has fewer items."
+ },
+ "web.Wolfram Alpha--7": {
+  "split": "test_env",
+  "text": "Give the final angle and final length after 6s of a Spring pendulum with spring equilibrium length=0.12m, initial length=0.24m, initial angle=80deg, mass=1kg, spring constant=120 N/m ."
+ },
+ "web.Wolfram Alpha--8": {
+  "split": "test_env",
+  "text": "Give 12 lbs of 4-cyanoindole, converted to molar and indicate the percentage of C, H, N."
+ },
+ "web.Wolfram Alpha--9": {
+  "split": "test_env",
+  "text": "Annual energy production of Diablo Canyon 2 in 2010."
+ },
+ "aw.AudioRecorderRecordAudio": {
+  "split": "train",
+  "text": "Record an audio clip using Audio Recorder app and save it."
+ },
+ "aw.AudioRecorderRecordAudioWithFileName": {
+  "split": "train",
+  "text": "Record an audio clip and save it with name \"presentation_fGwr.m4a\" using Audio Recorder app."
+ },
+ "aw.ClockStopWatchPausedVerify": {
+  "split": "train",
+  "text": "Pause the stopwatch."
+ },
+ "aw.FilesDeleteFile": {
+  "split": "train",
+  "text": "Delete the file q2a8_fancy_banana.mp3 from the Android filesystem located in the Notifications folder within the sdk_gphone_x86_64 storage area."
+ },
+ "aw.MarkorCreateNote": {
+  "split": "train",
+  "text": "Create a new note in Markor named 2023_01_26_wise_yacht.md with the following text: Ignorance is bliss."
+ },
+ "aw.MarkorCreateNoteAndSms": {
+  "split": "train",
+  "text": "Create a new note in Markor named fair_ant_XOdi.txt with the following text: Actions speak louder than words.. Share the entire content of the note with the phone number +13192815309 via SMS using Simple SMS Messenger"
+ },
+ "aw.MarkorDeleteAllNotes": {
+  "split": "train",
+  "text": "Delete all my notes in Markor."
+ },
+ "aw.MarkorDeleteNewestNote": {
+  "split": "train",
+  "text": "Delete the newest note in Markor."
+ },
+ "aw.MarkorEditNote": {
+  "split": "train",
+  "text": "Edit note_SiFbv.txt in Markor. Add to the top of the note Hello, World!"
+ },
+ "aw.MarkorMoveNote": {
+  "split": "train",
+  "text": "In Markor, move the note shy_king_copy.md from StudyGuides to MeetingMinutes."
+ },
+ "aw.NotesIsTodo": {
+  "split": "train",
+  "text": "Is the note titled 'To-Do List' in the Joplin app marked as a todo item? Respond with either 'True' if it is a todo or 'False' if not."
+ },
+ "aw.NotesRecipeIngredientCount": {
+  "split": "train",
+  "text": "What quantity of spirulina do I need for the recipe 'Chicken Alfredo' in the Joplin app? Express your answer in the format <amount> <unit> where both the amount and unit exactly match the format in the recipe."
+ },
+ "aw.NotesTodoItemCount": {
+  "split": "train",
+  "text": "How many to-dos do I have in the 'Ideas' folder in the Joplin app? Express your answer as just a single number."
+ },
+ "aw.RecipeAddMultipleRecipesFromMarkor2": {
+  "split": "train",
+  "text": "Add the recipes from recipes.txt in Markor that take 10 mins to prepare into the Broccoli recipe app."
+ },
+ "aw.RecipeDeleteDuplicateRecipes2": {
+  "split": "train",
+  "text": "Delete all but one of any recipes in the Broccoli app that are exact duplicates, ensuring at least one instance of each unique recipe remains"
+ },
+ "aw.RecipeDeleteMultipleRecipes": {
+  "split": "train",
+  "text": "Delete the following recipes from Broccoli app: Zucchini Noodles with Pesto, Garlic Butter Shrimp, Lentil Soup."
+ },
+ "aw.RecipeDeleteMultipleRecipesWithConstraint": {
+  "split": "train",
+  "text": "Delete the recipes from Broccoli app that use black garlic in the directions."
+ },
+ "aw.RecipeDeleteMultipleRecipesWithNoise": {
+  "split": "train",
+  "text": "Delete the following recipes from Broccoli app: Chicken Alfredo Pasta, Tomato Basil Bruschetta, Grilled Cheese with Tomato and Basil."
+ },
+ "aw.RecipeDeleteSingleWithRecipeWithNoise": {
+  "split": "train",
+  "text": "Delete the following recipes from Broccoli app: Classic Margherita Pizza."
+ },
+ "aw.RetroCreatePlaylist": {
+  "split": "train",
+  "text": "Create a playlist in Retro Music titled \"Hip Hop Bangers 270\" with the following songs, in order: Golden Days, Dreamer's Awake, Hidden Paths"
+ },
+ "aw.RetroPlaylistDuration": {
+  "split": "train",
+  "text": "Create a playlist in Retro Music titled \"Reggae Rhythms 51\" with a duration between 45 and 50 minutes using the provided songs."
+ },
+ "aw.SimpleCalendarAnyEventsOnDate": {
+  "split": "train",
+  "text": "Do I have any events October 28 in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleCalendarDeleteEvents": {
+  "split": "train",
+  "text": "In Simple Calendar Pro, delete all the calendar events on 2023-10-27"
+ },
+ "aw.SimpleCalendarDeleteEventsOnRelativeDay": {
+  "split": "train",
+  "text": "In Simple Calendar Pro, delete all events scheduled for this Monday."
+ },
+ "aw.SimpleCalendarEventOnDateAtTime": {
+  "split": "train",
+  "text": "What is on my schedule for October 27 2023 at 8:00pm in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleCalendarEventsInNextWeek": {
+  "split": "train",
+  "text": "What events do I have in the next week in Simple Calendar Pro? Assume the week starts from Monday. Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleCalendarEventsInTimeRange": {
+  "split": "train",
+  "text": "Do I have any events between 4:15pm and 8pm Friday in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleCalendarEventsOnDate": {
+  "split": "train",
+  "text": "What events do I have October 24 in Simple Calendar Pro? Answer with the titles only. If there are multiple titles, format your answer as a comma separated list."
+ },
+ "aw.SimpleCalendarLocationOfEvent": {
+  "split": "train",
+  "text": "What is the location of my Family reunion event in Simple Calendar Pro? Answer with the location only."
+ },
+ "aw.SimpleCalendarNextEvent": {
+  "split": "train",
+  "text": "What is my next upcoming event in Simple Calendar Pro? Answer with the title only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleSmsReply": {
+  "split": "train",
+  "text": "Reply to +18407874306 with message: Yoga class every Tuesday and Thursday at 6 PM. in Simple SMS Messenger"
+ },
+ "aw.SimpleSmsReplyMostRecent": {
+  "split": "train",
+  "text": "Reply to the most recent text message using Simple SMS Messenger with message: A quick brown fox."
+ },
+ "aw.SimpleSmsSend": {
+  "split": "train",
+  "text": "Send a text message using Simple SMS Messenger to +16597910719 with message: Beauty is in the eye of the beholder."
+ },
+ "aw.SportsTrackerActivitiesCountForWeek": {
+  "split": "train",
+  "text": "How many running activities did I do this week in the OpenTracks app? Assume the week starts from Monday. Express your answer as a single integer."
+ },
+ "aw.SportsTrackerLongestDistanceActivity": {
+  "split": "train",
+  "text": "What was the longest distance covered in a mountain biking activity in the OpenTracks app this week? Assume the week starts from Monday. Express your answer as a single number in meters rounded to the nearest integer."
+ },
+ "aw.SportsTrackerTotalDurationForCategoryThisWeek": {
+  "split": "train",
+  "text": "What was the total duration of running activities in the OpenTracks app this week? Assume the week starts from Monday. Express your answer in minutes as a single integer."
+ },
+ "aw.SystemBluetoothTurnOn": {
+  "split": "train",
+  "text": "Turn bluetooth on."
+ },
+ "aw.SystemBluetoothTurnOnVerify": {
+  "split": "train",
+  "text": "Turn bluetooth on."
+ },
+ "aw.SystemBrightnessMax": {
+  "split": "train",
+  "text": "Turn brightness to the max value."
+ },
+ "aw.SystemBrightnessMaxVerify": {
+  "split": "train",
+  "text": "Turn brightness to the max value."
+ },
+ "aw.SystemBrightnessMin": {
+  "split": "train",
+  "text": "Turn brightness to the min value."
+ },
+ "aw.SystemWifiTurnOff": {
+  "split": "train",
+  "text": "Turn wifi off."
+ },
+ "aw.SystemWifiTurnOn": {
+  "split": "train",
+  "text": "Turn wifi on."
+ },
+ "aw.SystemWifiTurnOnVerify": {
+  "split": "train",
+  "text": "Turn wifi on."
+ },
+ "aw.TasksCompletedTasksForDate": {
+  "split": "train",
+  "text": "Which tasks have I completed for October 16 2023 in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.TasksDueOnDate": {
+  "split": "train",
+  "text": "What tasks do I have due October 24 2023 in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.TasksHighPriorityTasks": {
+  "split": "train",
+  "text": "What are my high priority tasks in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.TurnOnWifiAndOpenApp": {
+  "split": "train",
+  "text": "Turn on Wifi, then open the settings app"
+ },
+ "aw.MarkorCreateFolder": {
+  "split": "val",
+  "text": "Create a new folder in Markor named folder_20261106_225804."
+ },
+ "aw.MarkorMergeNotes": {
+  "split": "val",
+  "text": "Merge the contents of Markor notes tough_frog_2023_08_05.txt, proud_cat_edited.txt and 2023_08_21_friendly_koala.md (in the same order) into a new Markor note named mIObBbo4 and save it. Add a new line between the content of each note."
+ },
+ "aw.RecipeAddMultipleRecipesFromMarkor": {
+  "split": "val",
+  "text": "Add the recipes from recipes.txt in Markor to the Broccoli recipe app."
+ },
+ "aw.RecipeDeleteDuplicateRecipes3": {
+  "split": "val",
+  "text": "Delete all but one of any recipes in the Broccoli app that are exact duplicates, ensuring at least one instance of each unique recipe remains"
+ },
+ "aw.RecipeDeleteSingleRecipe": {
+  "split": "val",
+  "text": "Delete the following recipes from Broccoli app: Thai Peanut Noodle Salad."
+ },
+ "aw.SimpleCalendarAddOneEventRelativeDay": {
+  "split": "val",
+  "text": "In Simple Calendar Pro, create a calendar event for this Thursday at 5h with the title 'Call with the Team' and the description 'We will celebrate team roles.'. The event should last for 60 mins."
+ },
+ "aw.SimpleCalendarAddOneEventTomorrow": {
+  "split": "val",
+  "text": "In Simple Calendar Pro, create a calendar event for tomorrow at 20h with the title 'Call with the Team' and the description 'We will prepare for team roles.'. The event should last for 30 mins."
+ },
+ "aw.SimpleCalendarFirstEventAfterStartTime": {
+  "split": "val",
+  "text": "What is my first event after 5:20pm October 29 2023 in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.SimpleSmsResend": {
+  "split": "val",
+  "text": "Resend the message I just sent to Noa Mohammed in Simple SMS Messenger"
+ },
+ "aw.SportsTrackerActivityDuration": {
+  "split": "val",
+  "text": "How long was my skiing activity October 12 2023 in the OpenTracks app? Express your answer in minutes as a single integer."
+ },
+ "aw.SystemBluetoothTurnOffVerify": {
+  "split": "val",
+  "text": "Turn bluetooth off."
+ },
+ "aw.TasksIncompleteTasksOnDate": {
+  "split": "val",
+  "text": "What incomplete tasks do I have still have to do by Thursday in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.TurnOffWifiAndTurnOnBluetooth": {
+  "split": "val",
+  "text": "Turn off WiFi, then enable bluetooth"
+ },
+ "aw.ClockStopWatchRunning": {
+  "split": "test",
+  "text": "Run the stopwatch."
+ },
+ "aw.ClockTimerEntry": {
+  "split": "test",
+  "text": "Create a timer with 0 hours, 16 minutes, and 35 seconds. Do not start the timer."
+ },
+ "aw.FilesMoveFile": {
+  "split": "test",
+  "text": "Move the file holiday_photos.jpg from Podcasts within the sdk_gphone_x86_64 storage area to the DCIM within the same sdk_gphone_x86_64 storage area in the Android filesystem."
+ },
+ "aw.MarkorAddNoteHeader": {
+  "split": "test",
+  "text": "Update the Markor note 2023_08_10_neat_wolf.txt by adding the following text, along with a new blank line before the existing content: \"RnI8sP34yDzJQbvkfplR\", and rename it to busy_wolf_2023_07_23.txt."
+ },
+ "aw.MarkorChangeNoteContent": {
+  "split": "test",
+  "text": "Update the content of strong_jacket_h1hZ.txt to \"inNqu8UNNtyXBHCZpYp7\" in Markor and change its name to lively_fox_2023_03_22.md."
+ },
+ "aw.MarkorDeleteNote": {
+  "split": "test",
+  "text": "Delete the note in Markor named bold_king_edited."
+ },
+ "aw.NotesMeetingAttendeeCount": {
+  "split": "test",
+  "text": "How many attendees were present in the meeting titled 'Employee Performance Evaluation' in the Joplin app? Express your answer as just a single number."
+ },
+ "aw.RecipeAddMultipleRecipes": {
+  "split": "test",
+  "text": "Add the following recipes into the Broccoli app:\nRecipe: Chicken Alfredo Pasta\n description: A delicious and healthy choice for any time of the day.\n servings: 2 servings\n preparationTime: 10 mins\n ingredients: as desired\n directions: Cook fettuccine pasta, toss with Alfredo sauce and grilled chicken strips. Serve with a sprinkle of Parmesan cheese. Try adding a pinch of your favorite spices for extra flavor.\n\nRecipe: Quinoa Salad with Vegetables\n description: A quick and easy meal, perfect for busy weekdays.\n servings: 8 servings\n preparationTime: 30 mins\n ingredients: to your liking\n directions: Mix cooked quinoa with diced vegetables, feta cheese, and a lemon olive oil dressing. Try adding a pinch of your favorite spices for extra flavor.\n\nRecipe: Butternut Squash Soup\n description: A delicious and healthy choice for any time of the day.\n servings: 1 serving\n preparationTime: 45 mins\n ingredients: per individual taste\n directions: Saut\u00e9 onions and garlic, add cubed butternut squash and broth. Puree until smooth and season with nutmeg, salt, and pepper. Feel free to substitute with ingredients you have on hand.\n"
+ },
+ "aw.RecipeAddSingleRecipe": {
+  "split": "test",
+  "text": "Add the following recipes into the Broccoli app:\nRecipe: Chicken Caesar Salad Wrap\n description: An ideal recipe for experimenting with different flavors and ingredients.\n servings: 3-4 servings\n preparationTime: 2 hrs\n ingredients: as desired\n directions: Toss chopped romaine lettuce with Caesar dressing, grilled chicken strips, and Parmesan cheese. Wrap in a large tortilla. Feel free to substitute with ingredients you have on hand.\n"
+ },
+ "aw.RecipeDeleteDuplicateRecipes": {
+  "split": "test",
+  "text": "Delete all but one of any recipes in the Broccoli app that are exact duplicates, ensuring at least one instance of each unique recipe remains"
+ },
+ "aw.RetroPlayingQueue": {
+  "split": "test",
+  "text": "Add the following songs, in order, Through the Storm, Hidden Paths, Forever Young, Whispers of the Past, Heartbeat Away to my playing queue in Retro music."
+ },
+ "aw.RetroSavePlaylist": {
+  "split": "test",
+  "text": "Create a playlist in Retro Music titled \"Blues Break 567\" with the following songs, in order: Chasing Shadows, Lost in the Echo, Twilight Calling. Then export the playlist to the Downloads directory on the device."
+ },
+ "aw.SimpleCalendarAddOneEvent": {
+  "split": "test",
+  "text": "In Simple Calendar Pro, create a calendar event on 2023-10-29 at 13h with the title 'Call with the Team' and the description 'We will understand upcoming project milestones.'. The event should last for 60 mins."
+ },
+ "aw.SimpleCalendarAddOneEventInTwoWeeks": {
+  "split": "test",
+  "text": "In Simple Calendar Pro, create a calendar event in two weeks from today at 17h with the title 'Meeting with the Team' and the description 'We will prepare for annual budget.'. The event should last for 30 mins."
+ },
+ "aw.SimpleCalendarAddRepeatingEvent": {
+  "split": "test",
+  "text": "In Simple Calendar Pro, create a recurring calendar event titled 'Review session for Budget Planning' starting on 2023-10-15 at 14h. The event recurs weekly, forever, and lasts for 60 minutes each occurrence. The event description should be 'We will understand business objectives. Remember to confirm attendance.'."
+ },
+ "aw.SimpleCalendarDeleteOneEvent": {
+  "split": "test",
+  "text": "In Simple Calendar Pro, delete the calendar event on 2023-10-24 at 23h with the title 'Workshop on Project X'"
+ },
+ "aw.SimpleCalendarNextMeetingWithPerson": {
+  "split": "test",
+  "text": "When is my next meeting with Ava in Simple Calendar Pro? Express your answer in the format <month name> <day> <year> <hour in 24-hour format>:<minutes>."
+ },
+ "aw.SimpleSmsSendReceivedAddress": {
+  "split": "test",
+  "text": "Text the address of the event to Gabriel Ibrahim that Oscar Mohamed just sent me in Simple SMS Messenger"
+ },
+ "aw.SportsTrackerActivitiesOnDate": {
+  "split": "test",
+  "text": "What activities did I do October 01 in the OpenTracks app? Answer with the activity type only. If there are multiple types, format your answer in a comma separated list."
+ },
+ "aw.SportsTrackerTotalDistanceForCategoryOverInterval": {
+  "split": "test",
+  "text": "What was the total distance covered for kayaking activities in the OpenTracks app from October 09 2023 to October 10 2023? Express your answer as a single number in meters rounded to the nearest integer."
+ },
+ "aw.SystemBluetoothTurnOff": {
+  "split": "test",
+  "text": "Turn bluetooth off."
+ },
+ "aw.SystemBrightnessMinVerify": {
+  "split": "test",
+  "text": "Turn brightness to the min value."
+ },
+ "aw.SystemWifiTurnOffVerify": {
+  "split": "test",
+  "text": "Turn wifi off."
+ },
+ "aw.TasksDueNextWeek": {
+  "split": "test",
+  "text": "How many tasks do I have due next week in Tasks app? Assume the week starts from Monday. Express your answer as a single integer."
+ },
+ "aw.TasksHighPriorityTasksDueOnDate": {
+  "split": "test",
+  "text": "Which tasks with high priority are due October 18 2023 in the Tasks app? Answer with the title only. If there are multiples titles, format your answer in a comma separated list."
+ },
+ "aw.BrowserDraw": {
+  "split": "test_env",
+  "text": "Open the file task.html in Downloads in the file manager; when prompted open it with Chrome. Then create a drawing using the three colors shown at the top and hit submit."
+ },
+ "aw.BrowserMaze": {
+  "split": "test_env",
+  "text": "Open the file task.html in Downloads in the file manager; when prompted open it with Chrome. Then navigate the X to the bottom-right cell, by using the direction buttons."
+ },
+ "aw.BrowserMultiply": {
+  "split": "test_env",
+  "text": "Open the file task.html in Downloads in the file manager; when prompted open it with Chrome. Then click the button 5 times, remember the numbers displayed, and enter their product in the form."
+ },
+ "aw.CameraTakePhoto": {
+  "split": "test_env",
+  "text": "Take one photo."
+ },
+ "aw.CameraTakeVideo": {
+  "split": "test_env",
+  "text": "Take one video."
+ },
+ "aw.ContactsAddContact": {
+  "split": "test_env",
+  "text": "Create a new contact for Hugo Pereira. Their number is +13920741751."
+ },
+ "aw.ContactsNewContactDraft": {
+  "split": "test_env",
+  "text": "Go to the new contact screen and enter the following details: First Name: Grace, Last Name: Taylor, Phone: 799-802-1530, Phone Label: Work. Do NOT hit save."
+ },
+ "aw.ExpenseAddMultiple": {
+  "split": "test_env",
+  "text": "Add the following expenses into the pro expense:\nExpense: Social Club Dues\n amount_dollars: $67.41\n category_name: Social\n note: Monthly recurring\n\nExpense: Legal Fees\n amount_dollars: $10.14\n category_name: Others\n note: Monthly recurring\n\nExpense: Stationery\n amount_dollars: $118.93\n category_name: Others\n note: Remember to transfer funds\n"
+ },
+ "aw.ExpenseAddMultipleFromGallery": {
+  "split": "test_env",
+  "text": "Add the expenses from expenses.jpg in Simple Gallery Pro to pro expense."
+ },
+ "aw.ExpenseAddMultipleFromMarkor": {
+  "split": "test_env",
+  "text": "Go through the transactions in my_expenses.txt in Markor. Log the reimbursable transactions in the pro expense."
+ },
+ "aw.ExpenseAddSingle": {
+  "split": "test_env",
+  "text": "Add the following expenses into the pro expense:\nExpense: Therapy Sessions\n amount_dollars: $307.01\n category_name: Health Care\n note: I may repeat this\n"
+ },
+ "aw.ExpenseDeleteDuplicates": {
+  "split": "test_env",
+  "text": "Delete all but one of any expenses in pro expense that are exact duplicates, ensuring at least one instance of each unique expense remains."
+ },
+ "aw.ExpenseDeleteDuplicates2": {
+  "split": "test_env",
+  "text": "Delete all but one of any expenses in pro expense that are exact duplicates, ensuring at least one instance of each unique expense remains."
+ },
+ "aw.ExpenseDeleteMultiple": {
+  "split": "test_env",
+  "text": "Delete the following expenses from pro expense: Ride-Sharing, Flight Tickets, Taxi Fare."
+ },
+ "aw.ExpenseDeleteMultiple2": {
+  "split": "test_env",
+  "text": "Delete the following expenses from pro expense: Streaming Services, Unexpected Expenses, Pet Supplies."
+ },
+ "aw.ExpenseDeleteSingle": {
+  "split": "test_env",
+  "text": "Delete the following expenses from pro expense: Rental Income."
+ },
+ "aw.MarkorCreateNoteFromClipboard": {
+  "split": "test_env",
+  "text": "Create a note in Markor named 2023_09_08_active_umbrella.txt. Perform a paste operation in the note and save the note."
+ },
+ "aw.MarkorTranscribeReceipt": {
+  "split": "test_env",
+  "text": "Create a file in Markor, called receipt.md with the transactions from the receipt.png. Use Simple Gallery to view the receipt. Please enter transactions in csv format including the header \"Date, Item, Amount\"."
+ },
+ "aw.MarkorTranscribeVideo": {
+  "split": "test_env",
+  "text": "Transcribe the contents of video ZwUN_moment_70_.mp4 by watching it in VLC player (located in Download) and writing the sequence of strings shown on each frame to the text file ZwUN_moment_70__transcription.txt in Markor as a comma separated list. For example, if the first frame shows the text \"edna\" and the second frame shows the text \"pineapple\", then the text file should contain only the following text: \"edna, pineapple\"."
+ },
+ "aw.OpenAppTaskEval": {
+  "split": "test_env",
+  "text": "Open the contacts app. Clear any pop-ups that may appear by granting all permissions that are required."
+ },
+ "aw.OsmAndFavorite": {
+  "split": "test_env",
+  "text": "Add a favorite location marker for 47.1303814, 9.5930117 in the OsmAnd maps app."
+ },
+ "aw.OsmAndMarker": {
+  "split": "test_env",
+  "text": "OsmAndMarker"
+ },
+ "aw.OsmAndTrack": {
+  "split": "test_env",
+  "text": "Save a track with waypoints Sch\u00f6nberg, Liechtenstein, Triesen, Liechtenstein, Bendern, Liechtenstein in the OsmAnd maps app in the same order as listed."
+ },
+ "aw.RecipeAddMultipleRecipesFromImage": {
+  "split": "test_env",
+  "text": "Add the recipes from recipes.jpg in Simple Gallery Pro to the Broccoli recipe app."
+ },
+ "aw.SaveCopyOfReceiptTaskEval": {
+  "split": "test_env",
+  "text": "In Simple Gallery Pro, copy receipt_2023_01_22_sure_frog.jpg in DCIM and save a copy with the same name in Download"
+ },
+ "aw.SimpleDrawProCreateDrawing": {
+  "split": "test_env",
+  "text": "Create a new drawing in Simple Draw Pro. Name it adipiscing_fair_jelly_final.png. Save it in the Pictures folder within the sdk_gphone_x86_64 storage area."
+ },
+ "aw.SimpleSmsSendClipboardContent": {
+  "split": "test_env",
+  "text": "Send a message to +15459061746 with the clipboard content in Simple SMS Messenger"
+ },
+ "aw.SystemCopyToClipboard": {
+  "split": "test_env",
+  "text": "Copy the following text to the clipboard: Tracking #: 5K672F4C"
+ },
+ "aw.VlcCreatePlaylist": {
+  "split": "test_env",
+  "text": "Create a playlist titled \"Ultimate Fails Series\" with the following files in VLC (located in Internal Memory/VLCVideos), in order: highlight_41_4K_2023_03_30.mp4, scene_68_4K_copy.mp4"
+ },
+ "aw.VlcCreateTwoPlaylists": {
+  "split": "test_env",
+  "text": "Create a playlist titled \"Ultimate Fails Series\" with the following files in VLC (located in Internal Memory/VLCVideos), in order: 2023_03_29_highlight_14_.mp4, scene_94_HD_MYI6.mp4, moment_1_HD_2023_07_27.mp4, recording_61_4K_final.mp4. And then, create a playlist titled \"Adventure Marathon\" with the following files in VLC, in order: clip_12_HD_2023_02_25.mp4, 8u3n_footage_29_HD.mp4, footage_46_raw_jZFR.mp4, D7B0_highlight_2_4K.mp4."
+ }
+}

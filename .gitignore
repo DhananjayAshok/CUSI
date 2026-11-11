@@ -183,3 +183,8 @@ storage/
 /tmp*.sh
 /tmp*.py
 screenlog.*
+
+# Local reports, research notes and the check report: kept out of git on purpose
+/check_report.md
+/reports/
+/research_notes/

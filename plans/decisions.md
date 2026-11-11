@@ -2243,3 +2243,14 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
 - 2026-11-10 (base, all 50 Red, new emulator, second greedy run 294236): 23/50. New-emulator base: 25, 23 (mean 24).
   Divergence-weighted adapter 18, 18 is ~6 tasks below.
 - 2026-11-10 (six_judge_mix full-benchmark evals 294004-05, new emulator): 21 and 20 of 50 vs base 25, 23. Six tasks: only t17 each run. Judge-labelled aggressive SFT: no gain on the six, ~3-4 tasks below base overall.
+- 2026-11-11 (split adopted, configs/splits/benchmark_splits.json): {task id: {split, text}}, 745 tasks. Ids:
+  gb.<game>.<row:03d>, web.<WebVoyager id>, aw.<AndroidWorld task class> (text: the seed-0 instance). Splits
+  train / val / test / test_env. From the 2026-11-09 proposal plus: Red task 49 -> train (shares its start state with
+  train tasks 0, 4, 10); train -> test to reach 15 test tasks in Red and Link's Awakening and 25 in-app Android test
+  tasks, picked to keep test's base solve rate and category mix close to the env's: Red 21, 25; Link's Awakening 1,
+  9, 11, 15 (category only: no base eval of it); Android MarkorChangeNoteContent, RecipeAddSingleRecipe,
+  SimpleCalendarAddOneEventInTwoWeeks, SimpleCalendarAddRepeatingEvent. GameBoy tasks sharing a start state stay in
+  one split. Counts: GameBoy 55/15/30 + 100 test_env (Crystal, Oracle of Seasons); Web 180/45/75 + 129 (Google Map,
+  Google Flights, Wolfram Alpha; the 5 bot-blocked sites are out); Android 48/13/25 + 30. Base success train / val /
+  test: Red 0.44/0.39/0.40, Android 0.70/0.69/0.69. No version or drift check by choice: the benchmarks are assumed
+  fixed. Plan for using it: plans/user_sandbox_plan.md.

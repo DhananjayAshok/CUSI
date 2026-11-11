@@ -64,6 +64,11 @@ def web_source_task_file(*, parameters: dict) -> str:
     return os.path.join(parameters["project_root"], "WebVoyager", "data", "WebVoyager_data.jsonl")
 
 
+def benchmark_splits_file(*, parameters: dict) -> str:
+    """Every benchmark task's split: {task id: {split, text}} (cusi/eval/splits.py)."""
+    return os.path.join(parameters["project_root"], "configs", "splits", "benchmark_splits.json")
+
+
 # --------------------------------------------------------------------------- practice
 
 class PracticePaths:
