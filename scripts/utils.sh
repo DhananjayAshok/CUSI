@@ -301,6 +301,12 @@ declare -A SCREEN_COVERAGE_DEFAULTS=(
     ["at_steps"]="none"
 )
 
+# scripts/slurm/text_coverage.sh
+TEXT_COVERAGE_ESSENTIALS=("env" "runs")
+declare -A TEXT_COVERAGE_DEFAULTS=(
+    ["at_steps"]="none"
+)
+
 # scripts/slurm/task_diversity.sh
 TASK_DIVERSITY_ESSENTIALS=("env" "run")
 declare -A TASK_DIVERSITY_DEFAULTS=(
