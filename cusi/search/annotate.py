@@ -30,6 +30,22 @@ from cusi.utils.paths import search_run
 ANNOTATIONS_FILE = "annotations.json"
 
 
+def node_app(*, env_name: str, node: dict, expansions: dict):
+    """Android: the app on a node's screen, named so its tasks name it right (the annotator, seeing only the screen,
+    called other apps' settings "the Settings app" and many apps "the app"): the foreground package recorded on the
+    step that reached the node (the env's true state), else, for a root, its scene's app. None elsewhere."""
+    if env_name != "android":
+        return None
+    from cusi.agents.specs import ENV_SPECS, android_app_label
+    if node.get("segment"):
+        exp_id, _, last = node["segment"]
+        true = ((expansions[exp_id]["steps"][last].get("info") or {}).get("true") or {})
+        if true.get("activity"):
+            return android_app_label(package=true["activity"].split("/")[0])
+    scene = ENV_SPECS["android"].scenes.get(node.get("env_key"))
+    return scene.kwargs.get("app_label") if scene else None
+
+
 def unannotated(*, nodes: dict) -> list:
     """Ids of the nodes annotate_run would still annotate (it skips challenge pages)."""
     return [nid for nid, n in nodes.items() if not (n.get("flags") or {}).get("challenge_page") and (
@@ -74,9 +90,10 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
                     update["flags"] = {**(node.get("flags") or {}), "features_parse_failed": True}
                 update.update(f)
                 added.append("features")
+            app = node_app(env_name=env_name, node=node, expansions=expansions)
             if node.get("node_notes_raw") is None:
                 update.update(node_notes(env_description=env_description, frame=frame,
-                                         text_boxes=node.get("text_boxes") or []))
+                                         text_boxes=node.get("text_boxes") or [], app=app))
                 added.append("node_notes")
             if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
                 exp_id, first, last = node["segment"]
@@ -88,7 +105,8 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
                 if node.get("edge_notes_raw") is None:
                     update.update(edge_notes(env_description=env_description, start_frame=start_frame.pil(),
                                              end_frame=frame, steps=steps,
-                                             description=update.get("description", node.get("description"))))
+                                             description=update.get("description", node.get("description")),
+                                             app=app))
                     added.append("edge_notes")
         if update:
             update["annotate_compute"] = compute.snapshot()

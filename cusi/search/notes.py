@@ -15,7 +15,7 @@ from cusi.search.features import screen_text
 
 NO_TASK = "NO TASK"
 
-NODE_PROMPT = """You are looking at a screen of {env_description}.
+NODE_PROMPT = """You are looking at a screen of {env_description}.{app_note}
 
 Text currently on the screen:
 {texts}
@@ -45,7 +45,7 @@ Tasks:
 - <task>"""
 
 EDGE_PROMPT = """These two screenshots show {env_description}: the first is a starting screen, the second the screen \
-reached from it after the {n_actions} actions below.
+reached from it after the {n_actions} actions below.{app_note}
 
 Actions, in order:
 {actions}
@@ -57,7 +57,7 @@ What happened along the way:
 given to reach exactly this outcome: say what to achieve or find out, not which buttons were pressed, and name the \
 specific target (page, menu, setting, information, place or item) so that it can be checked from the final screen. \
 If the sequence achieved nothing meaningful (it only moved around without reaching anything new, ended where it \
-started, or nothing changed), or its outcome takes a single action to reach, write {no_task}. Write the task and the \
+started, or nothing changed), write {no_task}. Write the task and the \
 knowledge in English, even when the screens are in another language.
 {task_examples}
 2. Knowledge: list the facts this sequence shows that would help someone complete future tasks in this environment: \
@@ -125,16 +125,22 @@ def parse_edge(*, text: str) -> tuple:
     return task or None, knowledge, bool(m)
 
 
+def app_note(*, app: str, where: str) -> str:
+    """A sentence naming the app on a screen, or nothing."""
+    return f' {where} is in the {app} app: call it "{app}" when a task names the app.' if app else ""
+
+
 class NodeNotes:
     def __init__(self, *, vlm, task_examples: str, max_new_tokens: int = 1000, temperature: float = 0.0) -> None:
         """task_examples: the env's TASK_EXAMPLES entry."""
         self.vlm, self.task_examples = vlm, task_examples
         self.max_new_tokens, self.temperature = max_new_tokens, temperature
 
-    def __call__(self, *, env_description: str, frame, text_boxes: list) -> dict:
-        """{"screen_description", "node_tasks", "node_notes_raw"}; frame is the node's unlabelled screen (PIL)."""
+    def __call__(self, *, env_description: str, frame, text_boxes: list, app: str = None) -> dict:
+        """{"screen_description", "node_tasks", "node_notes_raw"}; frame is the node's unlabelled screen (PIL); app:
+        the app on it (Android), named in the prompt so tasks name it."""
         prompt = NODE_PROMPT.format(env_description=env_description, texts=screen_text(boxes=text_boxes),
-                                    task_examples=self.task_examples)
+                                    task_examples=self.task_examples, app_note=app_note(app=app, where="This screen"))
         out = str(self.vlm.infer(texts=prompt, images=[frame], max_new_tokens=self.max_new_tokens,
                                  temperature=self.temperature)["output"])
         description, tasks = parse_node(text=out)
@@ -148,14 +154,15 @@ class EdgeNotes:
         self.max_new_tokens, self.temperature = max_new_tokens, temperature
 
     def __call__(self, *, env_description: str, start_frame, end_frame, steps: list,
-                 description: str) -> dict:
+                 description: str, app: str = None) -> dict:
         """{"edge_task" (None: no task), "knowledge", "edge_notes_raw"}: start_frame is the parent's screen, end_frame
         the node's (PIL); steps the segment's steps; description its transition report."""
         actions = "\n".join(f"{i + 1}. {action_line(action=s.action, valid=s.info.get('valid', True))}"
                             for i, s in enumerate(steps))
         prompt = EDGE_PROMPT.format(env_description=env_description, n_actions=len(steps), actions=actions,
                                     description=description or "(no description)", no_task=NO_TASK,
-                                    task_examples=self.task_examples)
+                                    task_examples=self.task_examples,
+                                    app_note=app_note(app=app, where="The second screenshot"))
         out = str(self.vlm.infer(texts=prompt, images=[start_frame, end_frame], max_new_tokens=self.max_new_tokens,
                                  temperature=self.temperature)["output"])
         task, knowledge, _ = parse_edge(text=out)

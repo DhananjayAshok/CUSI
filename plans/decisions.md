@@ -2399,3 +2399,13 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   = 9 (not used yet). No prompt versioning (user's call): judge outputs stay in judge_<model>/.
   task_coverage compares GameBoy trees with their own game's benchmark rows (config "game"; Link's Awakening
   supported). Not done: the five-anchor judge sanity check (still paraphrase vs random), judge-based dedup at >= 9.
+- 2026-11-11 (annotation: Android app names): the annotator named other apps' settings "the Settings app" and many
+  apps "the app" (audit: 54 / 39 and 49 / 104 tasks, random / VLM android s0 trees), which the judges (shown
+  only the two texts) read as a different app. Node and edge notes now get a sentence naming the app on the screen
+  (cusi.search.annotate node_app: the foreground package on the step that reached the node, from the env's true
+  state, mapped by cusi.agents.specs android_app_label; a root's scene app). An exception to "the annotation prompts
+  see only screens", for the app name only.
+- 2026-11-11 (annotation: one-action rule dropped): the edge prompt no longer says an outcome one action away gets
+  NO TASK. Gemma ignored it anyway (1,209 of 1,346 one-action segments on web random had a task), and most such
+  tasks are legitimate (open a page, talk to someone, read a sign). GameBoy screen-relative tasks ("Talk to the
+  person to your left") merged across nodes: left as is (user's call).

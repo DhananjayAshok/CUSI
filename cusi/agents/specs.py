@@ -36,12 +36,28 @@ ANDROID_PACKAGES = {"markor": "net.gsantner.markor", "settings": "com.android.se
                     "files": "com.google.android.documentsui", "draw": "com.simplemobiletools.draw.pro",
                     "joplin": "net.cozic.joplin", "tasks": "org.tasks", "opentracks": "de.dennisguse.opentracks",
                     "clipper": "ca.zgrs.clipper"}
+#: The app names Android annotation uses (cusi.search.annotate): the scenes' labels, by short name.
+ANDROID_APP_LABELS = {"markor": "Markor", "settings": "Settings", "broccoli": "Broccoli", "expense": "Pro Expense",
+                      "calendar": "Simple Calendar Pro", "sms": "Simple SMS Messenger", "clock": "Clock",
+                      "gallery": "Simple Gallery Pro", "retro": "Retro Music", "chrome": "Chrome", "camera": "Camera",
+                      "contacts": "Contacts", "vlc": "VLC", "osmand": "OsmAnd", "audio_recorder": "Audio Recorder",
+                      "files": "Files", "draw": "Simple Draw Pro", "joplin": "Joplin", "tasks": "Tasks",
+                      "opentracks": "OpenTracks", "clipper": "Clipper"}
 #: Screens Settings opens from other packages (its search, Google settings, Digital Wellbeing, text-to-speech, SIM,
 #: storage, sounds, wallpaper, legal notices): seen in the Settings scenes of the unscoped Android searches.
 SETTINGS_EXTRAS = ("com.google.android.settings.intelligence", "com.google.android.gms",
                    "com.google.android.apps.wellbeing", "com.google.android.tts", "com.android.phone",
                    "com.android.storagemanager", "com.google.android.soundpicker", "com.google.android.apps.wallpaper",
                    "com.android.htmlviewer")
+
+
+def android_app_label(*, package: str):
+    """The app name of an Android package (Settings for the screens Settings opens from other packages); None for
+    packages outside AndroidWorld's apps."""
+    if package in SETTINGS_EXTRAS:
+        return ANDROID_APP_LABELS["settings"]
+    short = next((k for k, v in ANDROID_PACKAGES.items() if v == package), None)
+    return ANDROID_APP_LABELS.get(short)
 
 
 @dataclass(frozen=True)
