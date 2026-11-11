@@ -2334,3 +2334,9 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   seconds_left into each obs json and envctl info, and envclient.seconds_left() returns it. README and the live-agent
   prompt say so. Steps were already visible (steps / max_steps in every response). Checked live (job 295357: GameBoy
   test task, fixed_repo in the sandbox: 299 s then 293 s left after a 5 s sleep).
+- 2026-11-11 (naming: states vs screens vs tasks): a state is the env's ground truth (URL, activity, map tile, flag),
+  a screen is a frame the agent saw, a task is a text goal; each metric is named after what it counts.
+  cusi/search/coverage.py -> cusi/search/state_coverage.py (state_coverage(), state_coverage.json,
+  STATE_COVERAGE_FILE); Android's "screens" measure (activity + fragments) -> "activity_states".
+  cusi.search.screen_coverage is reserved for distinct screens from frames. Older entries above that say "true
+  coverage" mean state coverage.
