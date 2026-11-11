@@ -291,6 +291,16 @@ declare -A TASK_COVERAGE_DEFAULTS=(
     ["vllm_port"]="none"
 )
 
+# scripts/slurm/screen_coverage.sh (encoder_model "none": siglip's own default, google/siglip2-base-patch16-224)
+SCREEN_COVERAGE_ESSENTIALS=("env" "runs")
+declare -A SCREEN_COVERAGE_DEFAULTS=(
+    ["embedder"]="siglip"
+    ["encoder_model"]="none"
+    ["stage"]="both"
+    ["tau"]="none"
+    ["at_steps"]="none"
+)
+
 # scripts/slurm/task_diversity.sh
 TASK_DIVERSITY_ESSENTIALS=("env" "run")
 declare -A TASK_DIVERSITY_DEFAULTS=(

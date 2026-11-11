@@ -1,0 +1,16 @@
+# Screen coverage (cusi/search/screen_coverage.py): tau, the distance (1 - cosine of image embeddings) at or under
+# which two frames count as the same screen, per env and embedder key (random_patch, or the SigLIP model's short name
+# with [a-z0-9_] only). Set 2026-11-11 by `python -m cusi.search.screen_coverage calibrate`: 60 same-scene frame pairs
+# per env (random and VLM s0 trees; spread over distance bands of both embedders) labelled by hand as same / different
+# screen (rule and labels: storage/tmp/screen_calibration/<env>/labels.jsonl, decisions.md); tau = the fewest
+# labelling errors. Errors of 60: gameboy 10 / 3, web 8 / 7, android 8 / 2 (random_patch / siglip).
+screen_coverage_tau:
+  gameboy:
+    random_patch: 0.0314
+    siglip2_base_patch16_224: 0.0328
+  web:
+    random_patch: 0.0019
+    siglip2_base_patch16_224: 0.0401
+  android:
+    random_patch: 0.0065
+    siglip2_base_patch16_224: 0.0275
