@@ -2417,3 +2417,18 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   (job 295384, Qwen3-VL-8B fp16, 10 nodes): the 3 darkest Red s3 nodes (black screen, player sprite) were described
   as transitions with no tasks; ordinary battle and Web pages kept their tasks. Caveat: a genuinely dark place (a cave
   without Flash) could look the same.
+- 2026-11-11 (GameBoy screen text on for every game): gameboy_spec no longer sets read_text False, so Link's
+  Awakening, Crystal and Oracle of Seasons scenes read their screen text from their glyph tables, as Red always did
+  (GameBoyPlayEnv's default; GameBoy evals already read text for every game). Link's Awakening's table (73 glyphs,
+  labelled by eye earlier, never validated) was checked rather than rebuilt (its harvest work dir was gone):
+  `harvest check` on 16 saved states x 80 steps (1,296 frames) read a dialogue box at 130 / 130 text moments; a probe
+  of the benchmark start states (talking, START, SELECT; 1,452 frames) read 38 / 38 complete dialogue lines exactly
+  (e.g. "Thanks for call- ing! ...Well...", "You've got a Piece of Heart", "YIP YIP!"), with 84 distinct strings in
+  all, the rest prefixes captured while text types out. No glyph is missing: the 18 "unknown" cells are keys in the
+  table ("0", "!", "1", "L-") rejected by the screen check mid-fade. Not read: sprite text ("PUSH SELECT" on the
+  subscreen), single characters (dungeon numbers 1-8; min_chars 2); the save menu and shop dialogue were not
+  reached. The HUD (item levels "L-1", rupees "000") reads on nearly every frame. Crystal: dialogue / menu text at
+  470 / 527 text moments, 1,966 unknown cells over 19 glyphs. Oracle of Seasons: 1 / 9 text moments (8x16 font;
+  "The" reads "lhe"). Effect on LA trees: obs text_boxes filled, the novelty score's text half (region_alpha 0.5)
+  active, so new dialogue lines and changed HUD numbers make nodes; annotation prompts get the screen text. The LA
+  trees are rerun with it (user's call).

@@ -220,15 +220,15 @@ class EnvPool:
 
 
 def gameboy_spec(*, game: str) -> EnvSpec:
-    """The GameBoy spec for another GameBoyWorlds game: one scene per start state of its benchmark tasks, with no
-    on-screen text (obs["text_boxes"] empty; the glyph tables are only checked for pokemon_red)."""
+    """The GameBoy spec for another GameBoyWorlds game: one scene per start state of its benchmark tasks. The screen's
+    text is read as for Pokemon Red, from the game's glyph table (cusi/envs/gameboy_text/<game>.json)."""
     if game == GAMEBOY_GAME:
         return ENV_SPECS["gameboy"]
     from gameboy_worlds.utils import get_benchmark_tasks
     states = list(dict.fromkeys(get_benchmark_tasks(game=game)["init_state"]))
     base = ENV_SPECS["gameboy"]
     return EnvSpec(name="gameboy", domain=gameboy_domain(game=game),
-                   scenes={state: Scene(state, {"init_state": state, "game": game, "read_text": False})
+                   scenes={state: Scene(state, {"init_state": state, "game": game})
                            for state in states},
                    max_steps=base.max_steps, max_workers=base.max_workers, make_env=_gameboy_env,
                    make_agent=base.make_agent, env_description=f"the GameBoy game {game}")
