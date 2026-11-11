@@ -5,9 +5,11 @@ Screen coverage: compare the screens (frames the agent saw) of search runs of on
 Every frame a run saw is embedded: each scene's start frame, then every expansion step's frame in the order the steps
 were taken (restores are not exploration and saved no frame; curiosity sessions record states only, no frames). Two
 frames show the same screen when their distance, 1 - cosine of their image embeddings (the archive's novelty, image
-only), is at most tau. Runs are compared frame by frame, with no per-run deduplication: for each run, the frames that
-no frame of another run comes within tau of (per other run, and for 3+ runs by none of the others), overall and by
-scene, at tau / 2, tau and 2 tau. Counts weight a screen by how often its run saw it.
+only), is at most tau. Runs are compared frame by frame: for each run, the frames that no frame of another run comes
+within tau of (per other run, and for 3+ runs by none of the others), overall and by scene, at tau / 2, tau and 2 tau;
+these counts weight a screen by how often its run saw it. Each run's distinct screens are counted too: a greedy pass
+over its frames in the order seen, a frame being a new screen when no screen kept so far is within tau (overall, and
+per scene on that scene's frames alone).
 
 Embedders: random_patch (the search's own, image only; CPU) or siglip (--encoder_model, which alone defaults to
 google/siglip2-base-patch16-224: the user's call). tau per env and embedder: configs/screen_coverage.yaml, set by
@@ -17,7 +19,9 @@ Stages:
 - embed: <run>/screen_coverage/<embedder key>/ (parts/*.npz, one per block of expansions, resumable; a run that grew
   is embedded from where it stopped).
 - compare: storage/search/<env>/_compare/screen_coverage/<hash>/ (meta_<hash>.yaml, summary.json, summary.md,
-  sheets of sample unmatched frames).
+  sheets of sample unmatched frames), with each run's distinct screens.
+- distinct: one or more runs' distinct screens alone (printed, and written to the run's embedding dir as
+  distinct_<tau>[_at<N>].json).
 - calibrate: --stage sample writes same-scene frame pairs across distance bands, with both embedders' distances, as
   sheets for labelling (storage/tmp/screen_calibration/<env>/); --stage fit reads labels.jsonl there and prints the tau
   that best separates "same" from "different" per embedder.
@@ -48,6 +52,7 @@ EMBEDDERS = ("random_patch", "siglip")
 DEFAULT_SIGLIP = "google/siglip2-base-patch16-224"
 BLOCK = 200                 # expansions per embedding part
 COMPARE_CHUNK = 4096        # query rows per matmul
+DISTINCT_CHUNK = 1024       # frames checked against the kept screens at once
 SHEET_SAMPLES = 24          # unmatched frames per contact sheet
 DIR = "screen_coverage"
 
@@ -185,6 +190,47 @@ def distances_between(*, a: dict, b: dict, device: str) -> np.ndarray:
     return d[inverse]
 
 
+def distinct_screens(*, emb: np.ndarray, keys: np.ndarray, tau: float, device: str) -> np.ndarray:
+    """Greedy distinct screens of frames in the order seen: a frame is a new screen when no screen kept so far is
+    within tau. Exact, in chunks: a chunk's frames are first checked against the kept screens, then the rest among
+    themselves in order. Returns the kept frames' indices."""
+    _, first = np.unique(keys, return_index=True)     # identical frames: only the first can be new
+    order = np.sort(first)
+    kept_idx, kept = [], torch.zeros((0, emb.shape[1]), device=device)
+    for s in range(0, len(order), DISTINCT_CHUNK):
+        idx = order[s:s + DISTINCT_CHUNK]
+        q = torch.from_numpy(emb[idx].astype(np.float32)).to(device)
+        new = torch.ones(len(idx), dtype=torch.bool, device=device)
+        if len(kept):
+            new = (1.0 - (q @ kept.T).max(dim=1).values) > tau
+        cand = torch.nonzero(new).flatten().tolist()
+        if not cand:
+            continue
+        c = q[cand]
+        near = ((1.0 - c @ c.T) <= tau).cpu().numpy()
+        chosen = []
+        for i in range(len(cand)):
+            if not any(near[i, j] for j in chosen):
+                chosen.append(i)
+        kept = torch.cat([kept, c[chosen]])
+        kept_idx += [int(idx[cand[i]]) for i in chosen]
+    return np.array(kept_idx, dtype=np.int64)
+
+
+def distinct_counts(*, data: dict, taus: dict, device: str) -> dict:
+    """{label: {"overall": n, "by_scene": {scene: n}}} of a run's distinct screens at each tau."""
+    out = {}
+    for label, t in taus.items():
+        row = {"overall": int(len(distinct_screens(emb=data["emb"], keys=data["key"], tau=t, device=device))),
+               "by_scene": {}}
+        for s in np.unique(data["scene"]):
+            m = data["scene"] == s
+            row["by_scene"][str(s)] = int(len(distinct_screens(emb=data["emb"][m], keys=data["key"][m], tau=t,
+                                                                device=device)))
+        out[label] = row
+    return out
+
+
 def contact_sheet(*, images: list, captions: list, path: str, cell: int = 220, cols: int = 6) -> None:
     """Images in a grid of cell x cell tiles (aspect kept), each captioned underneath."""
     rows = (len(images) + cols - 1) // cols
@@ -227,7 +273,8 @@ def compare_runs(*, env_name: str, runs: list, key: str, tau: float, at_steps: O
     for a in runs:
         others = [b for b in runs if b != a]
         n = len(data[a]["key"])
-        detail = {"frames": n, "distinct_frames_exact": int(len(np.unique(data[a]["key"]))), "unmatched": {}}
+        detail = {"frames": n, "distinct_frames_exact": int(len(np.unique(data[a]["key"]))),
+                  "distinct_screens": distinct_counts(data=data[a], taus=taus, device=device), "unmatched": {}}
         none_of = np.min(np.stack([nearest[(a, b)] for b in others]), axis=0) if others else np.zeros(n)
         for label, t in taus.items():
             row = {f"by_{b}": int((nearest[(a, b)] > t).sum()) for b in others}
@@ -242,15 +289,18 @@ def compare_runs(*, env_name: str, runs: list, key: str, tau: float, at_steps: O
             detail["unmatched"][label] = row
         summary["runs_detail"][a] = detail
         r = detail["unmatched"]["tau"]
-        lines.append(f"## {a}: {n} frames")
+        ds = detail["distinct_screens"]
+        lines.append(f"## {a}: {n} frames; distinct screens " +
+                     ", ".join(f"{ds[label]['overall']} at {label}" for label in taus))
         for label, t in taus.items():
             u = detail["unmatched"][label]
             cells = ", ".join(f"unmatched by {k[3:]}: {v} ({u['fraction'][k]:.1%})" for k, v in u.items()
                               if k.startswith("by_") and k != "by_scene")
             lines.append(f"- {label} = {t:.3g}: {cells}")
-        lines += ["", "| scene | frames | unmatched at tau |", "|---|---|---|"]
+        lines += ["", "| scene | frames | distinct screens at tau | unmatched at tau |", "|---|---|---|---|"]
         for s, v in sorted(r["by_scene"].items(), key=lambda kv: -kv[1]["unmatched"]):
-            lines.append(f"| {s} | {v['frames']} | {v['unmatched']} ({v['unmatched'] / max(v['frames'], 1):.0%}) |")
+            lines.append(f"| {s} | {v['frames']} | {ds['tau']['by_scene'][s]} | {v['unmatched']} "
+                         f"({v['unmatched'] / max(v['frames'], 1):.0%}) |")
         lines.append("")
         if sheets:
             idx = np.where(none_of > tau)[0]
@@ -440,9 +490,38 @@ def compare(env_name, runs, embedder, encoder_model, tau, at_steps):
     summary = compare_runs(env_name=env_name, runs=runs, key=key, tau=tau, at_steps=at_steps, parameters=parameters)
     for run, d in summary["runs_detail"].items():
         u = d["unmatched"]["tau"]
-        print(f"{run}: {d['frames']} frames; at tau={tau:g}: " +
+        print(f"{run}: {d['frames']} frames, {d['distinct_screens']['tau']['overall']} distinct screens; at tau={tau:g}: " +
               ", ".join(f"{k}: {v} ({u['fraction'][k]:.1%})" for k, v in u.items()
                         if k.startswith("by_") and k != "by_scene"))
+
+
+@main.command()
+@click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
+@click.option("--run", "runs", required=True, multiple=True, help="Run(s) under storage/search/<env>/.")
+@_key_opts
+@click.option("--tau", default=None, type=float, help="Default: configs/screen_coverage.yaml for this env/embedder.")
+@click.option("--at_steps", default=None, type=int, help="Only the run's first N env steps.")
+def distinct(env_name, runs, embedder, encoder_model, tau, at_steps):
+    """Each run's distinct screens at tau / 2, tau and 2 tau (overall and per scene)."""
+    parameters = load_parameters()
+    key = embedder_key(embedder=embedder, encoder_model=encoder_model)
+    tau = tau if tau is not None else config_tau(parameters=parameters, env_name=env_name, key=key)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    taus = {"tau/2": tau / 2, "tau": tau, "2tau": 2 * tau}
+    for run in runs:
+        directory = search_run(parameters=parameters, env=env_name, run=run)
+        data = load_frames(directory=directory, key=key)
+        if at_steps is not None:
+            keep = data["step"] <= at_steps
+            data = {k: v[keep] for k, v in data.items()}
+        counts = distinct_counts(data=data, taus=taus, device=device)
+        out = {"run": run, "embedder": key, "taus": taus, "at_steps": at_steps, "frames": int(len(data["key"])),
+               "distinct_screens": counts}
+        name = f"distinct_{tau:g}" + (f"_at{at_steps}" if at_steps is not None else "") + ".json"
+        with open(os.path.join(cache_dir(directory=directory, key=key), name), "w") as f:
+            json.dump(out, f, indent=1)
+        print(f"{run}: {out['frames']} frames; distinct screens " +
+              ", ".join(f"{counts[label]['overall']} at {label} = {t:.3g}" for label, t in taus.items()))
 
 
 @main.command()
