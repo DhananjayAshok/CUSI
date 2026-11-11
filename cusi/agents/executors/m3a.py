@@ -109,7 +109,9 @@ def completed_subgoals(*, response: str, n: int) -> set:
 
 
 def device_context(*, env) -> str:
-    """F61: the foreground app and the device date/time (one adb call)."""
+    """F61: the foreground app and the device date/time (one adb call). An env server's RemoteEnv asks the server."""
+    if hasattr(env, "remote_device_context"):
+        return env.remote_device_context()
     aw = getattr(env, "_env", None)
     app, when = "unknown", "unknown"
     try:

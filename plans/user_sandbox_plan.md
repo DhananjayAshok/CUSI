@@ -118,3 +118,9 @@ it also gives us the agent's full exploration history without asking the agent t
 ## Open questions
 
 - Which coding agent runs in the sandbox (Claude Code, an open model through a CLI)?
+
+## Status (2026-11-11)
+
+Steps 1-6 built (not committed): split loader, env server (all three envs), client + envctl, sandbox, launcher
+(slurm/user_env.sh), test harness (run_user_eval.py). Recording is an option (`--record_dir`), off by default.
+Decisions taken during the build and open issues: plans/user_sandbox_review.md.

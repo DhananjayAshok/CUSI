@@ -41,6 +41,9 @@ MSG_NO_LABELS = ("No element on this page has a numerical label, so Click and Ty
 MSG_OUT_OF_BOUNDS = ("That action left the website for a browser page ({url}), so it was undone. "
                      "Stay on the website.")
 MSG_OFF_SITE = "That action left {site} for another website ({url}), so it was undone. Stay on {site}."
+#: An action that would land on a blocked website (an env server's held-out sites): undone before it is observed, and
+#: the message does not name the site.
+MSG_BLOCKED_SITE = "That action is not available here, so it was undone. No action was performed."
 #: Typing mode (the typing explorer): only Type (which also presses Enter) and Scroll.
 MSG_TYPING_ONLY = "Only Type and Scroll are available here. No action was performed."
 #: No-typing mode (the VLM explorer without typing): Type is refused, and the menu and the agent's system prompt drop it
@@ -328,12 +331,15 @@ class WebVoyagerPlayEnv(TextActionEnv):
         work_dir: Optional[str] = None,
         scope: Optional[dict] = None,
         site: Optional[str] = None,
+        blocked: Optional[list] = None,
         action_mode: str = "all",
         parameters: dict[str, Any] = None,
     ) -> None:
         """url is free_play only; fast_waits replaces run.py's fixed sleeps process-wide (run.FAST_WAITS). scope (see
         in_scope) keeps a free_play episode on its website: a step that lands elsewhere is undone and invalid; site
-        names it in that message. Test mode is never scoped (a few benchmark tasks need another site). action_mode
+        names it in that message. Test mode is never scoped (a few benchmark tasks need another site). blocked (any mode): a
+        list of scopes (an env server's held-out websites); a step that lands on one is undone before it is observed
+        and is invalid with MSG_BLOCKED_SITE. action_mode
         "typing" accepts only Type and Scroll; "no_typing" refuses Type. A Type that leaves the page's URL unchanged (typed, not submitted to a
         new page) sets info["no_node"]: a saved state (URL, cookies, storage, scroll) would not hold what was typed."""
         self._parameters = load_parameters(parameters)
@@ -366,6 +372,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._challenge = None      # why the current page looks like a bot check (challenge_reason), or None
         self._url = self.start_url
         self._scope = scope if mode == "free_play" else None
+        self._blocked = list(blocked or [])
         if action_mode not in ("all", "typing", "no_typing"):
             log_error(f"action_mode must be 'all', 'typing' or 'no_typing', got {action_mode!r}",
                       parameters=self._parameters)
@@ -646,8 +653,9 @@ class WebVoyagerPlayEnv(TextActionEnv):
             if error is not None:
                 left = self._url
                 self._return_to(url=prev_url)
+                where = {"blocked" if error == MSG_BLOCKED_SITE else "out_of_bounds": left}
                 info = self.make_info(valid=False, error=error, parsed_action=parsed, step=self._steps,
-                                      scene_id=self.scene_id, url=self._url, out_of_bounds=left)
+                                      scene_id=self.scene_id, url=self._url, **where)
                 return self._obs(), 0.0, False, truncated, info
         except (self._wv.WebDriverException, WebDriverHang) as e:
             # A navigation that aborts a command can leave the tab detached ("not attached to an active page",
@@ -674,6 +682,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _left_message(self, *, url: Optional[str]) -> Optional[str]:
         """The error for a step that landed on url, if url is a browser page or (scoped) another website."""
+        if url and url.startswith("http") and any(in_scope(url=url, scope=b) for b in self._blocked):
+            return MSG_BLOCKED_SITE
         if out_of_bounds(url=url):
             return MSG_OUT_OF_BOUNDS.format(url=url)
         if not in_scope(url=url, scope=self._scope):

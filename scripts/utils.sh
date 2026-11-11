@@ -320,6 +320,27 @@ declare -A ACTION_REPRO_DEFAULTS=(
     ["n"]="300"
 )
 
+# scripts/slurm/testbed.sh
+TESTBED_ESSENTIALS=("models" "judge_model")
+declare -A TESTBED_DEFAULTS=(
+    ["run_prefix"]="tb"
+    ["gameboy_max_steps"]="75"
+    ["testbed"]="none"
+    ["vllm_port"]="none"
+    ["overwrite"]="false"
+)
+
+# scripts/slurm/user_env.sh
+USER_ENV_ESSENTIALS=("model" "run")
+declare -A USER_ENV_DEFAULTS=(
+    ["envs"]="gameboy,web,android"
+    ["kind"]="dev"
+    ["cmd"]="none"
+    ["record_dir"]="none"
+    ["vllm_port"]="none"
+    ["port_base"]="none"
+)
+
 # scripts/slurm/env_run.sh
 ENV_RUN_ESSENTIALS=("env" "cmd")
 declare -A ENV_RUN_DEFAULTS=(

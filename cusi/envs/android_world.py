@@ -152,6 +152,9 @@ def canonical_action(*, action: json_action.JSONAction) -> dict:
 
 
 MSG_OFF_APP = "That action left {app} for another app ({package}), so it was undone. Stay in {app}."
+#: An action that would open a blocked app (an env server's held-out apps): undone before any observation of it, and
+#: the message does not name the app.
+MSG_BLOCKED_APP = "That action is not available here, so it was undone. No action was performed."
 #: Typing mode (the typing explorer): only what typing into a field needs.
 TYPING_ACTIONS = ("input_text", "keyboard_enter", "scroll", "hide_keyboard")
 MSG_TYPING_ONLY = ("Only typing actions are available: input_text, keyboard_enter (to submit), scroll, and "
@@ -278,6 +281,7 @@ class AndroidPlayEnv(TextActionEnv):
         start_app: Optional[str] = None,
         app_label: Optional[str] = None,
         scope: Optional[dict] = None,
+        blocked_packages: Optional[list] = None,
         action_mode: str = "all",
         connection: Optional[interface.AsyncEnv] = None,
         stabilize_after_action: bool = True,
@@ -286,7 +290,9 @@ class AndroidPlayEnv(TextActionEnv):
         """emulator enables hang recovery; probe_success is for logging only, never show it to the policy. scope
         ({"packages": [...]}, with start_app) keeps a free_play episode in its app: a step that leaves for a package
         outside it and SYSTEM_PACKAGES is undone and invalid; app_label names the app in that message. Test mode is
-        never scoped (tasks start on the home screen and some use two apps). action_mode "typing" accepts only
+        never scoped (tasks start on the home screen and some use two apps). blocked_packages (any mode): a step that
+        lands in one of them is undone (Back, else Home; a scoped scene reopens its app) before it is observed, and is
+        invalid with MSG_BLOCKED_APP. action_mode "typing" accepts only
         TYPING_ACTIONS (hide_keyboard is this env's: Back while the keyboard is shown); "no_typing" refuses
         NO_TYPING_REFUSED and clicks on the on-screen keyboard."""
         self._parameters = load_parameters(parameters)
@@ -316,6 +322,7 @@ class AndroidPlayEnv(TextActionEnv):
         self.action_mode = action_mode
         self.extra_action_types = ("hide_keyboard",) if action_mode == "typing" else ()   # the executor accepts it
         self._scope = frozenset(scope["packages"]) if scope and mode == "free_play" and start_app else None
+        self._blocked = frozenset(blocked_packages or ())
         self.scoped_app = self.app_label if self._scope is not None else None   # the explorer's "Do not leave" names it
         self.stabilize_after_action = stabilize_after_action
         if start_app:
@@ -622,7 +629,11 @@ class AndroidPlayEnv(TextActionEnv):
                 acted = (ja is not None or hide) and error is None
                 raw = self._guarded(fn=lambda: self._observe_raw(env, stabilize=self.stabilize_after_action))
                 left = self._guarded(fn=lambda: self._left_app(env)) if acted else None
-                if left is not None:
+                if left is not None and left in self._blocked:
+                    raw = self._guarded(fn=lambda: self._undo_blocked(env))
+                    error = MSG_BLOCKED_APP
+                    extra["blocked"] = left
+                elif left is not None:
                     raw = self._guarded(fn=lambda: self._return_to_app(env))
                     error = MSG_OFF_APP.format(app=self.app_label, package=left)
                     extra["out_of_bounds"] = left
@@ -703,11 +714,28 @@ class AndroidPlayEnv(TextActionEnv):
         return adb_utils.extract_package_name(activity) if activity else None
 
     def _left_app(self, env: interface.AsyncEnv) -> Optional[str]:
-        """The foreground package, if the scene is scoped and it is outside the scope (None: still in the app)."""
-        if self._scope is None:
+        """The foreground package, if it is blocked, or the scene is scoped and it is outside the scope (None: still
+        in bounds)."""
+        if self._scope is None and not self._blocked:
             return None
         package = self._foreground_package(env)
-        return package if package and package not in self._scope and package not in SYSTEM_PACKAGES else None
+        if not package or package in SYSTEM_PACKAGES:
+            return None
+        if package in self._blocked:
+            return package
+        return package if self._scope is not None and package not in self._scope else None
+
+    def _undo_blocked(self, env: interface.AsyncEnv):
+        """Undo a step that opened a blocked app: Back, then Home if still there (a scoped scene reopens its app
+        instead); the observation after."""
+        if self._scope is not None:
+            return self._return_to_app(env)
+        env.execute_action(json_action.JSONAction(action_type="navigate_back"))
+        time.sleep(self.wait_after_action_seconds)
+        if self._foreground_package(env) in self._blocked:
+            env.execute_action(json_action.JSONAction(action_type="navigate_home"))
+            time.sleep(self.wait_after_action_seconds)
+        return self._observe_raw(env, stabilize=True)
 
     def _return_to_app(self, env: interface.AsyncEnv):
         """Undo a step that left the app: Back (keeps the app's state, e.g. a share flow that opened another app),

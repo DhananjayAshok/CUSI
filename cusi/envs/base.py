@@ -177,6 +177,11 @@ class TextActionEnv(gym.Env, ABC):
         env has none."""
         return None
 
+    def full_state(self) -> Optional[dict]:
+        """The env's full internal state, for the env server's `state` (cusi/env_server): by default true_state();
+        envs with more (GameBoy's memory map) add it here rather than to true_state, which every step records."""
+        return self.true_state()
+
     def _add_true_state(self, *, info: dict) -> None:
         true = self.true_state()
         if true is not None:

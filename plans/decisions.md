@@ -2258,3 +2258,40 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   files), pokemon_crystal (129), legend_of_zelda_the_oracle_of_seasons (115). Before it, only Red had been pulled after
   the 37b80e3 update, and the other three games failed at env start on missing capture files (e.g.
   sword_pickedupinit.npy, lost_battle.npy). After it, one task per game starts and steps.
+- 2026-11-11 (User sandbox built, plans/user_sandbox_plan.md; review list plans/user_sandbox_review.md): env server
+  per env (cusi/env_server, run_env_server.py) with dev (train + val, free play, state on request, save/load) and
+  test (test + test_env, success only) policies, per-session tokens, client + envctl (user_template/), Apptainer
+  sandbox (storage/containers/sandbox.sif, only the workspace mounted), launcher slurm/user_env.sh, harness
+  run_user_eval.py. Recording off by default (--record_dir). E2E (294745/294746, Gemma-4-31B): the final agents
+  solved 6 of 8 tasks through the servers (both misses GameBoy at a 60-step cap), no state in any response, sandbox
+  isolation and the held-out blocks held.
+- 2026-11-11 (User sandbox, user's calls): (1) dev sessions undo steps into held-out apps/sites instead of ending the
+  session: envs' blocked_packages / blocked lists, undone before observation, invalid with a message that names
+  nothing; live-checked (294747 Android, 294749 Web). (2) env server `state` = env.full_state(): GameBoy adds
+  GameBoyWorlds' memory snapshot (all four games, Zelda included) and agent_state; true_state() unchanged (exploration
+  records it every step). (3) prime-agent 0.10.2 in the sandbox (image docker://python:3.12; agent home
+  storage/env_server/agent_home mounted as $HOME); login pending.
+- 2026-11-11 (trees, seeds 3 and 4 of every combination; tmp_submit_trees.sh / tmp_submit_vlm.sh): GameBoy random +
+  vlm_no_typing, Web and Android random + vlm_no_typing + vlm_w_typing, same settings as s0-s2 (configs checked equal
+  but for the seed), 69 h caps as 3 chained 23 h segments (GameBoy random one segment: it saturates in hours); VLM on
+  2x A6000 as before, random without GPUs, Android --exclusive. Failures on the way: (1) run_search's defaults had
+  changed since s0-s2 (random 100 steps / threshold 0.2, VLM 20 / 0.1; the old trees used 20 steps and 0.1 GameBoy /
+  0.5 Web, Android): the first submission was cancelled and the values are now passed explicitly
+  (--<expander>_steps, --<expander>_node_threshold). (2) 10 vLLM servers starting together hit the HF Hub API rate
+  limit (429) and every VLM segment failed in seconds (afterany ran the whole chains): resubmitted with
+  HF_HUB_OFFLINE=1. (3) Web vlm_no_typing s4's first segment failed on a stale NFS file handle in the shared torch
+  inductor cache (concurrent compiles); its chain got a 4th segment (294869) to keep 69 h. Scenes include the test
+  start states and held-out sites/apps, as in s0-s2 (parity; they predate the split).
+- 2026-11-11 (VLM testbed, storage/tmp/testbed/testbed.json; tmp_testbed.py, tmp_testbed_pick.py): 28 test-split tasks
+  picked from the results on disk, per env 3 easy + 3 hard held-out tasks and 2 easy + 2 hard held-out-env tasks
+  (GameBoy: Red test + Crystal; Zelda has no Gemma results yet): easy = Gemma-4-31B solved every run, hard = never,
+  hard preferring tasks another model solved. Existing models on it (easy / hard): Gemma-4-31B 14/14, 0/14;
+  Qwen3-VL-32B 10/14, 5/14; Qwen3-VL-8B 8/14, 6/14; Gemma-4-26B-A4B 10/13, 3/14; Muse-Glimmer-30B 8/14, 4/14;
+  Qwen3-VL-4B 2/14, 3/14; Qwen3-VL-2B 1/14, 0/14; GLM-4.1V (no unwrap) 1/13, 1/13. New models run with
+  slurm/testbed.sh (one vLLM per model on 4x A5000, the three envs in parallel, Web judged afterwards by
+  Gemma-4-31B): job 294912 with Gemma-4-31B (anchor), Gemma-4-12B / E4B / E2B, Gemma-3-27B, GLM-4.1V (unwrap),
+  Qwen3-VL-30B-A3B, MiniCPM-V-4.5, InternVL3.5-8B, UI-TARS-1.5-7B, Kimi-VL-A3B-Thinking, Mistral-Small-3.2-24B.
+  Caveat: the older full_* GameBoy runs predate the 37b80e3 emulator update.
+- 2026-11-11 (Link's Awakening trees, tmp_submit_zelda.sh): random + vlm_no_typing s0-s5 as sat_zelda_la_<exp>_s<k>
+  under the Red protocol (20 steps, threshold 0.1, patience 50, 69 h); VLM on 2x A6000 except vlm_no_typing s5 on 4x
+  A5000 (user's call: no A6000 pair free). Older sat_random_zelda_la_s0-s2 are 7500-expansion world-model data runs.

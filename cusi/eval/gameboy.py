@@ -49,7 +49,7 @@ def action_sequence(*, reports: list) -> list:
 
 def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
              out_dir: str, parameters=None, world_action=None, world_action_device: str = "cpu",
-             world_action_shadow: bool = True) -> EvalRow:
+             world_action_shadow: bool = True, max_steps: int = MAX_STEPS) -> EvalRow:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.episode import write_episode
@@ -61,14 +61,14 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
         from cusi.world_action import load_world_action_model
         wam = load_world_action_model(spec=world_action, device=world_action_device, parameters=parameters)
     t0 = time.time()
-    env = GameBoyPlayEnv(game=row["game"], mode="test", controller_variant=CONTROLLER_VARIANT, max_steps=MAX_STEPS,
+    env = GameBoyPlayEnv(game=row["game"], mode="test", controller_variant=CONTROLLER_VARIANT, max_steps=max_steps,
                          wait_ticks=GAMEBOY_WAIT_TICKS, session_name=session_name,
                          benchmark_row=row, parameters=parameters)
     try:
         obs, info = env.reset()
         agent = make_agent(env_name="gameboy", env=env, vlm=vlm, parameters=parameters, world_action=wam,
                            world_action_shadow=world_action_shadow)
-        supervisor, result = agent.run(task=row["task"], obs=obs, info=info, max_steps=MAX_STEPS)
+        supervisor, result = agent.run(task=row["task"], obs=obs, info=info, max_steps=max_steps)
         last = env._env.get_info()
         n_steps = int(last["core"]["steps"])
         subgoals = last.get("subgoals", {})
@@ -93,7 +93,7 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
     write_episode(directory=eval_episode(run_dir=out_dir, task_id=task_id), report=report, gameboy=True, meta={
         "task_id": task_id, "task": row["task"], "env": "gameboy", "game": row["game"], "model": model_name,
         "agent": AGENT_VERSION, "executor": agent.executor_class.name, "supervisor": agent.supervisor_class.__name__,
-        "success": success, "termination": final.termination_reason if final else None, "budget": MAX_STEPS,
+        "success": success, "termination": final.termination_reason if final else None, "budget": max_steps,
         "emulator_steps": n_steps, "seconds": seconds, "state": supervisor_state(result=result),
         "world_action": wam_meta,
         "env_extras": {"subgoals_reached": extra["subgoals_reached"], "subgoals_all": extra["subgoals_all"],
@@ -118,6 +118,8 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
 @click.option("--workers", default=1, show_default=True, help="Tasks run in parallel (one emulator each).")
 @click.option("--tasks", default=None, help="Task ids <game>_<row>, comma-separated or a file of lines; overrides"
                                             " --game/--n_tasks.")
+@click.option("--max_steps", default=MAX_STEPS, show_default=True,
+              help="Emulator step budget per task (GameBoyRL's benchmark default is 175).")
 @click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy:"
               " its directory, a world model's name under explore/gameboy/world_model, or 'oracle' (the emulator's "
               "own next screens: the upper bound).")
@@ -128,7 +130,8 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, game, n_tasks, rerun_failed, workers,
-            overwrite, ignore_config_violation, tasks, seed, world_action, world_action_device, world_action_shadow):
+            overwrite, ignore_config_violation, tasks, seed, world_action, world_action_device, world_action_shadow,
+            max_steps):
     """GameBoy benchmark through GameBoyPlayEnv test mode, with the final GameBoy agent."""
     tasks = task_list(tasks=tasks)
     wam_summary = None
@@ -140,7 +143,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
     config = dict(env="gameboy", agent=AGENT_VERSION, model_name=model_name, model_backend=model_backend, game=game,
                   n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=DECODING,
                   world_action=world_action, world_action_model=wam_summary,
-                  world_action_shadow=world_action_shadow if world_action else None)
+                  world_action_shadow=world_action_shadow if world_action else None,
+                  **({} if max_steps == MAX_STEPS else {"max_steps": max_steps}))
     out_dir = eval_run(parameters=parameters, env="gameboy", run=run_name)
     run = EvalRun(directory=out_dir, config=config, overwrite=overwrite,
                   ignore_config_violation=ignore_config_violation)
@@ -158,7 +162,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
                          vllm_base_url=vllm_base_url, session_name=session, out_dir=out_dir,
                          parameters=parameters if workers <= 1 else None,
                          world_action=world_action, world_action_device=world_action_device,
-                         world_action_shadow=world_action_shadow))
+                         world_action_shadow=world_action_shadow, max_steps=max_steps))
 
     def on_result(job, result):
         row, task_id = job["row"], job["task_id"]

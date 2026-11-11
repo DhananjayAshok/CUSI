@@ -316,6 +316,21 @@ class GameBoyPlayEnv(TextActionEnv):
             return bool(moved or rotated)
         return bool(gb_frame_changed(before, after))
 
+    def full_state(self) -> Optional[dict]:
+        """true_state() (None-safe) plus GameBoyWorlds' memory map: "memory", the game's memory snapshot (player,
+        location, party/inventory, battle, UI, map objects, events raised...; Pokemon and Zelda games), and
+        "agent_state", the parser's free roam / dialogue / menu / battle state."""
+        out = dict(self.true_state() or {})
+        memory = getattr(self._env._emulator.state_parser, "memory", None)
+        if memory is not None:
+            out["memory"] = memory.snapshot()
+        info = self._env.get_info()
+        core = info.get("pokemon_core") or info.get("legend_of_zelda_core") or {}
+        if "agent_state" in core:
+            state = core["agent_state"]
+            out["agent_state"] = getattr(state, "name", state)
+        return out
+
     def _read(self, *, addr: int, n: int = 1) -> list:
         memory, bank = self._env._emulator._pyboy.memory, self._ram["bank"]
         return [memory[bank, a] if bank is not None else memory[a] for a in range(addr, addr + n)]
