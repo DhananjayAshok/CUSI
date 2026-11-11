@@ -30,7 +30,7 @@ import re
 import click
 import numpy as np
 from cusi.agents.specs import ENV_NAMES
-from cusi.eval.judge_prompts import COVERAGE_PROMPTS, COVERED_AT, ENV_DESCRIPTIONS, PROMPT_VERSION
+from cusi.eval.judge_prompts import COVERAGE_PROMPTS, COVERED_AT, ENV_DESCRIPTIONS
 from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
 from cusi.search.store import node_rows
 from cusi.utils.log_handling import log_info
@@ -366,7 +366,7 @@ def command(parameters, env_name, run_name, stage, embedder_model, judge_model, 
         return
     if judge_model is None:
         raise click.UsageError("--judge_model is required for the judge, summary and all stages.")
-    judge_dir = os.path.join(cov_dir, f"judge_{short_name(judge_model)}_{PROMPT_VERSION}")
+    judge_dir = os.path.join(cov_dir, f"judge_{short_name(judge_model)}")
     os.makedirs(judge_dir, exist_ok=True)
     if stage in ("judge", "all"):
         from cusi.agents.vlm import AgentVLM

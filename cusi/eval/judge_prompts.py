@@ -6,11 +6,7 @@ are in the environment mechanics and functions they use and the capabilities the
 - internal (cusi.eval.task_diversity, dedup): two proposed tasks; examples from made-up environments only, with no
   test-set content.
 The judges see only the two task texts and the env description (no site, app or start-state context).
-
-Judge outputs go to judge_<model>_<PROMPT_VERSION>/, so judgments under another prompt never mix.
 """
-
-PROMPT_VERSION = "v2"
 
 #: A benchmark task is covered by a proposal scored at least this.
 COVERED_AT = 7

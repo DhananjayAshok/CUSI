@@ -2396,6 +2396,6 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   6-5 similar but different, 4-3 same area, 2-1 different), per-env coverage prompts with test-set examples and
   internal prompts with made-up-environment examples at 10 / 8 / 6 / 4 / 2; judges see only the two texts. Constants
   COVERED_AT = 7 (coverage@7 replaces coverage@8), SAME_FUNCTION_AT = 7 (functions@7 replaces functions@8), DEDUP_AT
-  = 9 (not used yet); PROMPT_VERSION v2, judge outputs in judge_<model>_v2/ so they never mix with the old ones.
+  = 9 (not used yet). No prompt versioning (user's call): judge outputs stay in judge_<model>/.
   task_coverage compares GameBoy trees with their own game's benchmark rows (config "game"; Link's Awakening
   supported). Not done: the five-anchor judge sanity check (still paraphrase vs random), judge-based dedup at >= 9.
