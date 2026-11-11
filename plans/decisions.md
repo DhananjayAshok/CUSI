@@ -2340,3 +2340,54 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   STATE_COVERAGE_FILE); Android's "screens" measure (activity + fragments) -> "activity_states".
   cusi.search.screen_coverage is reserved for distinct screens from frames. Older entries above that say "true
   coverage" mean state coverage.
+- 2026-11-11 (screen coverage, cusi/search/screen_coverage.py + slurm/screen_coverage.sh, configs/screen_coverage.yaml):
+  compares search runs of one env by the screens (frames) they saw. Every frame in env-step order (scene start
+  frames, then every expansion step's frame; restores save none; curiosity sessions log states only, no frames) is
+  embedded with random_patch (the search's own, fixed seed 42, image only; CPU) or SigLIP (--embedder siglip;
+  --encoder_model defaults to google/siglip2-base-patch16-224: the user's call, the one model default allowed here).
+  Same screen: 1 - cosine <= tau. No per-run distinct-screen counts (user's call): per run, the frames no frame of
+  another run comes within tau of (per other run; for 3+ runs, by none of the others), by scene, at tau/2, tau, 2tau,
+  optionally within the first N env steps; frame-weighted (a screen counts as often as its run saw it). Output:
+  storage/search/<env>/_compare/screen_coverage/<hash>/ (meta, summary.json, summary.md, sheets of sample unmatched
+  frames beside their nearest frame of the other run). Embeddings cache at <run>/screen_coverage/<key>/parts/
+  (blocks of 200 expansions, resumable; a grown run is embedded from where it stopped). Web random s0 (77,710
+  frames): 12 min random_patch (CPU), 14 min SigLIP (1 Quadro).
+  tau calibration (calibrate --stage sample / fit): 60 same-scene pairs per env from the random and VLM s0 trees,
+  spread over distance bands of both embedders, labelled by me (Claude) blind to the distances, rule: same screen =
+  the same page / app screen / map room with the same overlay (dialog, menu, keyboard) open or closed; ignored:
+  clock / status bar, animations and sprite or NPC positions, carousels and ads, blinking cursors, scroll under ~1/4
+  viewport, typed text in a field, the player moving within the same room view, the same message part-typed; a
+  different dialogue line or menu, a large scroll, or a mid-fade / half-drawn transition frame = different. Labels
+  with notes: storage/tmp/screen_calibration/<env>/labels.jsonl (pairs.jsonl, sheet_*.png, fit.json beside them).
+  tau (errors of 60): gameboy random_patch 0.0314 (10), SigLIP 0.0328 (3); web 0.0019 (8), 0.0401 (7); android
+  0.0065 (8), 0.0275 (2). SigLIP separates better everywhere; random_patch is weakest on Android (white settings pages
+  look alike pixel-wise) and Web (small dropdowns barely move either embedder).
+  Test (random s0 vs VLM s0; % of each run's frames unmatched by the other at tau/2 / tau / 2tau):
+  gameboy LA (random vs vlm_no_typing): SigLIP 16.3/6.1/1.6% vs 3.1/2.3/0.9%; random_patch 24.9/13.7/11.0% vs
+  9.5/3.1/2.4%. android (random vs vlm_w_typing): SigLIP 72.1/63.5/50.7% vs 65.7/56.2/41.0%; random_patch
+  49.6/32.2/17.2% vs 46.0/26.3/11.9%. web: SigLIP 87.9/85.0/72.4% vs 63.1/59.1/48.7%; random_patch 88.8/86.4/80.4%
+  vs 64.9/63.0/59.1%. The embedders agree on direction everywhere and on size for web; android's SigLIP unmatched
+  sheets show genuinely different screens (random_patch matches distinct white settings pages). Caveats seen in the
+  sheets: GameBoy dialogue frames count once per typed-out step (frame-weighted); web random's localised pages
+  (Booking, App Store in ~30 languages) count as different screens and inflate its unmatched share.
+- 2026-11-11 (task dedup, cusi/eval/task_dedup.py): word overlap alone tested and rejected (lemma Jaccard > 0.7:
+  ~74% precision, merges other-value tasks such as Enterprise Server 3.20 / 3.22, misses 35-61% of cosine >= 0.95
+  pairs; overlap coefficient > 0.7 chains into one group holding 45% of web random's tasks). Adopted: after the
+  exact-text merge, two tasks merge when embedding cosine >= 0.95 AND content-word Jaccard >= 0.7 (stopwords minus
+  direction / negation words) AND their values agree (quoted strings, numbers, capitalised words); direct pairs only
+  (a leader and the tasks that pass against it, most-sourced first), no chains. Runs between the embed stage and the
+  judge on the cached vectors (CPU; no GPU, nothing shared with vLLM). task_coverage / task_diversity: --dedup
+  semantic (default) | exact, --dedup_cos, --dedup_jaccard; one embeddings.npz per embedder, semantic results in
+  <embedder>/dedup_cos<c>_jac<j>/ (with dedup.jsonl), exact in <embedder>/ as before. First run (embed stage):
+  web random 25,382 -> 24,356, web VLM 7,200 -> 7,126, android random 1,244 -> 1,239, android VLM 1,000 -> 993;
+  sampled merges are true rewordings. Jaccard blocks translations and synonyms (web random has 5,445 pairs at cosine
+  >= 0.95; 1,026 merged). Android task_coverage embed now needs a GPU: AndroidWorld goals at seed 30 changed since
+  the cached run (date-dependent), so the benchmark side should come from the split file's fixed texts.
+- 2026-11-11 (screen coverage default): --embedder siglip (google/siglip2-base-patch16-224) is the default (user's
+  call; it fits the labelled pairs better in every env); random_patch stays as an option.
+- 2026-11-11 (task dedup revised): the word-overlap test is dropped (user's call): reading cosine >= 0.95 pairs it
+  blocked (~85% were true rewordings / translations) while the values test caught most wrong merges. Rule now:
+  cosine >= 0.95 AND values agree, direct pairs only; --dedup_jaccard removed; output dir dedup_cos<c>/. Rerun
+  (embed stage): web random 25,382 -> 23,605, web VLM 7,200 -> 7,058, android random 1,244 -> 1,234, android VLM
+  1,000 -> 990. Known misses: tasks adding or dropping a part ("monthly price" vs "... and the sign-up page") and
+  unquoted named variants (Copilot vs Copilot CLI).
