@@ -2094,3 +2094,152 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   finished once results.csv is newer than every episode) and the three testset_six_* focus datasets (self-contained:
   mix-in images copied in). attempt_test --tasks (benchmark rows) and practice.sh --lora (practise with an adapter,
   every role) added. More base practice on the six (repeats 11-40): 294010 (2x A6000), 294011 (8x A5000).
+- 2026-11-09 (failure): oracle_red_rep1 (293887, 6 h) and oracle_crystal_rep1 (293888) lost every task: the episodes
+  ran, then episode_summary raised KeyError 'chosen_is_hindsight_best' (a SigLIP-only record field) before the
+  trajectory pickle was written. Fixed (the field is skipped when absent; the eval now saves the trajectory before
+  computing world-action summaries); 293888 cancelled, both resubmitted --overwrite as 294013 / 294014. The SigLIP
+  runs (293886, 293889) carry the field and were unaffected. Lesson: smoke the summary path for every WAM child,
+  not just the SigLIP one.
+- 2026-11-09 (action_divergence 294012, base greedy on the 1,749 action rows of the 21 benchmark-success tries on the
+  six): base takes the trajectory's action on 85.6% (t17 137/137, t19 675/740, t23 76/89, t29 189/229, t31 380/488,
+  t36 41/66): 251 divergent decisions. t17's single success is matched on every action row, so whatever makes
+  greedy base fail t17 is not in the action calls (done check / supervisor rows, or decoding noise across steps).
+  New arm testset_six_gt_div10_mix: the gt focus rows (29 tries now, repeats 11+ included) with the 251 divergent rows
+  x10 extra, equal mix-in, 18.8k rows/epoch, focus_r64_lr1e-4_e2 (2 epochs), ft 294015 -> repro 294016, evals
+  294017-22. judge_mix 294002 deprioritised (nice 500) behind it.
+- 2026-11-09 (oracle results, cont.): testset_judge (judge labels, all 49, r0-r5, gentle recipe) 23 and 19 of 49
+  (mean 21; base greedy 15-22): within noise. Six-task hits: rep1 019 and 031, rep2 none.
+- 2026-11-09 (GLM-4.1V-9B-Thinking, Android, 293892): 36/114 scored = 31.6% (2 failed to run) vs Gemma-4-31B greedy
+  64.5-70%; 23% of steps invalid (432/1862, Gemma 0.4-9%), 37 tasks hit max_steps; 17.7k output tokens per task.
+- 2026-11-09 (GLM-4.1V-9B-Thinking, Web, 293891): 1/429 (0.2%), 285 tasks hit max_iter. Not a capability number:
+  1,684 of 5,228 replies carry no "Action:" (1,497 "Format ERROR" feedbacks): WebVoyager's call_model caps every
+  reply at max_new_tokens=1000 (the original harness's setting, same for every model) and GLM's thinking runs past it.
+  The replies that do act wrap the action as "Action: <|begin_of_box|>- Click [15]<|end_of_box|>", which
+  extract_information still matches (re.search). WebVoyager calls the model itself, not through lm_inference.
+  lm_inference.get_output_final now also strips GLM's <answer>/<|begin_of_box|> wrappers and the "- " before a boxed
+  action (CUSI-parsed envs: GameBoy, Android); it does not change Web. A fair Web number for a thinking model needs a
+  larger reply cap, which changes the harness for that model only; not rerun.
+- 2026-11-09 (six-task focus, first result): testset_six_gt_nomix (r64 a128, lr 1e-4 constant, 3 epochs, 448 steps,
+  490M trainable) barely fits its own data: train loss ~0.33 (epoch 1) -> ~0.29 -> ~0.30 (epoch 3); val loss on
+  held-out tree rows 0.42 -> 0.35 (step 100) -> 0.40 (step 400). action_repro 293995 on its own training action rows:
+  base picks the row's action 0.87, the adapter 0.81 (agree 0.82): after 3 epochs on these exact rows the served
+  adapter reproduces them *less* often than the base (per task t29 36 -> 28 of 41, t31 72 -> 66 of 87, t19 114 -> 109
+  of 125). Focus successes are mostly first tries (28 of 41 real so far; hints are not the cause), from *sampled*
+  practice, so the response text carries sampling entropy. Open question: trainer fails to fit vs. served adapter
+  != trained adapter. Check: HF teacher-forced NLL of base vs this adapter on 150+ of its own training rows
+  (tmp_token_loss.py --dataset, job 294055).
+- 2026-11-09 (WAM oracle, Red, 294013): emulator-oracle one-step lookahead (the true next screen for every button)
+  19/49, inside the six greedy base runs (15, 19, 19, 20, 21, 22). Per episode: 116 world-action decisions, 41 with
+  no parsable "Choice: k" (36%); executed action differs from the shadow base action on 20% of decisions; the chosen
+  candidate always beats copy (the oracle is exact). So a perfect one-step world model, offered as 8 candidate next
+  screens, does not raise Gemma's success on Red; the 36% unparsed choices are a confound to check before reading
+  this as "lookahead cannot help". SigLIP world model on Red (293889) so far 10/42.
+- 2026-11-09 (GLM-4.1V-9B-Thinking, GameBoy, 293890): 0/49, 6,962 of 8,312 decisions invalid (84%). Of 1,281 replies
+  in 6 trajectories: 649 wrapped in <answer>/<|begin_of_box|> (unparsed before the lm_inference unwrap), 448 cut
+  inside an unclosed <think> (the call's token budget), 158 plain "Action:". Not a capability number. Reruns with the
+  unwrap (runs base_glm-4.1v-9b-thinking_unwrap): GameBoy 294091, Android 294092, nice 300 (after the six-task work);
+  truncated thinking will still count as invalid (the harness's budget, same for every model).
+- 2026-11-09 (six-task focus, nomix eval rep1, 293996): 21/49; focus tasks solved 019, 029, 031 (greedy base: 1 of
+  36 task-runs on the six across 6 runs); other 43: 18 (base 15-22 overall, so no visible capability loss). One run;
+  the gentle testset_judge adapter also hit 2 of the six once. Six-only reps 293998-294001 restored to nice 0.
+- 2026-11-09 (six-task focus, nomix eval rep2, 293997): 24/49 (the highest single GameBoy greedy run so far; base
+  15-22); focus solved 017, 019, 031; other 43: 21. Two runs: six 6/12 (base greedy 1/36; untrained tree adapters
+  7/30 = 0.23), other 43: 18 and 21 (base runs 15-22 overall). Six-only reps 293998-294001 pending.
+- 2026-11-09 (failure, WAM parser): the "36% invalid choices" were a parser bug, not the model. Every rejected
+  world-action reply (oracle Red 2,031 of 2,031; SigLIP Red 2,526 of 2,527) answered "Choice: Image N" with a valid N;
+  the regex took only "Choice: N". Each rejection spends a decision of the step budget (executor run loop: invalid
+  -> n_steps + 1, no button), so the WAM runs played with ~2/3 of base's budget. The oracle Red 19/49 and all partial
+  WAM numbers are invalid as estimates. Fix: Choice:\s*\**\s*(?:Image\s*)?(\d+), case-insensitive; checked on 761
+  replies of 10 oracle trajectories (agrees with every old parse, recovers every rejection). Cancelled 293889,
+  293886, 294014; rerun as oracle_red_fixparse 294105, oracle_crystal_fixparse 294106, wa_red_fixparse 294107,
+  wa_crystal_fixparse 294108 (same world model red_random_all, shadow base on, 8 workers).
+- 2026-11-09 (six-task focus, nomix six-only rep3, 293998): 019, 029, 031 solved (3/6). Running total over 3 runs:
+  9/18 (t19 3/3, t31 3/3, t29 2/3, t17 1/3, t23 0/3, t36 0/3) vs greedy base 1/36 and untrained tree adapters 7/30
+  (0.23); binomial P(>=9/18 | 0.23) = 0.011 (treats task-runs as independent, which they are not).
+- 2026-11-09 (nomix six-only rep4, 293999): 019, 029 (2/6). Total over 4 runs 11/24 (t19 4/4, t29 3/4, t31 3/4,
+  t17 1/4, t23 0/4, t36 0/4).
+- 2026-11-09 (nomix six-only rep5, 294000): 019, 029 (2/6). Total over 5 runs 13/30 (t19 5/5, t29 4/5, t31 3/5,
+  t17 1/5, t23 0/5, t36 0/5).
+- 2026-11-09 (tokloss 294055: HF teacher-forced NLL, base vs testset_six_gt_nomix adapter, 250 of its own training
+  rows, the trainer's RowEncoder): action tokens given the reasoning: base 0.0015, adapter 0.0019 nats (P(trained
+  action) 0.996 both): the action is fixed by the reasoning. Reasoning tokens 0.347 -> 0.302, adapter lower on only
+  69/150 rows. Whole row incl. the end token 0.469 -> 0.282 (137/150): the end token again. done_check without end
+  0.213 -> 0.203. So after 3 epochs at lr 1e-4 the trainer has not fit the reasoning of its own data (no
+  serving/training mismatch is needed to explain the vLLM repro: HF agrees). Yet the adapter's six-task rate is
+  13/30 vs 0.23. Sanity check queued: overfit one try (task 17's single benchmark success, 359 rows,
+  testset_t17_gt_nomix) 20 epochs, lr 2e-4, 16 rows/step: ft 294127 -> repro 294128 -> 6 greedy t17 evals
+  294129-34 (tmp_t17_overfit.sh).
+- 2026-11-09 (nomix six-only rep6, 294001; final for this arm): 019, 029, 031. Six runs: 16/36 (t19 6/6, t29 5/6,
+  t31 4/6, t17 1/6, t23 0/6, t36 0/6). Per task, the six tree adapters (untrained on these tasks, one greedy run each):
+  9/36 (t19 5/6, t29 3/6, t31 1/6, others 0); gentle oracle adapters (testset_judge, testset_gtA, 4 runs): 3/24;
+  base greedy 1/36. Against the tree adapters, one-sided Fisher p = 0.068 (task-runs not independent): most of the
+  gain over greedy base is what any perturbation of the base gets on t19 and t29; what the six-task training adds is
+  t31 (4/6 vs 1/6), t29 (5/6 vs 3/6) and one t17. The earlier 0.23 baseline was the 5-adapter, 30-run figure;
+  this per-task table (6 runs) supersedes it.
+- 2026-11-09 (correction): the "vs 0.23" comparisons and binomial p-values (0.011, 0.0114, 0.0108, 0.0036) in the
+  nomix six-task entries above are wrong. 0.23 was itself an estimate (5 tree adapters x 6 tasks, 7/30), not a known
+  rate, so a one-sample binomial overstated the evidence; it also collides with base's sampled first-try rate (also
+  ~0.23), a different quantity. Correct comparison, per task, all six tree adapters one greedy run each: 9/36 vs the
+  nomix adapter's 16/36, one-sided Fisher p = 0.068, task-runs not independent; the only clear per-task difference is
+  t31 (4/6 vs 1/6). Pooled six-task rates are dominated by task difficulty (t19 near-always solved by any perturbed
+  base, t23/t36 never); report per task.
+- 2026-11-09 (proposal, not adopted yet): train/val/test split of the three benchmarks, tmp_split.py ->
+  storage/tmp/split_proposal.json. Train envs: Red + Link's Awakening (GameBoyWorlds marks all their tasks
+  can_train_from_init_state=True and pairs them with shifted test games Crystal / Oracle of Seasons, both
+  can_train=False), Web sites Apple, ArXiv, Booking, Coursera, ESPN, GitHub, Huggingface (test sites Google Map,
+  Google Flights, Wolfram Alpha), Android apps calendar, settings, markor, broccoli, opentracks, tasks, sms, joplin,
+  retro music, clock, audio recorder, files (test: osmand, chrome, pro expense, vlc, camera, contacts, draw, gallery,
+  clipper, and every multi-app task touching one). Inside train envs: train 60 / val 15 / in-env test 25 by task,
+  GameBoy grouped by start state, balanced on base solve rate and category by search; the six focus Red tasks forced
+  into train.
+- 2026-11-09 (six_gt_mix repro, 293987): on its own training action rows base 0.857 vs adapter 0.837 (six-task rows
+  0.82 vs 0.81; mix-in rows 0.89 vs 0.86); held-out tree rows base 0.91 vs adapter 0.79. Same pattern as nomix: the
+  adapter does not reproduce its training actions, and drifts from base on held-out practice rows.
+- 2026-11-09 ~22:10 UTC (benchmark change): GameBoyWorlds pulled c3efc1f -> 37b80e3 (user's request; the data pull
+  `python -m gameboy_worlds.setup_data pull --game pokemon_red` ran first and synced 230 files into
+  ../GameBoyRL/GameBoyWorlds/storage/rom_data/pokemon/pokemon_red). New Red task 49 "Read the blackboard in the school
+  nearby" (navigation, interaction; location_viridian_city_starting_charmander), appended, so 0-48 keep their ids;
+  Red is 50 tasks now. One Oracle of Seasons task reworded. Also changes the Pokemon emulator (screen-fade waits, Gen 2
+  movement, battle-HP text on shake, memory signal tracking). Every GameBoy result before this is on the old emulator;
+  jobs started after it (from 293989 on) run the new one, and full Red evals now have 50 tasks. Jobs running across
+  the pull loaded the old code at start (mixed-version risk for lazily imported modules).
+- 2026-11-09 ~23:55 UTC (user's call, refocus): cancelled the six_gt_mix evals (293988-89, 293992-93), the WAM
+  parser-fix reruns (294105-08) and the 49-task oracle fine-tune testset_gt (293876, its follow-on 293877, evals
+  293878-79). Priorities now: (1) six-task fine-tune on judge labels (294002) and its evals (294003-09); (2) faithful
+  reproduction of the baseline methods (plans/baselines_reproduction_spec.md).
+- 2026-11-10 (baseline for the judge arm): 6 greedy base runs of the six focus tasks on the new emulator
+  (base_gemma-4-31b-it_six_newemu_rep1-6), since every six-task eval from now on runs on GameBoyWorlds 37b80e3.
+- 2026-11-10 (base, six tasks, new emulator 37b80e3, 6 greedy runs): t17 5/6, t19 4/6, t23 1/6, t29 0/6, t31 0/6, t36 0/6 (10/36). The emulator update alone makes
+  t17 (Defeat Blue) and t19 (Get onto the water) mostly solvable greedily (old emulator 0/6 and 1/6). t29 and t31
+  stay at 0, so they are the tasks where an adapter can show a gain; the mix-in adapter's t17 solves (new emulator)
+  are explained by the emulator, not training.
+- 2026-11-10 (six_gt_div10_mix repro, 294016): first adapter that moves toward its training actions. Six-task training
+  action rows (sample dominated by the x10-repeated divergent rows, so base is low by construction): base 0.46 ->
+  adapter 0.78; mix-in rows 0.81 -> 0.84; held-out tree rows 0.86 -> 0.75 (drift, as the other arms). So up-weighting
+  the decisions where greedy base leaves the successful trajectory does make the adapter take them; the plain arms
+  (no up-weighting) did not (0.87 -> 0.81, 0.82 -> 0.81).
+- 2026-11-10 (dirty PAE overnight, user's call; throwaway files tmp_pae.py, tmp_pae_train.sh, tmp_pae_launch.sh):
+  PAE on the 50 Red test tasks (new emulator), no proposal. roll0 = base, 2 repeats x 50 tasks, one sampled try, no
+  hints (294141-44); then per condition (gt = benchmark checker, judge = Gemma judge) 4 iterations of: shortest-20%
+  successes per task over the cumulative buffer -> dataset (executor rows, no paraphrases) -> LoRA r256 a256 lr 2e-5
+  constant, 4 epochs, retrained from the base each time (PAE continues the adapter) -> rollout with the new adapter.
+  gt: trains 294145/50/55/60; judge: 294165/70/75/80. Read progress with `python tmp_pae.py report`.
+  Task-17 overfit evals 294129-34 cancelled to free GPUs.
+- 2026-11-10 ~05:00 UTC (dirty PAE, change): first update had 61 filtered trajectories / 5,226 executor rows; at 4
+  epochs that is ~6.7 h per update, so the chain was cancelled (294145-84) and relaunched at 1 epoch per update (PAE's
+  code value; paper says 4), rebuilding the dataset every update: gt trains 294192/97, 294202/07; judge 294212/17,
+  294222/27, each followed by 4 rollout jobs. roll0 (base): 217 attempts at the first count, benchmark success 0.525,
+  judge precision 0.84, 31 tasks solved.
+- 2026-11-10 (GLM-4.1V-9B-Thinking, Android, rerun with the answer-wrapper unwrap, 294092): 0.341 (113 scored) vs
+  0.316 before; invalid steps 118/1755 (6.7%) vs 432/1862 (23%); tasks hitting max_steps 18 vs 37. The unwrap fixed
+  most invalid actions; success barely moved. Gemma-4-31B: 0.645-0.70.
+- 2026-11-10 (six_judge_mix repro, 294003): same as the plain oracle arms. Own six-task training rows base 0.83 ->
+  adapter 0.81; mix-in rows 0.86 -> 0.82; held-out tree rows 0.84 -> 0.76. No uptake of its training actions.
+- 2026-11-10 (GLM-4.1V, GameBoy, unwrap rerun 294091, new emulator, 50 Red tasks): 3/50 (was 0/49); invalid decisions 993/8038 (12%, was 84%). The unwrap fixed parsing; GLM still solves almost nothing. Gemma-4-31B base 15-22/49 (old emulator).
+- 2026-11-10 (six_judge_mix, 4 six-only evals, new emulator): t17 3/4, t19 4/4, t31 1/4, t29 0/4, t23 0/4, t36 0/4. vs base new emulator (6 runs): t17 5/6, t19 4/6, t29 0/6, t31 0/6, t23 1/6. Self-judged labels: one t31 solve, otherwise base-level. Full-benchmark evals 294004-05 pending.
+- 2026-11-10 (base, all 50 Red tasks, new emulator, greedy, 294237): 25/50 (old emulator 15-22/49). The emulator update
+  alone adds ~5 tasks. Against it the divergence-weighted adapter's 18 and 18 of 50 are BELOW base. Second base run
+  294236 pending.
+- 2026-11-10 (base, all 50 Red, new emulator, second greedy run 294236): 23/50. New-emulator base: 25, 23 (mean 24).
+  Divergence-weighted adapter 18, 18 is ~6 tasks below.
+- 2026-11-10 (six_judge_mix full-benchmark evals 294004-05, new emulator): 21 and 20 of 50 vs base 25, 23. Six tasks: only t17 each run. Judge-labelled aggressive SFT: no gain on the six, ~3-4 tasks below base overall.

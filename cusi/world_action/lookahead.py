@@ -93,7 +93,8 @@ class LookaheadModel(WorldActionModel):
                   "action_indices": list(range(len(self.candidates))), "candidate_spread": spread,
                   "seconds_predict": time.time() - t0, **extra}
         response = call(tag="world_action", prompt=prompt, images=[rgb(obs["frame"])] + [rgb(f) for f in frames])
-        m = re.findall(r"Choice:\s*(\d+)", str(response))
+        # Gemma often answers "Choice: Image 5" (the prompt names candidates "Image k"); markdown bold too
+        m = re.findall(r"Choice:\s*\**\s*(?:Image\s*)?(\d+)", str(response), re.I)
         last = FIRST_CHOICE + len(self.candidates) - 1
         choice = int(m[-1]) if m else None
         reasoning = re.search(r"Reasoning:\s*(.*?)(?:\nChoice:|$)", str(response), re.S)

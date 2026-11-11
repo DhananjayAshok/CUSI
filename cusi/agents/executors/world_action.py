@@ -103,7 +103,8 @@ def episode_summary(*, legs: list) -> dict:
             "wa_recon_pixel_error": mean("reconstruction_pixel_error", changed),
             "wa_pred_beats_copy": mean("_beats", [{"_beats": float(r["predicted_pixel_error"] < r["copy_pixel_error"])}
                                                    for r in changed]),
-            "wa_chosen_is_hindsight_best": mean("_h", [{"_h": float(r["chosen_is_hindsight_best"])} for r in scored]),
+            "wa_chosen_is_hindsight_best": mean("_h", [{"_h": float(r["chosen_is_hindsight_best"])} for r in scored
+                                                        if r.get("chosen_is_hindsight_best") is not None]),   # SigLIP only
             "wa_candidate_spread": mean("candidate_spread", recs),
             "wa_chosen_beats_copy": mean("_b", [{"_b": float(r["chosen_beats_copy"])} for r in changed
                                                  if r.get("chosen_beats_copy") is not None]),

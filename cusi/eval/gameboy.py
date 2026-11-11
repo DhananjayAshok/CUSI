@@ -82,14 +82,14 @@ def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vl
     extra = {"init_state": row["init_state"], "subgoals_reached": list(subgoals.get("completed", [])),
              "subgoals_all": list(subgoals.get("all", [])), "n_decisions": report.n_steps,
              "actions": action_sequence(reports=legs), **supervisor_extra(report=report, result=result)}
+    with gzip.open(os.path.join(eval_trajectories(run_dir=out_dir), f"{task_id}.pkl.gz"), "wb") as f:
+        pickle.dump(report, f)
     wam_meta = None
     if wam is not None:
         from cusi.agents.executors.world_action import episode_summary
         wam_meta = {**wam.summary(), "transfer": wam.transfer_kind(game=row["game"]), "device": world_action_device,
                     "shadow_base": world_action_shadow}
         extra.update(episode_summary(legs=legs))
-    with gzip.open(os.path.join(eval_trajectories(run_dir=out_dir), f"{task_id}.pkl.gz"), "wb") as f:
-        pickle.dump(report, f)
     write_episode(directory=eval_episode(run_dir=out_dir, task_id=task_id), report=report, gameboy=True, meta={
         "task_id": task_id, "task": row["task"], "env": "gameboy", "game": row["game"], "model": model_name,
         "agent": AGENT_VERSION, "executor": agent.executor_class.name, "supervisor": agent.supervisor_class.__name__,
