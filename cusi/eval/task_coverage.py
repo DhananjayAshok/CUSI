@@ -1,7 +1,9 @@
 """
 Task coverage of a search run: how close the tasks proposed from an annotated tree (cusi.search.annotate) come to the
 benchmark's test tasks. For each test task, its k most similar proposed tasks by embedding cosine (test tasks embedded
-as queries, proposed tasks as documents), each scored 1-10 by an LLM judge for being essentially the same task.
+as queries, proposed tasks as documents), each scored 1-10 by an LLM judge (cusi.eval.judge_prompts, the env's coverage
+prompt) for how alike the two tasks are in the mechanics they use; a test task is covered at >= COVERED_AT (7).
+GameBoy trees are compared with their own game's benchmark rows (the tree's config "game"; Pokemon Red by default).
 
 Stages, each resumable:
 - embed: test set snapshot, deduplicated proposals, embeddings (cached per text), neighbours;
@@ -27,7 +29,8 @@ import random
 import re
 import click
 import numpy as np
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.agents.specs import ENV_NAMES
+from cusi.eval.judge_prompts import COVERAGE_PROMPTS, COVERED_AT, ENV_DESCRIPTIONS, PROMPT_VERSION
 from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
 from cusi.search.store import node_rows
 from cusi.utils.log_handling import log_info
@@ -38,48 +41,6 @@ QUERY_INSTRUCTION = ("Given a task for an agent operating software, retrieve pro
                      "the same thing")
 ANDROID_SUITE_SEED = 30       # cusi.eval.android's --task_random_seed: instance 0 is the goal eval runs
 N_SANITY = 20
-
-JUDGE_PROMPT = """Two tasks for an agent operating {env_description} are given below: Task A, and Task B, a \
-candidate. Rate from 1 to 10 how far Task B is essentially the same task as Task A: an agent that has done B has done \
-A, or would only need to change a detail (a value typed, an item or date picked) to do A.
-
-Judge three things in order: (1) the same website, app or place in the game; (2) the same feature or flow of screens;
-(3) the same goal and the same specific target.
-- 10: the same website, app or place, the same goal and the same target.
-- 8-9: the same website, app or place and the same feature, doing every part of what A asks, on another specific \
-value (another city, name, item or date).
-- 5-7: the same website, app or place, and B goes a good part of the way to A (the same screens), but its goal falls \
-short of A's or differs from it.
-- 2-4: the same website, app or place but a different feature; or the same kind of action somewhere else.
-- 1: unrelated.
-A different website, app or place in the game caps the score at 3, however alike the actions are. If A asks for \
-several things (find and compare, check and count) and B does only some of them, B gets at most 7. If B is vaguer than \
-A and does not name A's target ("whoever is inside", "a Pokémon", "a product"), do not assume it reaches that target: \
-B gets at most 7. The same feature means the same screen, menu or tool: a product's page and a comparison of two \
-products, or an item list and a character's status page, are different features. Use only what the two texts state: \
-do not assume a connection they do not make.
-
-Examples from other environments (not this one):
-- A: "On the city library's website, find the central branch's Saturday opening hours." B: "On the city library's \
-website, find the east branch's opening hours." -> 9 (same site and feature, another branch)
-- A: the same. B: "Find the list of a bookstore chain's shop locations." -> 2 (a different website)
-- A: "On the city library's website, find the central branch's Saturday opening hours and whether it has a reading \
-room." B: "On the city library's website, find the east branch's opening hours." -> 6 (only one of A's two parts)
-- A: "In the weather app, add Lisbon to the saved locations." B: "In the weather app, open the saved locations list." \
--> 6 (the same screens, but B stops before adding a city)
-- A: "In the weather app, compare tomorrow's highs in Lisbon and Porto." B: "In the weather app, check tomorrow's \
-forecast for Madrid." -> 6 (one forecast, not a comparison of two)
-- A: "In the farming game, buy turnip seeds at the general store." B: "Enter the general store." -> 5
-- A: "In the farming game, talk to the mayor." B: "Enter the town hall and talk to whoever is inside." -> 6 (B does \
-not say it reaches the mayor)
-- A: "In the farming game, buy turnip seeds at the general store." B: "Water the crops next to the house." -> 2
-
-Task A: {test}
-Task B: {proposed}
-
-Reply in exactly this format:
-Reason: <one sentence>
-Score: <an integer from 1 to 10>"""
 
 PARAPHRASE_PROMPT = """Rewrite this task for an agent operating {env_description} in different words, keeping exactly \
 the same meaning, goal and specific targets. Reply with the rewritten task only.
@@ -115,8 +76,8 @@ def write_jsonl(rows: list, path: str) -> None:
 
 # --------------------------------------------------------------------------- test tasks and proposals
 
-def test_tasks(*, env_name: str, parameters: dict) -> list:
-    """The env's test tasks: {"test_id", "task", "group"}."""
+def test_tasks(*, env_name: str, parameters: dict, game: str = None) -> list:
+    """The env's test tasks: {"test_id", "task", "group"}; GameBoy: game's benchmark rows (default Pokemon Red)."""
     if env_name == "web":
         from cusi.envs.webvoyager import filtered_task_file
         rows = read_jsonl(filtered_task_file(parameters=parameters))
@@ -124,7 +85,7 @@ def test_tasks(*, env_name: str, parameters: dict) -> list:
     if env_name == "gameboy":
         from gameboy_worlds.utils import get_benchmark_tasks
         from cusi.agents.specs import GAMEBOY_GAME
-        rows = get_benchmark_tasks(game=GAMEBOY_GAME).reset_index(drop=True)
+        rows = get_benchmark_tasks(game=game or GAMEBOY_GAME).reset_index(drop=True)
         return [{"test_id": f"{i:03d}", "task": str(r["task"]).strip(), "group": r["init_state"]}
                 for i, r in rows.iterrows()]
     if env_name == "android":
@@ -231,9 +192,9 @@ def judge_prompts(*, vlm, prompts: list, max_new_tokens: int, batch_size: int) -
     return out
 
 
-def judge_pairs(*, vlm, env_description: str, pairs: list, max_new_tokens: int, batch_size: int) -> list:
+def judge_pairs(*, vlm, env_name: str, pairs: list, max_new_tokens: int, batch_size: int) -> list:
     """[(test text, proposed text)] -> [{"score", "reason", "raw"}]."""
-    prompts = [JUDGE_PROMPT.format(env_description=env_description, test=a, proposed=b) for a, b in pairs]
+    prompts = [COVERAGE_PROMPTS[env_name].format(test=a, proposed=b) for a, b in pairs]
     return judge_prompts(vlm=vlm, prompts=prompts, max_new_tokens=max_new_tokens, batch_size=batch_size)
 
 
@@ -241,7 +202,9 @@ def judge_pairs(*, vlm, env_description: str, pairs: list, max_new_tokens: int, 
 
 def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, embedder_model: str, k: int,
               dedup: str, dedup_cos: float, parameters: dict) -> None:
-    tests = test_tasks(env_name=env_name, parameters=parameters)
+    with open(os.path.join(directory, "config.json")) as f:
+        game = json.load(f).get("game")      # GameBoy trees: their game (None: Pokemon Red)
+    tests = test_tasks(env_name=env_name, parameters=parameters, game=game)
     proposals = proposed_tasks(directory=directory)
     n_exact = len(proposals)
     holder = {}
@@ -267,7 +230,8 @@ def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, emb
     write_jsonl(rows, os.path.join(cov_dir, "neighbours.jsonl"))
     with open(os.path.join(cov_dir, "config.json"), "w") as f:
         json.dump({"env": env_name, "run_dir": directory, "embedder_model": embedder_model, "k": k,
-                   "query_instruction": QUERY_INSTRUCTION, "n_test": len(tests), "n_proposed": len(proposals),
+                   "query_instruction": QUERY_INSTRUCTION, "game": game, "n_test": len(tests),
+                   "n_proposed": len(proposals),
                    "dedup": dedup, "dedup_cos": dedup_cos if dedup == "semantic" else None, "n_exact_text": n_exact,
                    "android_suite_seed": ANDROID_SUITE_SEED if env_name == "android" else None}, f, indent=1)
     log_info(f"task_coverage embed: {len(tests)} test tasks, {len(proposals)} proposed ({n_exact} after the "
@@ -282,7 +246,6 @@ def run_judge(*, cov_dir: str, judge_dir: str, env_name: str, vlm, max_new_token
     neighbours = read_jsonl(os.path.join(cov_dir, "neighbours.jsonl"))
     if not neighbours:
         raise click.UsageError(f"no neighbours in {cov_dir}: run --stage embed first")
-    env_description = ENV_SPECS[env_name].env_description
     path = os.path.join(judge_dir, "judgments.jsonl")
     done = {r["key"] for r in read_jsonl(path) if r["score"] is not None}
     todo, seen = [], set()
@@ -297,18 +260,18 @@ def run_judge(*, cov_dir: str, judge_dir: str, env_name: str, vlm, max_new_token
     chunk = batch_size * 4      # appended every chunk, so a stopped run keeps what it judged
     for i in range(0, len(todo), chunk):
         part = todo[i:i + chunk]
-        results = judge_pairs(vlm=vlm, env_description=env_description, pairs=[(a, b) for _, a, b in part],
+        results = judge_pairs(vlm=vlm, env_name=env_name, pairs=[(a, b) for _, a, b in part],
                               max_new_tokens=max_new_tokens, batch_size=batch_size)
         with open(path, "a") as f:
             for (key, a, b), r in zip(part, results):
                 f.write(json.dumps({"key": key, "test": a, "proposed": b, **r}) + "\n")
         log_info(f"task_coverage judge: {min(i + chunk, len(todo))}/{len(todo)}", parameters=parameters)
-    run_sanity(judge_dir=judge_dir, env_description=env_description, tests=list(tests.values()),
+    run_sanity(judge_dir=judge_dir, env_name=env_name, tests=list(tests.values()),
                proposals=list(proposals.values()), vlm=vlm, max_new_tokens=max_new_tokens, batch_size=batch_size,
                parameters=parameters)
 
 
-def run_sanity(*, judge_dir: str, env_description: str, tests: list, proposals: list, vlm, max_new_tokens: int,
+def run_sanity(*, judge_dir: str, env_name: str, tests: list, proposals: list, vlm, max_new_tokens: int,
                batch_size: int, parameters: dict) -> None:
     """The judge on N_SANITY test tasks against a paraphrase of themselves (should score high) and a random
     proposed task (should score low)."""
@@ -317,12 +280,12 @@ def run_sanity(*, judge_dir: str, env_description: str, tests: list, proposals: 
         return
     rng = random.Random(0)
     sample = rng.sample(tests, min(N_SANITY, len(tests)))
-    prompts = [PARAPHRASE_PROMPT.format(env_description=env_description, task=t["task"]) for t in sample]
+    prompts = [PARAPHRASE_PROMPT.format(env_description=ENV_DESCRIPTIONS[env_name], task=t["task"]) for t in sample]
     paraphrases = [" ".join(str(o[0] if isinstance(o, list) else o).split())
                    for o in vlm.infer(texts=prompts, max_new_tokens=200, temperature=0.0)["output"]]
     randoms = [rng.choice(proposals)["task"] for _ in sample]
     pairs = [(t["task"], p) for t, p in zip(sample, paraphrases)] + [(t["task"], r) for t, r in zip(sample, randoms)]
-    results = judge_pairs(vlm=vlm, env_description=env_description, pairs=pairs, max_new_tokens=max_new_tokens,
+    results = judge_pairs(vlm=vlm, env_name=env_name, pairs=pairs, max_new_tokens=max_new_tokens,
                           batch_size=batch_size)
     rows = [{"kind": "paraphrase" if i < len(sample) else "random", "test": a, "proposed": b, **r}
             for i, ((a, b), r) in enumerate(zip(pairs, results))]
@@ -358,8 +321,8 @@ def run_summary(*, cov_dir: str, judge_dir: str, parameters: dict) -> dict:
         if full:
             out.update({"judge_max@k": float(np.mean([r["judge_max"] for r in full])),
                         "judge_mean@k": float(np.mean([r["judge_mean"] for r in full])),
-                        # >= 8: the same task up to a detail; >= 5: a good part of the way there
-                        "coverage@8": float(np.mean([r["judge_max"] >= 8 for r in full])),
+                        # >= COVERED_AT: fundamentally the same task; >= 5: similar but different
+                        f"coverage@{COVERED_AT}": float(np.mean([r["judge_max"] >= COVERED_AT for r in full])),
                         "coverage@5": float(np.mean([r["judge_max"] >= 5 for r in full]))})
         return out
 
@@ -403,7 +366,7 @@ def command(parameters, env_name, run_name, stage, embedder_model, judge_model, 
         return
     if judge_model is None:
         raise click.UsageError("--judge_model is required for the judge, summary and all stages.")
-    judge_dir = os.path.join(cov_dir, f"judge_{short_name(judge_model)}")
+    judge_dir = os.path.join(cov_dir, f"judge_{short_name(judge_model)}_{PROMPT_VERSION}")
     os.makedirs(judge_dir, exist_ok=True)
     if stage in ("judge", "all"):
         from cusi.agents.vlm import AgentVLM

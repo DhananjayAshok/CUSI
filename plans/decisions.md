@@ -2391,3 +2391,11 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   (embed stage): web random 25,382 -> 23,605, web VLM 7,200 -> 7,058, android random 1,244 -> 1,234, android VLM
   1,000 -> 990. Known misses: tasks adding or dropping a part ("monthly price" vs "... and the sign-up page") and
   unquoted named variants (Copilot vs Copilot CLI).
+- 2026-11-11 (task judges v2, cusi/eval/judge_prompts.py): the six prompts of plans/task_judge_prompts.md (reviewed
+  by the user): one shared scale on mechanics / capabilities (10-9 paraphrase, 8-7 interchangeable for execution,
+  6-5 similar but different, 4-3 same area, 2-1 different), per-env coverage prompts with test-set examples and
+  internal prompts with made-up-environment examples at 10 / 8 / 6 / 4 / 2; judges see only the two texts. Constants
+  COVERED_AT = 7 (coverage@7 replaces coverage@8), SAME_FUNCTION_AT = 7 (functions@7 replaces functions@8), DEDUP_AT
+  = 9 (not used yet); PROMPT_VERSION v2, judge outputs in judge_<model>_v2/ so they never mix with the old ones.
+  task_coverage compares GameBoy trees with their own game's benchmark rows (config "game"; Link's Awakening
+  supported). Not done: the five-anchor judge sanity check (still paraphrase vs random), judge-based dedup at >= 9.

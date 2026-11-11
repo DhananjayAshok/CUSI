@@ -2,14 +2,15 @@
 Task diversity of a search run: how many distinct functionalities the tasks proposed from an annotated tree
 (cusi.search.annotate) exercise, so that three near-identical tasks count as one and three that test different things
 as three. Every proposed task is embedded; each task's k most similar other tasks by embedding cosine are scored 1-10
-by an LLM judge for exercising the same functionality, and while all of a task's judged neighbours score >= 8, its
+by an LLM judge (cusi.eval.judge_prompts, internal) for exercising the same functionality, and while all of a task's
+judged neighbours score >= SAME_FUNCTION_AT (7), its
 next k are judged too (up to k_max): with k = 5 alone, 45% of a GameBoy tree's tasks had all 5 judged the same, which
 left the rest of their near-duplicates counted as distinct. Pairs never judged are taken as different (judging all
 pairs is ~74M judge calls on a 12k-task Web tree).
 
 Metrics (summary.json), compared within an env only:
 - functions@t: the number of distinct functionalities, as the size of a maximal set of tasks no two of which were
-  judged >= t (t = 8: the same functionality up to the values used; t = 5: overlapping), greedily chosen;
+  judged >= t (t = 7: fundamentally the same task up to entity names and details; t = 5: similar), greedily chosen;
 - vendi: the Vendi score (Friedman & Dieng 2023) of the cosine kernel, the effective number of distinct tasks by
   embedding alone (no judge);
 - rarefaction: both at fixed numbers of tasks (random subsets, mean over repeats), since a larger tree finds more
@@ -17,7 +18,7 @@ Metrics (summary.json), compared within an env only:
 
 Stages, each resumable:
 - embed: deduplicated proposals, embeddings (cached per text), each task's k_max nearest;
-- judge: rounds of neighbouring pairs not yet judged (k per task, then k more for the tasks still all >= 8), a judge
+- judge: rounds of neighbouring pairs not yet judged (k per task, then k more for the tasks still all >= 7), a judge
   sanity check, then summary;
 - summary: the metrics above.
 
@@ -35,51 +36,19 @@ import os
 import random
 import click
 import numpy as np
-from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.agents.specs import ENV_NAMES
 from cusi.eval.task_coverage import (PARAPHRASE_PROMPT, Embedder, cached_embeddings, judge_prompts, proposed_tasks,
                                      read_jsonl, short_name, text_key, write_jsonl)
+from cusi.eval.judge_prompts import ENV_DESCRIPTIONS, INTERNAL_PROMPTS, PROMPT_VERSION, SAME_FUNCTION_AT
 from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
 from cusi.utils.log_handling import log_info
 from cusi.utils.paths import search_run
 
 STAGES = ("embed", "judge", "summary", "all")
-THRESHOLDS = (8, 5)
+THRESHOLDS = (SAME_FUNCTION_AT, 5)
 N_SANITY = 20
 RAREFACTION_SIZES = (25, 50, 100, 200, 500, 1000, 2000, 5000, 10000)
 RAREFACTION_REPEATS = 20
-
-JUDGE_PROMPT = """Two tasks for an agent operating {env_description} are given below. Rate from 1 to 10 how far they \
-exercise the same functionality: the same feature, screens and kind of goal, whatever the wording and whatever \
-specific values (a city, name, item, date, number) they use.
-
-- 10: the same task, reworded.
-- 8-9: the same feature and the same kind of goal on other specific values (search for another city, set another \
-time, buy another item at the same shop).
-- 5-7: overlapping: one task's screens are a good part of the other's, but one goes further or does something extra \
-(open the alarm list vs add an alarm; find a product vs compare two products).
-- 2-4: the same website, app or place, but a different feature or goal (the cart vs the search filters; the item bag vs \
-a character's status page).
-- 1: a different website, app or place, or nothing in common.
-Use only what the two texts state: do not assume a connection they do not make.
-
-Examples from other environments (not this one):
-- "In the weather app, check tomorrow's forecast for Lisbon." / "In the weather app, see the forecast for Madrid on \
-Friday." -> 9 (the same feature, other values)
-- "In the weather app, add Lisbon to the saved locations." / "In the weather app, open the saved locations list." -> 6 \
-(the same screens, one goes further)
-- "In the weather app, add Lisbon to the saved locations." / "In the weather app, switch the units to Fahrenheit." -> \
-3 (the same app, a different feature)
-- "In the farming game, buy turnip seeds at the general store." / "In the farming game, buy potato seeds at the \
-general store." -> 9
-- "In the farming game, buy turnip seeds at the general store." / "Talk to the mayor in the town hall." -> 2
-
-Task A: {a}
-Task B: {b}
-
-Reply in exactly this format:
-Reason: <one sentence>
-Score: <an integer from 1 to 10>"""
-
 
 def pair_key(a: str, b: str) -> str:
     """Order-free key of a pair of task texts."""
@@ -166,7 +135,6 @@ def run_judge(*, div_dir: str, judge_dir: str, env_name: str, vlm, k: int, max_n
     neighbours = read_jsonl(os.path.join(div_dir, "neighbours.jsonl"))
     if not neighbours:
         raise click.UsageError(f"no neighbours in {div_dir}: run --stage embed first")
-    env_description = ENV_SPECS[env_name].env_description
     path = os.path.join(judge_dir, "judgments.jsonl")
     scores = {r["key"]: r["score"] for r in read_jsonl(path) if r["score"] is not None}
     depth, frontier = k, neighbours           # each frontier task's first `depth` neighbours get judged
@@ -185,7 +153,7 @@ def run_judge(*, div_dir: str, judge_dir: str, env_name: str, vlm, k: int, max_n
         chunk = batch_size * 4      # appended every chunk, so a stopped run keeps what it judged
         for i in range(0, len(todo), chunk):
             part = todo[i:i + chunk]
-            prompts = [JUDGE_PROMPT.format(env_description=env_description, a=a, b=b) for _, a, b in part]
+            prompts = [INTERNAL_PROMPTS[env_name].format(a=a, b=b) for _, a, b in part]
             results = judge_prompts(vlm=vlm, prompts=prompts, max_new_tokens=max_new_tokens, batch_size=batch_size)
             with open(path, "a") as f:
                 for (key, a, b), r in zip(part, results):
@@ -199,27 +167,26 @@ def run_judge(*, div_dir: str, judge_dir: str, env_name: str, vlm, k: int, max_n
                         scores.get(pair_key(proposals[n["proposed_id"]], proposals[b_id]), 0) >= THRESHOLDS[0]
                         for b_id, _ in n["neighbours"][:depth])]
         depth += k
-    run_sanity(judge_dir=judge_dir, env_description=env_description,
+    run_sanity(judge_dir=judge_dir, env_name=env_name,
                proposals=[{"task": t} for t in proposals.values()], vlm=vlm, max_new_tokens=max_new_tokens,
                batch_size=batch_size, parameters=parameters)
 
 
-def run_sanity(*, judge_dir: str, env_description: str, proposals: list, vlm, max_new_tokens: int, batch_size: int,
+def run_sanity(*, judge_dir: str, env_name: str, proposals: list, vlm, max_new_tokens: int, batch_size: int,
                parameters: dict) -> None:
-    """The judge on N_SANITY proposed tasks against a paraphrase of themselves (should score 8+) and another random
+    """The judge on N_SANITY proposed tasks against a paraphrase of themselves (should score 9+) and another random
     proposed task (should mostly score low)."""
     path = os.path.join(judge_dir, "sanity.jsonl")
     if os.path.exists(path):
         return
     rng = random.Random(0)
     sample = rng.sample(proposals, min(N_SANITY, len(proposals)))
-    prompts = [PARAPHRASE_PROMPT.format(env_description=env_description, task=p["task"]) for p in sample]
+    prompts = [PARAPHRASE_PROMPT.format(env_description=ENV_DESCRIPTIONS[env_name], task=p["task"]) for p in sample]
     paraphrases = [" ".join(str(o[0] if isinstance(o, list) else o).split())
                    for o in vlm.infer(texts=prompts, max_new_tokens=200, temperature=0.0)["output"]]
     randoms = [rng.choice(proposals)["task"] for _ in sample]
     pairs = [(p["task"], q) for p, q in zip(sample, paraphrases)] + [(p["task"], r) for p, r in zip(sample, randoms)]
-    results = judge_prompts(vlm=vlm, prompts=[JUDGE_PROMPT.format(env_description=env_description, a=a, b=b)
-                                              for a, b in pairs],
+    results = judge_prompts(vlm=vlm, prompts=[INTERNAL_PROMPTS[env_name].format(a=a, b=b) for a, b in pairs],
                             max_new_tokens=max_new_tokens, batch_size=batch_size)
     rows = [{"kind": "paraphrase" if i < len(sample) else "random", "a": a, "b": b, **r}
             for i, ((a, b), r) in enumerate(zip(pairs, results))]
@@ -276,7 +243,8 @@ def run_summary(*, div_dir: str, emb_path: str, judge_dir: str, seed: int, param
     hist = np.bincount([s for _, _, s in judged], minlength=11)[1:].tolist()
     summary = {"overall": overall, "rarefaction": rarefaction, "score_histogram_1_10": hist,
                "sanity": {kind: {"n": len(s), "mean_score": float(np.mean(s)) if s else None,
-                                 "share_ge_8": float(np.mean([x >= 8 for x in s])) if s else None}
+                                 f"share_ge_{SAME_FUNCTION_AT}": float(np.mean([x >= SAME_FUNCTION_AT for x in s]))
+                                 if s else None}
                           for kind in ("paraphrase", "random")
                           for s in [[r["score"] for r in sanity if r["kind"] == kind and r["score"] is not None]]}}
     with open(os.path.join(judge_dir, "summary.json"), "w") as f:
@@ -313,7 +281,7 @@ def command(parameters, env_name, run_name, stage, embedder_model, judge_model, 
         return
     if judge_model is None:
         raise click.UsageError("--judge_model is required for the judge, summary and all stages.")
-    judge_dir = os.path.join(div_dir, f"judge_{short_name(judge_model)}")
+    judge_dir = os.path.join(div_dir, f"judge_{short_name(judge_model)}_{PROMPT_VERSION}")
     os.makedirs(judge_dir, exist_ok=True)
     if stage in ("judge", "all"):
         from cusi.agents.vlm import AgentVLM
