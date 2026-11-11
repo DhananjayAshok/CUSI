@@ -33,7 +33,8 @@ has to be entered or chosen, say exactly what: which city, which name, which val
 - end in a state that is visible on the screen, or ask for a piece of information that can be read off it;
 - can be done without information the user does not have (such as passwords or personal details).
 Cover the different things this screen offers rather than listing near-identical variations (one task about a kind \
-of item, not one task per item in a list).
+of item, not one task per item in a list). Write the description and every task in English, even when the screen is \
+in another language.
 
 {task_examples}
 
@@ -56,7 +57,8 @@ What happened along the way:
 given to reach exactly this outcome: say what to achieve or find out, not which buttons were pressed, and name the \
 specific target (page, menu, setting, information, place or item) so that it can be checked from the final screen. \
 If the sequence achieved nothing meaningful (it only moved around without reaching anything new, ended where it \
-started, or nothing changed), or its outcome takes a single action to reach, write {no_task}.
+started, or nothing changed), or its outcome takes a single action to reach, write {no_task}. Write the task and the \
+knowledge in English, even when the screens are in another language.
 {task_examples}
 2. Knowledge: list the facts this sequence shows that would help someone complete future tasks in this environment: \
 how to get from one screen to another, what a control or action does, where something is, or what to avoid. Each fact \
