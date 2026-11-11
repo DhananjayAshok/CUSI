@@ -338,6 +338,7 @@ declare -A USER_ENV_DEFAULTS=(
     ["cmd"]="none"
     ["record_dir"]="none"
     ["vllm_port"]="none"
+    ["vllm_extra"]="none"
     ["port_base"]="none"
 )
 

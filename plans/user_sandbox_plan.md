@@ -13,7 +13,7 @@ Split: `storage/tmp/split_final.json` (2026-11-11) until it moves into the repo 
  ┌──────────────── sandbox (Apptainer, --containall) ───────────────┐
  │  agent workspace (its own git repo)                              │
  │    envctl / envclient.py   tasks.json (train+val only)           │
- │    guides/ tools/ prompts/  run_task.sh (the policy entrypoint)  │
+ │    guides/ tools/ prompts/                                       │
  │  coding agent ──bash──▶ envctl ─────HTTP + token───────┐         │
  │                ─────────────────── HTTP ───────────────│──┐      │
  └────────────────────────────────────────────────────────│──│──────┘
@@ -77,13 +77,22 @@ it also gives us the agent's full exploration history without asking the agent t
   fine-tune for the User must use train data only).
 - Our results, decisions, reports: not mounted.
 
-## The repo-as-policy contract (what the harness runs at test time)
+## At test time (cusi/env_server/harness.py, run_user_eval.py)
 
-- The workspace has `run_task.sh <session_url> <token>`: given a live session (the harness has already opened it on a
-  test task), it drives `envctl` until done or out of budget. The goal comes in the obs, as for any task.
-- The harness: for each test task, opens a session on the test instance, runs `run_task.sh` in the sandbox (same
-  image, the workspace mounted read-only, a fresh copy per task), scores from the server-side record.
-- Budgets: steps per task (the benchmark's `max_steps`), wall-clock, model tokens.
+Evaluation is a schedule: an ordered list of test tasks (--order given | shuffle | group_env, seeded), run one at a
+time. For each task the harness opens a session on a test server (the User does not choose it), runs the User in the
+sandbox with only the environment essentials (ENVCTL_ENV, ENVCTL_SESSION, ENV_SERVER_<ENV>, ENV_SERVER_TOKEN: that
+session's token), scores from the server, and commits the workspace.
+
+- --mode fixed_repo: the workspace's policy.json entrypoint runs (RHO / ASPIRE style: code written in development).
+- --mode live_agent: prime-agent runs autonomously with a prompt (cusi/env_server/prompts/live_agent.md), its stop gate
+  "the session is done", and the agent home's memory (~/.prime, ~/.config; the install is shared read-only).
+- --memory carry: one workspace (and live_agent: one agent memory) through the schedule, so what task k wrote is there
+  at task k+1 (the sequential evaluation modes of "The Everything Model and Its User"); isolated: every task from the
+  same snapshot. Nothing is discarded: commits per task; a resumed carry schedule rewinds the workspace to the last
+  finished task.
+- Budgets, both modes: the task's step budget (server) and --wall_clock_seconds per task (the harness ends the
+  process). No model is provided: the User brings its own (the sandbox has the internet).
 
 ## Steps
 
@@ -102,8 +111,8 @@ it also gives us the agent's full exploration history without asking the agent t
    endpoint, builds the workspace from a template in `user_template/`, launches the coding agent in the sandbox.
    Check from inside the sandbox: `ls` of `/`, `$HOME`, the CUSI path, `../GameBoyRL` shows nothing of ours;
    `envctl tasks` lists train+val only; a test id is refused.
-6. Test harness: `run_user_eval.py` (test instance, `--state never`), the `run_task.sh` contract, scoring from the
-   recorder. Check: a trivial `run_task.sh` (random actions) runs on 3 test tasks; responses carry no state or
+6. Test harness: `run_user_eval.py` (test instance, `--state never`), the agent run per task, scoring from the
+   server. Check: a stand-in agent (random actions) runs on 3 test tasks; responses carry no state or
    state; the recorder has full state.
 7. A real dev run: the coding agent on Red train+val for a fixed budget, then the harness on Red test.
 

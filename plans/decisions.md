@@ -2295,3 +2295,10 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
 - 2026-11-11 (Link's Awakening trees, tmp_submit_zelda.sh): random + vlm_no_typing s0-s5 as sat_zelda_la_<exp>_s<k>
   under the Red protocol (20 steps, threshold 0.1, patience 50, 69 h); VLM on 2x A6000 except vlm_no_typing s5 on 4x
   A5000 (user's call: no A6000 pair free). Older sat_random_zelda_la_s0-s2 are 7500-expansion world-model data runs.
+- 2026-11-11 (Red random trees s3-s4 smaller than s0-s2): same config.json but one seed; saturated at 2507 / 2871 nodes
+  vs 4600-7198. Not saturation luck: nodes after 1000 / 2000 / 4500 expansions are 1002-1041 / 1471-1528 / 2259-2335
+  (s3, s4) vs 1271-1411 / 2035-2360 / 3172-3652 (s0-s2). Between them GameBoyWorlds moved c3efc1f -> 37b80e3 (Nov 9),
+  whose Pokemon emulator waits out map scrolls and fades before an action returns. Not the fades: blank / low-contrast
+  node frames are 0.2% / 3-4% in every tree (tmp_fade_nodes.py). Suspected: frames caught mid-step and presses
+  dropped mid-step in the old emulator. Check: s0 and s1 rerun on 37b80e3 as sat_random_s{0,1}_gbw37b (295014-5).
+  Testbed: Gemma-3-27B skipped (snapshot lacked preprocessor_config.json; now downloaded).

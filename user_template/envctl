@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""
+envctl: drive the environment servers from the shell. Every reset/step/observe writes the observation to
+obs/<session>/<n>.png (the screen the agent sees; <n>_raw.png when the env also gives an unlabelled one) and
+obs/<session>/<n>.json (texts, available actions, goal, reward, done, success, info; state if the session has it),
+and prints a short summary.
+
+    envctl tasks [--env gameboy|web|android]
+    envctl scenes --env gameboy
+    envctl open --task gb.pokemon_red.004 [--state]      # or: envctl open --env web --scene arxiv
+    envctl step "A"
+    envctl observe | reset | save | load <handle> | info | close
+    envctl use <env> <session>                          # attach to a session opened elsewhere (writes its obs)
+
+The current session is kept in .envctl/current.json in the working directory.
+"""
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from envclient import Client, EnvError, env_of   # noqa: E402
+
+STATE_DIR = ".envctl"
+CURRENT = os.path.join(STATE_DIR, "current.json")
+
+
+def save_current(env: str, session_id: str, n: int = 0) -> None:
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(CURRENT, "w") as f:
+        json.dump({"env": env, "session": session_id, "n": n}, f)
+
+
+def load_current() -> dict:
+    if not os.path.exists(CURRENT):
+        sys.exit("no current session: envctl open ... first")
+    with open(CURRENT) as f:
+        return json.load(f)
+
+
+def split_images(value, prefix: str, images: dict):
+    """Pull PNG bytes out of a decoded payload into images {name: bytes}; leaves the file name in their place."""
+    if isinstance(value, bytes):
+        name = f"{prefix}.png"
+        images[name] = value
+        return name
+    if isinstance(value, dict):
+        return {k: split_images(v, f"{prefix}_{k}", images) for k, v in value.items()}
+    if isinstance(value, list):
+        return [split_images(v, f"{prefix}_{i}", images) for i, v in enumerate(value)]
+    return value
+
+
+def write_obs(cur: dict, out: dict) -> None:
+    n = cur["n"]
+    d = os.path.join("obs", cur["session"])
+    os.makedirs(d, exist_ok=True)
+    obs, info = out.get("obs") or {}, dict(out.get("info") or {})
+    images = {}
+    frame = obs.pop("frame", None)
+    if frame is not None:
+        images[f"{n:04d}.png"] = frame
+    raw = info.pop("raw_frame", None)
+    if isinstance(raw, bytes):
+        images[f"{n:04d}_raw.png"] = raw
+    for k in [k for k, v in info.items() if isinstance(v, bytes)]:   # other frames (GameBoy's emulator frames)
+        info.pop(k)
+    record = {k: out.get(k) for k in ("reward", "done", "success", "end_reason", "steps", "max_steps",
+                                       "terminated", "truncated")}
+    record.update(obs=split_images(obs, f"{n:04d}_obs", images), info=split_images(info, f"{n:04d}_info", images))
+    if "state" in out:
+        record["state"] = out["state"]
+    for name, data in images.items():
+        with open(os.path.join(d, name), "wb") as f:
+            f.write(data)
+    with open(os.path.join(d, f"{n:04d}.json"), "w") as f:
+        json.dump(record, f, indent=1, default=str)
+    cur["n"] = n + 1
+    save_current(cur["env"], cur["session"], cur["n"])
+    texts = obs.get("texts") or {}
+    print(f"[{n:04d}] steps {out.get('steps')}/{out.get('max_steps')}  done={out.get('done')}  "
+          f"success={out.get('success')}  end={out.get('end_reason')}  valid={info.get('valid')}"
+          + (f"  error={info.get('error')}" if info.get("error") else ""))
+    print(f"  screen: {os.path.join(d, f'{n:04d}.png')}" + (f"  raw: {os.path.join(d, f'{n:04d}_raw.png')}"
+                                                             if raw is not None else ""))
+    if obs.get("goal"):
+        print(f"  goal: {obs['goal']}")
+    for k, v in texts.items():
+        if v:
+            print(f"  {k}: {str(v)[:600]}")
+    if "state" in out:
+        print(f"  state: {json.dumps(out['state'])[:400]}")
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(prog="envctl")
+    sub = ap.add_subparsers(dest="cmd")
+    sub.required = True         # (Python 3.6's add_subparsers has no required=)
+    p = sub.add_parser("tasks")
+    p.add_argument("--env")
+    p = sub.add_parser("scenes")
+    p.add_argument("--env", required=True)
+    p = sub.add_parser("open")
+    p.add_argument("--task")
+    p.add_argument("--env")
+    p.add_argument("--scene")
+    p.add_argument("--state", action="store_true")
+    p = sub.add_parser("step")
+    p.add_argument("action")
+    p = sub.add_parser("load")
+    p.add_argument("handle")
+    p = sub.add_parser("use")
+    p.add_argument("env")
+    p.add_argument("session")
+    for name in ("observe", "reset", "save", "info", "close", "actions"):
+        sub.add_parser(name)
+    a = ap.parse_args()
+    client = Client.from_config()
+    try:
+        if a.cmd == "tasks":
+            for t in client.tasks(a.env):
+                print(f"{t['task_id']}\t{t['split']}\t{t['text']}")
+        elif a.cmd == "scenes":
+            print("\n".join(client.scenes(a.env)))
+        elif a.cmd == "open":
+            env = env_of(a.task) if a.task else a.env
+            s = client.open(task_id=a.task, env=env, scene=a.scene, state=a.state)
+            print(f"session {s.id} ({env}, {s.first.get('mode')}), max_steps {s.first.get('max_steps')}")
+            save_current(env, s.id)
+            write_obs(load_current(), s.first)
+        elif a.cmd == "use":
+            s = client.attach(a.env, a.session)
+            info = s.describe()
+            print(f"session {s.id} ({a.env}, {info.get('mode')}), max_steps {info.get('max_steps')}")
+            save_current(a.env, s.id)
+            write_obs(load_current(), s.observe())
+        else:
+            cur = load_current()
+            s = client.attach(cur["env"], cur["session"])
+            if a.cmd == "step":
+                write_obs(cur, s.step(a.action))
+            elif a.cmd in ("observe", "reset"):
+                write_obs(cur, getattr(s, a.cmd)())
+            elif a.cmd == "load":
+                write_obs(cur, s.load(a.handle))
+            elif a.cmd == "save":
+                print(s.save())
+            elif a.cmd == "info":
+                print(json.dumps(s.describe(), indent=1))
+            elif a.cmd == "actions":
+                last = sorted(f for f in os.listdir(os.path.join("obs", cur["session"])) if f.endswith(".json"))[-1]
+                with open(os.path.join("obs", cur["session"], last)) as f:
+                    print(json.load(f)["obs"].get("actions"))
+            elif a.cmd == "close":
+                s.close()
+                os.remove(CURRENT)
+                print(f"closed {cur['session']}")
+    except EnvError as e:
+        sys.exit(f"envctl: {e}")
+
+
+if __name__ == "__main__":
+    main()
