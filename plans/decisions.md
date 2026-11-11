@@ -2302,3 +2302,35 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   node frames are 0.2% / 3-4% in every tree (tmp_fade_nodes.py). Suspected: frames caught mid-step and presses
   dropped mid-step in the old emulator. Check: s0 and s1 rerun on 37b80e3 as sat_random_s{0,1}_gbw37b (295014-5).
   Testbed: Gemma-3-27B skipped (snapshot lacked preprocessor_config.json; now downloaded).
+  Confirmed: sat_random_s1 rerun on 37b80e3 saturated at 2270 nodes (4289 expansions) vs 6300 originally. Red
+  sat_random_s0-s2 and sat_vlm_no_typing_s0-s2 (with their annotations, task_coverage, task_diversity) deleted and
+  rerun on 37b80e3 with the s3-s4 settings (tmp_submit_red_s012.sh: random 295045/49/53, VLM chains 295046-8,
+  295050-2, 295054-6). Their LoRA fine-tunes and evals (storage/models/finetune/gameboy/
+  sat_*_s0-s2, storage/eval/gameboy/lora_sat_*_s0-s2) and practice runs
+  (storage/practice/gameboy/gemma-4-31b-it/tree/sat_*_s0-s2) deleted too.
+- 2026-11-11 (Qwen3-VL-8B trees, tmp_submit_qwen_trees.sh, jobs 295159-295173 in storage/tmp/qwen_trees_jobs.txt):
+  vlm_no_typing trees for Qwen3-VL-8B on Red, Web and Android, seeds 0-4, as sat_vlm_no_typing_qwen3-vl-8b_s<k>
+  (first queued for all five Qwen models, 75 trees, ~3 months; cut to 8B by the user). User's call: all on one node
+  (eclairlg14, 4x Quadro RTX 8000, fp16: no bf16 before Ampere), low priority, packed on its GPUs (1 GPU each),
+  Android one at a time (singleton cusi-qwen-android: one emulator per node). The Gemma trees' 69 h cap is one budget
+  (--budget_metric wall_s --budget 248400: expansion time, kept across resumes) in a 3-day long-lg job instead of 3
+  chained 23 h segments. scripts/slurm/search.sh gained --vllm_extra (for --dtype half). Caveat: fp16 on Quadro vs
+  bf16 on A6000 for Gemma. Then cut to seeds 0-2 (s3-s4 cancelled) and widened to every Qwen model, with Link's
+  Awakening added ("GameBoy trees" = Red + LA): tmp_submit_qwen_trees3.sh (jobs in storage/tmp/qwen_trees3_jobs.txt),
+  60 trees on two nodes: lg14 (long-lg, one 3-day job per tree) 8B / 2B / 32B, lg15 (medium-lg: 4 chained 23 h
+  segments, the wall_s budget stops the tree) 4B / 30B-A3B; 2 GPUs for 30B-A3B / 32B; Android one at a time per node
+  (singletons cusi-qwen-android, cusi-qwen-android-b; 2B Android s1-s2 on lg15: 7 and 8 trees). ETA ~3.5 weeks
+  ideal (lg14 ~2,500 GPU-h on 4 GPUs), mid-December with scheduling slack.
+  Then cut to 8B and 32B (user's call): 2B / 4B / 30B-A3B cancelled; 8B (Red, LA, Web, Android s0-s2) on lg14, 32B
+  moved to lg15 (tmp_submit_qwen32_trees.sh, storage/tmp/qwen32_trees_jobs.txt; 4 chained 23 h segments per tree).
+  Test-set evals of Qwen3-VL-4B / 2B first (tmp_submit_qwen_test.sh: test + test_env, runs test_<model>_r1, Quadro
+  fp16, lg14 / lg15 excluded, Web judged later); the five-model full evals (tmp_submit_qwen_full.sh) not submitted.
+- 2026-11-11 (eval compute): run_eval (GameBoy, Web, Android) records each task's compute tally in EvalRow.compute
+  (LLM calls, tokens, images, FLOPs; NVML energy / busy time, which with parallel workers overlaps other tasks);
+  summary.json adds llm_flops_total / llm_flops_mean. llm_flops returns None (counted unknown) for a model config it
+  cannot read instead of failing the call: InternVL's crashed every testbed episode that way.
+- 2026-11-11 (wall clock visible to the agent): the harness passes ENVCTL_DEADLINE (unix time the task's wall-clock
+  limit ends, set when the sandbox starts); envctl shows the seconds left on every step's summary line, writes
+  seconds_left into each obs json and envctl info, and envclient.seconds_left() returns it. README and the live-agent
+  prompt say so. Steps were already visible (steps / max_steps in every response). Checked live (job 295357: GameBoy
+  test task, fixed_repo in the sandbox: 299 s then 293 s left after a 5 s sleep).

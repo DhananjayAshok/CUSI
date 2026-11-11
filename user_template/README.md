@@ -22,7 +22,9 @@ whether it was solved.
 
 You will be evaluated on tasks you have not seen, one after another: each starts with a session already open on the
 task (`python3 envctl use "$ENVCTL_ENV" "$ENVCTL_SESSION"` attaches to it and writes its first observation). There is
-no `--state`, no save/load and no free play then; each task has its step budget and a wall-clock limit.
+no `--state`, no save/load and no free play then; each task has its step budget and a wall-clock limit. Every
+observation carries `steps` / `max_steps`; `$ENVCTL_DEADLINE` is the unix time the wall-clock limit ends, and envctl
+shows the seconds left (`seconds_left` in each observation file and in `envctl info`; `envclient.seconds_left()`).
 
 You may be evaluated by running code you leave here: if so, `policy.json` names the command to run in this
 directory for each task, e.g. `{"entrypoint": "python3 tools/policy.py"}`.

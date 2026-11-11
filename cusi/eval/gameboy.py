@@ -9,6 +9,7 @@ import time
 import click
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
+from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
 from cusi.eval.supervision import DECODING, model, run_pool, supervisor_extra, supervisor_state
@@ -50,6 +51,19 @@ def action_sequence(*, reports: list) -> list:
 def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
              out_dir: str, parameters=None, world_action=None, world_action_device: str = "cpu",
              world_action_shadow: bool = True, max_steps: int = MAX_STEPS) -> EvalRow:
+    """One task, with its compute (EvalRow.compute)."""
+    with tally() as compute:
+        result = _run_task(row=row, task_id=task_id, model_name=model_name, model_backend=model_backend,
+                           vllm_base_url=vllm_base_url, session_name=session_name, out_dir=out_dir,
+                           parameters=parameters, world_action=world_action, world_action_device=world_action_device,
+                           world_action_shadow=world_action_shadow, max_steps=max_steps)
+    result.compute = compute.snapshot()
+    return result
+
+
+def _run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
+              out_dir: str, parameters, world_action, world_action_device: str, world_action_shadow: bool,
+              max_steps: int) -> EvalRow:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.episode import write_episode

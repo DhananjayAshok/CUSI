@@ -237,7 +237,10 @@ def llm_flops(*, model_name: str, prompt_tokens: int, completion_tokens: int, im
     """Forward FLOPs of one request: 2 x the language model's weights per token, attention scores and values over
     each token's context (sliding-window layers capped), logits for each generated token, and the vision tower per
     image (its weights per patch, plus attention over the patches). No prefix cache is assumed."""
-    shape = model_shape(model_name)
+    try:   # a config this does not know must not fail the call being counted: its FLOPs count as unknown
+        shape = model_shape(model_name)
+    except (KeyError, TypeError, ValueError):
+        return None
     if shape is None:
         return None
     n = prompt_tokens + completion_tokens

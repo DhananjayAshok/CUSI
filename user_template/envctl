@@ -2,8 +2,8 @@
 """
 envctl: drive the environment servers from the shell. Every reset/step/observe writes the observation to
 obs/<session>/<n>.png (the screen the agent sees; <n>_raw.png when the env also gives an unlabelled one) and
-obs/<session>/<n>.json (texts, available actions, goal, reward, done, success, info; state if the session has it),
-and prints a short summary.
+obs/<session>/<n>.json (texts, available actions, goal, reward, done, success, steps / max_steps, info; state if
+the session has it; seconds_left in an evaluation, from $ENVCTL_DEADLINE), and prints a short summary.
 
     envctl tasks [--env gameboy|web|android]
     envctl scenes --env gameboy
@@ -20,7 +20,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
-from envclient import Client, EnvError, env_of   # noqa: E402
+from envclient import Client, EnvError, env_of, seconds_left   # noqa: E402
 
 STATE_DIR = ".envctl"
 CURRENT = os.path.join(STATE_DIR, "current.json")
@@ -68,6 +68,9 @@ def write_obs(cur: dict, out: dict) -> None:
         info.pop(k)
     record = {k: out.get(k) for k in ("reward", "done", "success", "end_reason", "steps", "max_steps",
                                        "terminated", "truncated")}
+    left = seconds_left()
+    if left is not None:
+        record["seconds_left"] = round(left)
     record.update(obs=split_images(obs, f"{n:04d}_obs", images), info=split_images(info, f"{n:04d}_info", images))
     if "state" in out:
         record["state"] = out["state"]
@@ -79,7 +82,8 @@ def write_obs(cur: dict, out: dict) -> None:
     cur["n"] = n + 1
     save_current(cur["env"], cur["session"], cur["n"])
     texts = obs.get("texts") or {}
-    print(f"[{n:04d}] steps {out.get('steps')}/{out.get('max_steps')}  done={out.get('done')}  "
+    print(f"[{n:04d}] steps {out.get('steps')}/{out.get('max_steps')}"
+          + (f"  time left {round(left)}s" if left is not None else "") + f"  done={out.get('done')}  "
           f"success={out.get('success')}  end={out.get('end_reason')}  valid={info.get('valid')}"
           + (f"  error={info.get('error')}" if info.get("error") else ""))
     print(f"  screen: {os.path.join(d, f'{n:04d}.png')}" + (f"  raw: {os.path.join(d, f'{n:04d}_raw.png')}"
@@ -147,7 +151,10 @@ def main() -> None:
             elif a.cmd == "save":
                 print(s.save())
             elif a.cmd == "info":
-                print(json.dumps(s.describe(), indent=1))
+                d = s.describe()
+                if seconds_left() is not None:
+                    d["seconds_left"] = round(seconds_left())
+                print(json.dumps(d, indent=1))
             elif a.cmd == "actions":
                 last = sorted(f for f in os.listdir(os.path.join("obs", cur["session"])) if f.endswith(".json"))[-1]
                 with open(os.path.join("obs", cur["session"], last)) as f:

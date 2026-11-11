@@ -35,6 +35,8 @@ populate_dict EVAL_DEFAULTS ARGS
 REQUIRED_ARGS=()
 populate_array EVAL_ESSENTIALS REQUIRED_ARGS
 parse_args ARGS REQUIRED_ARGS "$@"
+# Web and Android run in the container: it gets the job's GPUs so NVML accounts for them (EvalRow.compute)
+[[ -n "${CUDA_VISIBLE_DEVICES:-}" ]] && export CUSI_CONTAINER_NV=1
 
 ENV_NAME="${ARGS["env"]}"
 MODEL="${ARGS["model"]}"

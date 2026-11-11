@@ -9,6 +9,7 @@ import traceback
 import click
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
+from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
 from cusi.eval.supervision import DECODING, model, supervisor_extra, supervisor_state
@@ -153,10 +154,11 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
             if run.done(task_id, rerun_failed=rerun_failed):
                 continue
             log_info(f"[android eval] {task_id}", parameters=parameters)
-            fields, episode, traj, connection, report, extra = run_one(
-                task_name=name, instance=i, suite_seed=task_random_seed, connection=connection,
-                emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, out_dir=out_dir,
-                parameters=parameters, wait_after_action_seconds=wait_after_action_seconds)
+            with tally() as compute:
+                fields, episode, traj, connection, report, extra = run_one(
+                    task_name=name, instance=i, suite_seed=task_random_seed, connection=connection,
+                    emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, out_dir=out_dir,
+                    parameters=parameters, wait_after_action_seconds=wait_after_action_seconds)
             tokens = (0, 0) if report is None else (
                 (report.executor_input_tokens or 0) + (report.supervisor_input_tokens or 0),
                 (report.executor_output_tokens or 0) + (report.supervisor_output_tokens or 0))
@@ -164,7 +166,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
                               success=fields["success"], n_steps=fields["n_steps"], n_invalid=fields["n_invalid"],
                               termination_reason=fields["termination_reason"], input_tokens=tokens[0],
                               output_tokens=tokens[1], seconds=fields["seconds"], answer=fields["answer"],
-                              error=fields["error"], extra=extra))
+                              error=fields["error"], extra=extra, compute=compute.snapshot()))
             with open(episodes_path, "a") as f:
                 f.write(json.dumps(episode, default=str) + "\n")
             with open(os.path.join(eval_trajectories(run_dir=out_dir), f"{task_id}.json"), "w") as f:

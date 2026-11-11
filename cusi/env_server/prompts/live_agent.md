@@ -8,5 +8,6 @@ action format) to obs/<session>/<n>.json. Then act with `python3 envctl step "<a
 again) until the episode is done (`done` in the observation) or you judge it cannot be completed.
 
 Budgets: at most {max_steps} environment steps (every step counts, invalid ones too) and {minutes} minutes of wall
-clock; you are stopped when either runs out. Your workspace is /work: your guides, tools and prompts are there.
+clock; you are stopped when either runs out. Each observation shows steps used / max_steps and the seconds left
+($ENVCTL_DEADLINE is the unix time the limit ends). Your workspace is /work: your guides, tools and prompts are there.
 {memory_note}

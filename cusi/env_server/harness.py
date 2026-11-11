@@ -184,6 +184,7 @@ class Harness:
             binds = [f"{os.path.join(self.agent_home, d)}:{HOME}/{d}:ro" for d in (".local", ".cache")
                      if os.path.isdir(os.path.join(self.agent_home, d))]
         log_info(f"[harness] {k}: {task_id} ({self.mode}, {self.memory}), session {sid}", parameters=self._parameters)
+        env_vars["ENVCTL_DEADLINE"] = f"{time.time() + self.wall_clock:.0f}"   # unix time the wall-clock limit ends
         code = run_in_sandbox(image=self.image, workspace=ws, cmd=self._command(task={"env": env, **opened}),
                               env_vars=env_vars, timeout=self.wall_clock, log_path=log_path, home=home,
                               binds=binds)

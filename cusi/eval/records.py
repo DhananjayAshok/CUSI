@@ -1,5 +1,7 @@
 """
-Per-task eval records. A success of None means the task failed to run and is excluded from the rate.
+Per-task eval records. A success of None means the task failed to run and is excluded from the rate. compute is the
+task's cusi.utils.compute tally (wall_s, llm: calls, tokens, images, FLOPs; nvml: energy and busy time of the job's
+GPUs over the task, which with parallel workers also covers the other tasks then running on them).
 """
 import json
 import os
@@ -23,6 +25,7 @@ class EvalRow:
     answer: Optional[str] = None
     error: Optional[str] = None
     extra: dict = field(default_factory=dict)
+    compute: dict = field(default_factory=dict)
 
 
 #: Config keys that don't change results, so they may differ between launches of one run.
@@ -77,6 +80,11 @@ class EvalRun:
                        task_seconds_p90=round(seconds[min(len(seconds) - 1, int(0.9 * len(seconds)))], 1),
                        input_tokens_mean=round(sum(r.get("input_tokens") or 0 for r in rows) / len(rows)),
                        output_tokens_mean=round(sum(r.get("output_tokens") or 0 for r in rows) / len(rows)))
+            flops = [((r.get("compute") or {}).get("llm") or {}).get("flops") for r in rows]
+            if any(f is not None for f in flops):   # rows from before compute was recorded have none
+                known = [f for f in flops if f is not None]
+                out.update(llm_flops_total=sum(known), llm_flops_mean=sum(known) / len(known),
+                           rows_without_compute=len(rows) - len(known))
         with open(os.path.join(self.directory, "summary.json"), "w") as f:
             json.dump(out, f, indent=1)
         return out

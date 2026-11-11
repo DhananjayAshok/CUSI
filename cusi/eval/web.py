@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
+from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, storage_relative, web_source_task_file, web_task_dir
 from cusi.eval.supervision import DECODING, run_pool, supervisor_extra, supervisor_state
@@ -84,7 +85,16 @@ def materialize_screenshots(*, run_dir: str) -> list:
 
 def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
              run_dir: str, parameters=None, vlm=None) -> dict:
-    """One task with run.py's browser-death retries; vlm overrides the served model (tests)."""
+    """One task with run.py's browser-death retries; vlm overrides the served model (tests). The outcome (and
+    outcome.json) carries the task's compute over all its attempts."""
+    with tally() as compute:
+        return _run_task(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
+                         vllm_base_url=vllm_base_url, data_file=data_file, run_dir=run_dir, parameters=parameters,
+                         vlm=vlm, compute=compute)
+
+
+def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
+              run_dir: str, parameters, vlm, compute) -> dict:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.webvoyager import WebVoyagerPlayEnv, load_webvoyager
     from cusi.eval.supervision import model
@@ -127,18 +137,19 @@ def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, 
             return _finish(task=task, task_dir=task_dir, run_dir=run_dir, report=report, result=result,
                            screenshots=screenshots,
                            error=error or (final.error if final else None), model_name=model_name,
-                           seconds=time.time() - t0)
+                           seconds=time.time() - t0, compute=compute.snapshot())
         log_warn(f"[web eval] task{task['id']}: browser died (attempt {attempt}/{MAX_TASK_ATTEMPTS}): {crashed}",
                  parameters=parameters)
         if attempt == MAX_TASK_ATTEMPTS:
             wv._record_task_error(task_dir, task, f"browser died {MAX_TASK_ATTEMPTS}x: {crashed}")
             return {"termination_reason": None, "answer": None, "n_iterations": 0,
-                    "error": f"browser died {MAX_TASK_ATTEMPTS}x: {crashed}", "seconds": time.time() - t0}
+                    "error": f"browser died {MAX_TASK_ATTEMPTS}x: {crashed}", "seconds": time.time() - t0,
+                    "compute": compute.snapshot()}
         time.sleep(5 * attempt)
 
 
 def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screenshots: dict, error, model_name: str,
-            seconds: float) -> dict:
+            seconds: float, compute: dict) -> dict:
     """Writes outcome.json and the episode artifacts; screenshots go in the episode's frames, mapped by name."""
     from cusi.eval.episode import write_episode
     final = report.last_report if report is not None else None
@@ -150,7 +161,8 @@ def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screensh
                "output_tokens": ((report.executor_output_tokens or 0) + (report.supervisor_output_tokens or 0))
                if report else 0,
                "seconds": seconds,
-               "extra": supervisor_extra(report=report, result=result) if report is not None else {}}
+               "extra": supervisor_extra(report=report, result=result) if report is not None else {},
+               "compute": compute}
     with open(os.path.join(task_dir, "outcome.json"), "w") as f:
         json.dump(outcome, f, indent=1, default=str)
     if report is None:     # no episode to hold them
@@ -271,7 +283,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
                           termination_reason=outcome.get("termination_reason"),
                           input_tokens=outcome.get("input_tokens", 0), output_tokens=outcome.get("output_tokens", 0),
                           seconds=outcome.get("seconds", 0.0), answer=outcome.get("answer"),
-                          error=outcome.get("error"), extra={"verdict": verdict, **outcome.get("extra", {})}))
+                          error=outcome.get("error"), extra={"verdict": verdict, **outcome.get("extra", {})},
+                          compute=outcome.get("compute", {})))
         meta_path = os.path.join(eval_episode(run_dir=run_dir, task_id=task["id"]), "meta.json")
         if os.path.exists(meta_path):     # the judge's verdict into the episode artifacts
             with open(meta_path) as f:

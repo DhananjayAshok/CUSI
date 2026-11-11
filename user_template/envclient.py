@@ -4,7 +4,8 @@ a numpy array when numpy and Pillow are installed).
 
 Servers are configured in envs.json next to this file (or $ENVCLIENT_CONFIG):
     {"token_file": "...", "servers": {"gameboy": "http://127.0.0.1:8710", "web": "...", "android": "..."}}
-or by $ENV_SERVER_<ENV> and $ENV_SERVER_TOKEN.
+or by $ENV_SERVER_<ENV> and $ENV_SERVER_TOKEN. In an evaluation, $ENVCTL_DEADLINE is the unix time the task's
+wall-clock limit ends (seconds_left() counts down to it).
 
     from envclient import Client
     c = Client.from_config()
@@ -15,10 +16,17 @@ or by $ENV_SERVER_<ENV> and $ENV_SERVER_TOKEN.
 import base64
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 
 PREFIX_ENV = {"gb": "gameboy", "web": "web", "aw": "android"}
+
+
+def seconds_left():
+    """Seconds until the task's wall-clock limit ($ENVCTL_DEADLINE), or None outside an evaluation."""
+    deadline = os.environ.get("ENVCTL_DEADLINE")
+    return None if not deadline else max(0.0, float(deadline) - time.time())
 
 
 class EnvError(RuntimeError):

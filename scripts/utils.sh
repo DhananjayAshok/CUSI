@@ -250,6 +250,7 @@ declare -A SEARCH_DEFAULTS=(
     ["model"]="none"
     ["expander"]="random"
     ["vllm_port"]="none"
+    ["vllm_extra"]="none"
     ["extra"]="none"
     ["overwrite"]="false"
     ["ignore_config_violation"]="false"

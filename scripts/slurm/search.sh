@@ -13,6 +13,7 @@
 #       --image_embedder <image_embedder> --text_embedder <text_embedder> --novelty_scorer <novelty_scorer> \
 #       [--expander <value>] [--model <value>] [--vllm_port <value>] \
 #       [--extra <value>] [--overwrite <value>] [--ignore_config_violation <value>]
+#   bash scripts/slurm/search.sh ... [--vllm_extra "<more vllm serve flags>"]   # e.g. "--dtype half" on pre-Ampere GPUs
 #
 # --extra passes further run_search.py flags verbatim, e.g.
 #   --extra "--random_steps 20 --scenes location_viridian_city_starting_charmander".
@@ -64,7 +65,8 @@ if [[ "$MODEL" != "none" ]]; then
     else
         VLLM_GPUS="$CUDA_VISIBLE_DEVICES"
     fi
-    CUDA_VISIBLE_DEVICES="$VLLM_GPUS" bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" || exit 1
+    VEXTRA=(); [[ "${ARGS["vllm_extra"]}" != "none" ]] && VEXTRA=(--extra "${ARGS["vllm_extra"]}")
+    CUDA_VISIBLE_DEVICES="$VLLM_GPUS" bash scripts/serve_vllm.sh --model "$MODEL" --port "$PORT" "${VEXTRA[@]}" || exit 1
     trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 fi
 JOB_GPUS="${CUDA_VISIBLE_DEVICES:-}"
