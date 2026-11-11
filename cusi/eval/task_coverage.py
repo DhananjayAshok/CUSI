@@ -8,8 +8,13 @@ Stages, each resumable:
 - judge: judge every (test task, neighbour) pair not yet judged, a judge sanity check, then summary;
 - summary: per-task metrics and aggregates (overall and per group: Web site, Android app, GameBoy start state).
 
-Output, next to the proposals: <search run>/task_coverage/<embedder>/ (test_tasks.jsonl, proposed.jsonl,
-embeddings.npz, neighbours.jsonl) and its judge_<judge>/ (judgments.jsonl, sanity.jsonl, per_task.jsonl,
+Proposals are deduplicated (--dedup semantic, the default: cusi.eval.task_dedup on top of the exact-text merge;
+--dedup exact: the exact-text merge alone).
+
+Output, next to the proposals: <search run>/task_coverage/<embedder>/ (embeddings.npz, every dedup's cache) and the
+dedup's output dir (the embedder dir itself for exact, dedup_cos<c>/ in it for semantic): test_tasks.jsonl,
+proposed.jsonl, dedup.jsonl (semantic merges), neighbours.jsonl, and its judge_<judge>/ (judgments.jsonl,
+sanity.jsonl, per_task.jsonl,
 summary.json).
 
     python run_eval.py task_coverage --env gameboy --run <run> --embedder_model <id> --judge_model <id> \\
@@ -23,6 +28,7 @@ import re
 import click
 import numpy as np
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
 from cusi.search.store import node_rows
 from cusi.utils.log_handling import log_info
 from cusi.utils.paths import search_run
@@ -233,11 +239,11 @@ def judge_pairs(*, vlm, env_description: str, pairs: list, max_new_tokens: int, 
 
 # --------------------------------------------------------------------------- stages
 
-def run_embed(*, cov_dir: str, env_name: str, directory: str, embedder_model: str, k: int, parameters: dict) -> None:
+def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, embedder_model: str, k: int,
+              dedup: str, dedup_cos: float, parameters: dict) -> None:
     tests = test_tasks(env_name=env_name, parameters=parameters)
     proposals = proposed_tasks(directory=directory)
-    write_jsonl(tests, os.path.join(cov_dir, "test_tasks.jsonl"))
-    write_jsonl(proposals, os.path.join(cov_dir, "proposed.jsonl"))
+    n_exact = len(proposals)
     holder = {}
 
     def factory():
@@ -246,9 +252,11 @@ def run_embed(*, cov_dir: str, env_name: str, directory: str, embedder_model: st
             holder["e"] = Embedder(model_name=embedder_model)
         return holder["e"]
 
-    path = os.path.join(cov_dir, "embeddings.npz")
-    q = cached_embeddings(path=path, texts=[t["task"] for t in tests], query=True, embedder_factory=factory)
-    d = cached_embeddings(path=path, texts=[p["task"] for p in proposals], query=False, embedder_factory=factory)
+    q = cached_embeddings(path=emb_path, texts=[t["task"] for t in tests], query=True, embedder_factory=factory)
+    d = cached_embeddings(path=emb_path, texts=[p["task"] for p in proposals], query=False, embedder_factory=factory)
+    proposals, d = apply_dedup(proposals=proposals, vectors=d, dedup=dedup, cos_threshold=dedup_cos, out_dir=cov_dir)
+    write_jsonl(tests, os.path.join(cov_dir, "test_tasks.jsonl"))
+    write_jsonl(proposals, os.path.join(cov_dir, "proposed.jsonl"))
     sims = q @ d.T
     rows = []
     for t, row in zip(tests, sims):
@@ -260,8 +268,10 @@ def run_embed(*, cov_dir: str, env_name: str, directory: str, embedder_model: st
     with open(os.path.join(cov_dir, "config.json"), "w") as f:
         json.dump({"env": env_name, "run_dir": directory, "embedder_model": embedder_model, "k": k,
                    "query_instruction": QUERY_INSTRUCTION, "n_test": len(tests), "n_proposed": len(proposals),
+                   "dedup": dedup, "dedup_cos": dedup_cos if dedup == "semantic" else None, "n_exact_text": n_exact,
                    "android_suite_seed": ANDROID_SUITE_SEED if env_name == "android" else None}, f, indent=1)
-    log_info(f"task_coverage embed: {len(tests)} test tasks, {len(proposals)} proposed -> {cov_dir}",
+    log_info(f"task_coverage embed: {len(tests)} test tasks, {len(proposals)} proposed ({n_exact} after the "
+             f"exact-text merge, dedup {dedup}) -> {cov_dir}",
              parameters=parameters)
 
 
@@ -378,14 +388,16 @@ def run_summary(*, cov_dir: str, judge_dir: str, parameters: dict) -> dict:
 @click.option("--k", default=5, show_default=True, help="Proposed tasks per test task.")
 @click.option("--batch_size", default=32, show_default=True, help="Judge prompts per call.")
 @click.option("--max_new_tokens", default=200, show_default=True)
+@dedup_options
 @click.pass_obj
 def command(parameters, env_name, run_name, stage, embedder_model, judge_model, judge_backend, vllm_base_url, k,
-            batch_size, max_new_tokens):
+            batch_size, max_new_tokens, dedup, dedup_cos):
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
-    cov_dir = os.path.join(directory, "task_coverage", short_name(embedder_model))
-    os.makedirs(cov_dir, exist_ok=True)
+    emb_path, cov_dir = stage_dirs(stage_dir=os.path.join(directory, "task_coverage", short_name(embedder_model)),
+                                   dedup=dedup, cos_threshold=dedup_cos)
     if stage in ("embed", "all"):
-        run_embed(cov_dir=cov_dir, env_name=env_name, directory=directory, embedder_model=embedder_model, k=k,
+        run_embed(cov_dir=cov_dir, emb_path=emb_path, env_name=env_name, directory=directory,
+                  embedder_model=embedder_model, k=k, dedup=dedup, dedup_cos=dedup_cos,
                   parameters=parameters)
     if stage == "embed":
         return

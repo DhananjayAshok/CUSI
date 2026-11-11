@@ -21,8 +21,11 @@ Stages, each resumable:
   sanity check, then summary;
 - summary: the metrics above.
 
-Output, next to the proposals: <search run>/task_diversity/<embedder>/ (proposed.jsonl, embeddings.npz,
-neighbours.jsonl) and its judge_<judge>/ (judgments.jsonl, sanity.jsonl, groups.jsonl, summary.json).
+Proposals are deduplicated as in task_coverage (--dedup semantic, the default, or exact).
+
+Output, next to the proposals: <search run>/task_diversity/<embedder>/ (embeddings.npz, every dedup's cache) and the
+dedup's output dir (the embedder dir itself for exact, dedup_cos<c>/ in it for semantic): proposed.jsonl,
+dedup.jsonl, neighbours.jsonl, and its judge_<judge>/ (judgments.jsonl, sanity.jsonl, groups.jsonl, summary.json).
 
     python run_eval.py task_diversity --env gameboy --run <run> --embedder_model <id> --judge_model <id> \\
         --stage all --vllm_base_url http://127.0.0.1:<port>/v1/
@@ -35,6 +38,7 @@ import numpy as np
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
 from cusi.eval.task_coverage import (PARAPHRASE_PROMPT, Embedder, cached_embeddings, judge_prompts, proposed_tasks,
                                      read_jsonl, short_name, text_key, write_jsonl)
+from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
 from cusi.utils.log_handling import log_info
 from cusi.utils.paths import search_run
 
@@ -120,9 +124,10 @@ def vendi(*, vectors: np.ndarray) -> float:
 
 # --------------------------------------------------------------------------- stages
 
-def run_embed(*, div_dir: str, directory: str, embedder_model: str, k_max: int, parameters: dict) -> None:
+def run_embed(*, div_dir: str, emb_path: str, directory: str, embedder_model: str, k_max: int, dedup: str,
+              dedup_cos: float, parameters: dict) -> None:
     proposals = proposed_tasks(directory=directory)
-    write_jsonl(proposals, os.path.join(div_dir, "proposed.jsonl"))
+    n_exact = len(proposals)
     holder = {}
 
     def factory():
@@ -132,8 +137,10 @@ def run_embed(*, div_dir: str, directory: str, embedder_model: str, k_max: int, 
         return holder["e"]
 
     # Documents (no query instruction) on both sides: a symmetric similarity
-    vectors = cached_embeddings(path=os.path.join(div_dir, "embeddings.npz"), texts=[p["task"] for p in proposals],
-                                query=False, embedder_factory=factory)
+    vectors = cached_embeddings(path=emb_path, texts=[p["task"] for p in proposals], query=False,
+                                embedder_factory=factory)
+    proposals, vectors = apply_dedup(proposals=proposals, vectors=vectors, dedup=dedup, cos_threshold=dedup_cos, out_dir=div_dir)
+    write_jsonl(proposals, os.path.join(div_dir, "proposed.jsonl"))
     sims = vectors @ vectors.T
     np.fill_diagonal(sims, -np.inf)
     top = min(k_max, len(proposals) - 1)
@@ -146,7 +153,9 @@ def run_embed(*, div_dir: str, directory: str, embedder_model: str, k_max: int, 
     write_jsonl(rows, os.path.join(div_dir, "neighbours.jsonl"))
     with open(os.path.join(div_dir, "config.json"), "w") as f:
         json.dump({"run_dir": directory, "embedder_model": embedder_model, "k_max": k_max,
-                   "n_proposed": len(proposals)}, f, indent=1)
+                   "n_proposed": len(proposals), "dedup": dedup,
+                   "dedup_cos": dedup_cos if dedup == "semantic" else None, "n_exact_text": n_exact}, f,
+                  indent=1)
     log_info(f"task_diversity embed: {len(proposals)} proposed tasks, {top} nearest each -> {div_dir}",
              parameters=parameters)
 
@@ -218,10 +227,10 @@ def run_sanity(*, judge_dir: str, env_description: str, proposals: list, vlm, ma
     log_info(f"task_diversity sanity -> {path}", parameters=parameters)
 
 
-def run_summary(*, div_dir: str, judge_dir: str, seed: int, parameters: dict) -> dict:
+def run_summary(*, div_dir: str, emb_path: str, judge_dir: str, seed: int, parameters: dict) -> dict:
     proposals = read_jsonl(os.path.join(div_dir, "proposed.jsonl"))
     index = {p["proposed_id"]: i for i, p in enumerate(proposals)}
-    with np.load(os.path.join(div_dir, "embeddings.npz")) as z:
+    with np.load(emb_path) as z:
         vectors = np.stack([z[f"d_{text_key(p['task'])}"] for p in proposals])
     scores = {r["key"]: r["score"] for r in read_jsonl(os.path.join(judge_dir, "judgments.jsonl"))
               if r["score"] is not None}
@@ -290,15 +299,16 @@ def run_summary(*, div_dir: str, judge_dir: str, seed: int, parameters: dict) ->
 @click.option("--batch_size", default=32, show_default=True, help="Judge prompts per call.")
 @click.option("--max_new_tokens", default=200, show_default=True)
 @click.option("--seed", default=0, show_default=True, help="Rarefaction subsets.")
+@dedup_options
 @click.pass_obj
 def command(parameters, env_name, run_name, stage, embedder_model, judge_model, judge_backend, vllm_base_url, k,
-            k_max, batch_size, max_new_tokens, seed):
+            k_max, batch_size, max_new_tokens, seed, dedup, dedup_cos):
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
-    div_dir = os.path.join(directory, "task_diversity", short_name(embedder_model))
-    os.makedirs(div_dir, exist_ok=True)
+    emb_path, div_dir = stage_dirs(stage_dir=os.path.join(directory, "task_diversity", short_name(embedder_model)),
+                                   dedup=dedup, cos_threshold=dedup_cos)
     if stage in ("embed", "all"):
-        run_embed(div_dir=div_dir, directory=directory, embedder_model=embedder_model, k_max=k_max,
-                  parameters=parameters)
+        run_embed(div_dir=div_dir, emb_path=emb_path, directory=directory, embedder_model=embedder_model,
+                  k_max=k_max, dedup=dedup, dedup_cos=dedup_cos, parameters=parameters)
     if stage == "embed":
         return
     if judge_model is None:
@@ -311,4 +321,4 @@ def command(parameters, env_name, run_name, stage, embedder_model, judge_model, 
                        parameters=parameters)
         run_judge(div_dir=div_dir, judge_dir=judge_dir, env_name=env_name, vlm=vlm, k=k,
                   max_new_tokens=max_new_tokens, batch_size=batch_size, parameters=parameters)
-    run_summary(div_dir=div_dir, judge_dir=judge_dir, seed=seed, parameters=parameters)
+    run_summary(div_dir=div_dir, emb_path=emb_path, judge_dir=judge_dir, seed=seed, parameters=parameters)
