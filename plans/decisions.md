@@ -2457,3 +2457,26 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   screens (SigLIP), distinct at tau/2 / tau / 2tau: web 22,316 / 17,097 / 10,253 vs 6,110 / 5,321 / 3,834; android
   2,021 / 1,414 / 917 vs 1,459 / 1,126 / 725; Red 7,446 / 2,818 / 766 vs 1,311 / 748 / 294, and at 7,000 steps each
   1,266 / 643 / 221 vs 1,249 / 716 / 281.
+- 2026-11-12 (grouped tree comparison, cusi/search/groups.py): text, screen and state coverage compare groups of runs
+  (--groups "name=r1,r2;name=r3,r4"; --runs = each run its own group; a run in one group only). Each run is first
+  reduced to its distinct items (text: its set of normalised items; states: its sets per set measure; screens: its
+  greedy distinct screens at tau), a group's distinct items are the union over its runs (screens: a greedy pass at tau
+  over the runs' pooled distinct screens), and groups are compared: 2 groups both / only-A / only-B (screens: a group's
+  screen is matched when any frame of the other group's runs is within tau), 3+ groups unique to each and shared by
+  all; each run's own count with the group's mean and sd; per scene; --at_steps per run. Screen --runs compares now go
+  through this too (screen-based, no longer frame-weighted unmatched counts). state_coverage became a click group:
+  counts (the old per-run command) and compare (sets recomputed from the run's steps each time, no cache); max / count
+  measures (badges, party, dex, battles, js_functions) per run with group mean and sd only. New Slurm pair
+  slurm/state_coverage.sh + scripts/slurm/state_coverage.sh; text / screen Slurm scripts take --groups.
+  Test (jobs 295440-295452): Web random s0-s2 / VLM w-typing s0-s2 / VLM no-typing s0-s2, distinct text 148,045 /
+  36,359 / 32,976, screens at tau 40,205 / 12,390 / 11,223; Android text 7,557 / 6,995 / 4,641, screens 3,271 / 2,597
+  / 1,482, activity states 566 / 520 / 389; Red random s0-s4 vs VLM no-typing s0, s1, s3, s4 (s0, s1 still rerunning,
+  s3, s4 still running) text 3,164 / 1,252, screens 5,568 / 1,333 (VLM screens matched by random 1,147), tiles 3,622 /
+  638. Group distinct >= each of its runs; single-run counts match the earlier per-run ones.
+- 2026-11-12 (Gemma Link's Awakening VLM trees on Quadros): the six Gemma-4-31B LA vlm_no_typing s0-s5 trees (text on)
+  waited for A6000 pairs; moved to Quadro RTX 8000 pairs in fp16 (user's call; tmp_la_quadro.sh, jobs in
+  storage/tmp/la_quadro_jobs.txt). Caveat: the other Gemma trees ran bf16 on A6000s, so these differ in precision.
+  FAILED: every segment died at vLLM startup (cudagraph memory profiling) with Triton OutOfResources: shared memory,
+  required 98304, hardware limit 65536 (Turing). The kernel itself is too big, so --enforce-eager would not help:
+  Gemma-4-31B does not run on Quadro RTX 8000s with this vLLM (0.30.0). Resubmitted unchanged to A6000 pairs, bf16
+  (tmp_la_a6000.sh, jobs in storage/tmp/la_a6000_jobs.txt); no tree data was lost (none had started).

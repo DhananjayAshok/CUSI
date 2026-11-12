@@ -12,12 +12,16 @@ Items are normalised (Unicode NFKC, lowercase, whitespace collapsed, punctuation
 digits are kept (user's call), so counters and amounts count as distinct text. GameBoy text types out: an item that is
 a strict prefix of a longer item seen in the same expansion is dropped, so half-typed lines do not count.
 
-Per run: its distinct items (overall, per scene, optionally within its first --at_steps env steps). For two runs:
-items both saw, only the first, only the second; for 3+ runs: items unique to each and items all saw; for each run the
-most frequent items no other run saw (frequency = observations an item was on). Exact matches only: no embedding, no
-threshold.
+Runs are compared in groups (cusi.search.groups; --runs makes each run its own group): each run is reduced to its
+distinct items (overall, per scene, optionally within its first --at_steps env steps), a group's distinct items are
+the union over its runs, and groups are compared by set operations (two groups: both, only the first, only the
+second; 3+: each group's items no other group saw, and the items every group saw), with each group's most frequent
+items no other group saw (frequency = observations an item was on, summed over the group's runs). Exact matches only:
+no embedding, no threshold.
 
     python -m cusi.search.text_coverage compare --env web --runs sat_random_s0,sat_vlm_w_typing_s0
+    python -m cusi.search.text_coverage compare --env web \\
+        --groups "random=sat_random_s0,sat_random_s1,sat_random_s2;vlm=sat_vlm_w_typing_s0,sat_vlm_w_typing_s1,sat_vlm_w_typing_s2"
 
 Output: storage/search/<env>/_compare/text_coverage/<hash>/ (meta_<hash>.yaml, summary.json, summary.md).
 """
@@ -28,6 +32,7 @@ import unicodedata
 from collections import Counter, defaultdict
 from typing import Optional
 import click
+from cusi.search.groups import group_table, parse_groups, public, set_stats
 from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
 from cusi.utils.hash_handling import hash_meta_dict, write_meta
 from cusi.utils.log_handling import log_info
@@ -124,44 +129,43 @@ def run_texts(*, env_name: str, directory: str, at_steps: Optional[int]) -> dict
     return {"count": count, "scenes": scenes, "by_scene": by_scene, "observations": n_obs, "steps": steps}
 
 
-def compare_runs(*, env_name: str, runs: list, at_steps: Optional[int], parameters: dict) -> dict:
+def compare_groups(*, env_name: str, groups: dict, at_steps: Optional[int], parameters: dict) -> dict:
+    """Group statistics (cusi.search.groups) of the runs' distinct items, overall and per scene, with each group's most
+    frequent items no other group saw (frequency: observations summed over the group's runs)."""
+    runs = [r for members in groups.values() for r in members]
     data = {r: run_texts(env_name=env_name, directory=search_run(parameters=parameters, env=env_name, run=r),
                          at_steps=at_steps) for r in runs}
-    meta = {"env": env_name, "runs": runs, "at_steps": at_steps, "unit": "normalised text items, digits kept"}
+    meta = {"env": env_name, "groups": groups, "at_steps": at_steps, "unit": "normalised text items, digits kept"}
     out_dir = os.path.join(search_root(parameters=parameters, env=env_name), "_compare", DIR, hash_meta_dict(meta))
     os.makedirs(out_dir, exist_ok=True)
     write_meta(out_dir, dict(meta), parameters)
-    sets = {r: set(d["count"]) for r, d in data.items()}
-    summary = {**meta, "runs_detail": {}}
-    lines = [f"# Text coverage: {env_name}" + (f", first {at_steps} env steps" if at_steps else ""), "",
-             "Distinct normalised text items each run saw, and the items no other run saw.", "",
-             "| run | env steps | observations | distinct items | not seen by the other run(s) |",
-             "|---|---|---|---|---|"]
-    for a in runs:
-        others = [b for b in runs if b != a]
-        unique = sets[a] - set().union(*(sets[b] for b in others)) if others else set(sets[a])
-        detail = {"env_steps": data[a]["steps"], "observations": data[a]["observations"], "distinct": len(sets[a]),
-                  "by_scene": {s: len(v) for s, v in sorted(data[a]["by_scene"].items())},
-                  "only_vs": {b: len(sets[a] - sets[b]) for b in others},
-                  "unique": len(unique),
-                  "unique_by_scene": {s: len(v & unique) for s, v in sorted(data[a]["by_scene"].items())},
-                  "unique_examples": [[i, data[a]["count"][i]] for i in
-                                      sorted(unique, key=lambda i: (-data[a]["count"][i], i))[:N_EXAMPLES]]}
-        summary["runs_detail"][a] = detail
-        lines.append(f"| {a} | {detail['env_steps']} | {detail['observations']} | {detail['distinct']} | "
-                     f"{detail['unique'] if others else '-'} |")
-    if len(runs) > 1:
-        shared = set.intersection(*sets.values())
-        summary["shared_by_all"] = len(shared)
-        lines += ["", f"Items all runs saw: {len(shared)}."]
-    for a in runs:
-        d = summary["runs_detail"][a]
-        lines += ["", f"## {a}", "", "| scene | distinct | not seen by the other run(s) |", "|---|---|---|"]
-        for s, v in sorted(d["by_scene"].items(), key=lambda kv: -kv[1]):
-            lines.append(f"| {s} | {v} | {d['unique_by_scene'][s]} |")
-        if len(runs) > 1:
-            lines += ["", "Most frequent items no other run saw (observations):", ""]
-            lines += [f"- {i!r} ({c})" for i, c in d["unique_examples"]]
+    stats = set_stats(sets={r: set(d["count"]) for r, d in data.items()}, groups=groups)
+    scenes = sorted({s for d in data.values() for s in d["by_scene"]})
+    by_scene = {s: public(stats=set_stats(sets={r: data[r]["by_scene"].get(s, set()) for r in runs}, groups=groups))
+                for s in scenes}
+    summary = {**meta, "runs_detail": {r: {"env_steps": d["steps"], "observations": d["observations"],
+                                           "distinct": len(d["count"])} for r, d in data.items()},
+               **public(stats=stats), "by_scene": by_scene, "unique_examples": {}}
+    title = f"# Text coverage: {env_name}" + (f", first {at_steps} env steps of each run" if at_steps else "")
+    lines = [title, "", "Distinct normalised text items: each run's own, its group's (the union over the group's "
+             "runs), and the group's items no other group saw.", "",
+             *group_table(stats=stats, groups=groups, unit="items")]
+    if len(groups) > 1:
+        lines += ["", "## By scene", "", "| scene | " + " | ".join(f"{g} distinct | {g} only" for g in groups) + " |",
+                  "|---|" + "---|---|" * len(groups)]
+        for s in scenes:
+            gs = by_scene[s]["groups"]
+            lines.append(f"| {s} | " + " | ".join(f"{gs[g]['distinct']} | {gs[g]['unique']}" for g in groups) + " |")
+        for g, members in groups.items():
+            others = set().union(*(stats["_union"][h] for h in groups if h != g))
+            unique = stats["_union"][g] - others
+            freq = Counter()
+            for r in members:
+                freq.update({i: c for i, c in data[r]["count"].items() if i in unique})
+            examples = [[i, c] for i, c in sorted(freq.items(), key=lambda kv: (-kv[1], kv[0]))[:N_EXAMPLES]]
+            summary["unique_examples"][g] = examples
+            lines += ["", f"## Most frequent items only {g} saw (observations)", ""]
+            lines += [f"- {i!r} ({c})" for i, c in examples]
     with open(os.path.join(out_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1, ensure_ascii=False)
     with open(os.path.join(out_dir, "summary.md"), "w") as f:
@@ -177,21 +181,24 @@ def main():
 
 @main.command()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
-@click.option("--runs", required=True, help="Comma-separated runs of this env (one run: its distinct items only).")
+@click.option("--runs", default=None, help="Comma-separated runs of this env, each its own group (one run: its "
+                                           "distinct items only).")
+@click.option("--groups", default=None, help='Groups of runs: "name=run1,run2;name=run3,run4" (2+ groups).')
 @click.option("--at_steps", default=None, type=int, help="Only each run's first N env steps.")
-def compare(env_name, runs, at_steps):
+def compare(env_name, runs, groups, at_steps):
     parameters = load_parameters()
-    runs = [r.strip() for r in runs.split(",") if r.strip()]
-    for run in runs:
+    groups = parse_groups(groups=groups, runs=runs)
+    for run in (r for members in groups.values() for r in members):
         if not os.path.isdir(search_run(parameters=parameters, env=env_name, run=run)):
             raise click.UsageError(f"{run} is not a {env_name} run (runs compared must all be of --env {env_name})")
-    summary = compare_runs(env_name=env_name, runs=runs, at_steps=at_steps, parameters=parameters)
-    for run, d in summary["runs_detail"].items():
-        print(f"{run}: {d['env_steps']} env steps, {d['distinct']} distinct items"
-              + "".join(f", {v} not seen by {b}" for b, v in d["only_vs"].items())
-              + (f", {d['unique']} by none of the others" if len(runs) > 2 else ""))
-    if "shared_by_all" in summary:
-        print(f"shared by all: {summary['shared_by_all']}")
+    summary = compare_groups(env_name=env_name, groups=groups, at_steps=at_steps, parameters=parameters)
+    for g, s in summary["groups"].items():
+        print(f"{g}: runs {s['runs']}, group distinct {s['distinct']}"
+              + (f", not in other group(s) {s['unique']}" if len(groups) > 1 else ""))
+    if "pair" in summary:
+        print(summary["pair"])
+    elif "shared_by_all" in summary:
+        print(f"in every group: {summary['shared_by_all']}")
 
 
 if __name__ == "__main__":

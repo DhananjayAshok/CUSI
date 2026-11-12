@@ -5,11 +5,12 @@ Screen coverage: compare the screens (frames the agent saw) of search runs of on
 Every frame a run saw is embedded: each scene's start frame, then every expansion step's frame in the order the steps
 were taken (restores are not exploration and saved no frame; curiosity sessions record states only, no frames). Two
 frames show the same screen when their distance, 1 - cosine of their image embeddings (the archive's novelty, image
-only), is at most tau. Runs are compared frame by frame: for each run, the frames that no frame of another run comes
-within tau of (per other run, and for 3+ runs by none of the others), overall and by scene, at tau / 2, tau and 2 tau;
-these counts weight a screen by how often its run saw it. Each run's distinct screens are counted too: a greedy pass
-over its frames in the order seen, a frame being a new screen when no screen kept so far is within tau (overall, and
-per scene on that scene's frames alone).
+only), is at most tau. A run's distinct screens: a greedy pass over its frames in the order seen, a frame being a new
+screen when no screen kept so far is within tau (overall, and per scene on that scene's frames alone). Runs are
+compared in groups (cusi.search.groups; --runs makes each run its own group), never counting a screen twice within a
+run: each run is reduced to its distinct screens, a group's distinct screens are a greedy pass at tau over its runs'
+pooled distinct screens, and a group's screen is matched by another group when any frame of any of that group's runs
+is within tau. Reported at tau / 2, tau and 2 tau, per scene, with each run's own count and the group's mean and sd.
 
 Embedders: random_patch (the search's own, image only; CPU) or siglip (--encoder_model, which alone defaults to
 google/siglip2-base-patch16-224: the user's call). tau per env and embedder: configs/screen_coverage.yaml, set by
@@ -19,7 +20,7 @@ Stages:
 - embed: <run>/screen_coverage/<embedder key>/ (parts/*.npz, one per block of expansions, resumable; a run that grew
   is embedded from where it stopped).
 - compare: storage/search/<env>/_compare/screen_coverage/<hash>/ (meta_<hash>.yaml, summary.json, summary.md,
-  sheets of sample unmatched frames), with each run's distinct screens.
+  sheets of each group's unmatched screens beside their nearest frame among the other groups).
 - distinct: one or more runs' distinct screens alone (printed, and written to the run's embedding dir as
   distinct_<tau>[_at<N>].json).
 - calibrate: --stage sample writes same-scene frame pairs across distance bands, with both embedders' distances, as
@@ -28,6 +29,7 @@ Stages:
 
     python -m cusi.search.screen_coverage embed --env web --run sat_random_s0 --embedder random_patch
     python -m cusi.search.screen_coverage compare --env web --runs sat_random_s0,sat_vlm_w_typing_s0 --embedder siglip
+    python -m cusi.search.screen_coverage compare --env web --groups "random=sat_random_s0,sat_random_s1;vlm=..."
 """
 import hashlib
 import io
@@ -40,6 +42,7 @@ import click
 import numpy as np
 import torch
 from PIL import Image, ImageDraw
+from cusi.search.groups import fmt_mean_sd, mean_sd, parse_groups
 from cusi.search.store import EXPANSIONS_FILE, node_rows, read_rows
 from cusi.utils.hash_handling import hash_meta_dict, write_meta
 from cusi.utils.log_handling import log_info, log_warn
@@ -182,14 +185,6 @@ def nearest_distance(*, query: np.ndarray, base: np.ndarray, device: str) -> np.
     return out
 
 
-def distances_between(*, a: dict, b: dict, device: str) -> np.ndarray:
-    """Each of a's frames' distance to its nearest frame of b, computed once per distinct frame of a."""
-    _, first, inverse = np.unique(a["key"], return_index=True, return_inverse=True)
-    _, b_first = np.unique(b["key"], return_index=True)
-    d = nearest_distance(query=a["emb"][first], base=b["emb"][b_first], device=device)
-    return d[inverse]
-
-
 def distinct_screens(*, emb: np.ndarray, keys: np.ndarray, tau: float, device: str) -> np.ndarray:
     """Greedy distinct screens of frames in the order seen: a frame is a new screen when no screen kept so far is
     within tau. Exact, in chunks: a chunk's frames are first checked against the kept screens, then the rest among
@@ -245,83 +240,147 @@ def contact_sheet(*, images: list, captions: list, path: str, cell: int = 220, c
     sheet.save(path)
 
 
-def compare_runs(*, env_name: str, runs: list, key: str, tau: float, at_steps: Optional[int], parameters: dict,
-                 sheets: bool = True) -> dict:
+def _subset(*, data: dict, idx: np.ndarray) -> dict:
+    return {k: v[idx] for k, v in data.items()}
+
+
+def _concat(*, parts: list) -> dict:
+    parts = [p for p in parts if len(p["key"])]
+    if not parts:
+        return {"emb": np.zeros((0, 1), np.float16), "ref": np.array([]), "scene": np.array([]),
+                "step": np.array([], np.int64), "key": np.array([]), "run": np.array([])}
+    return {k: np.concatenate([p[k] for p in parts]) for k in parts[0]}
+
+
+def run_representatives(*, data: dict, run: str, tau: float, device: str) -> tuple:
+    """A run reduced to its distinct screens at tau: (overall representatives, {scene: that scene's representatives,
+    from its frames alone}), each as frame arrays with a "run" column."""
+    data = {**data, "run": np.array([run] * len(data["key"]))}
+    overall = _subset(data=data, idx=distinct_screens(emb=data["emb"], keys=data["key"], tau=tau, device=device))
+    by_scene = {}
+    for s in np.unique(data["scene"]):
+        m = np.where(data["scene"] == s)[0]
+        sub = _subset(data=data, idx=m)
+        by_scene[str(s)] = _subset(data=sub, idx=distinct_screens(emb=sub["emb"], keys=sub["key"], tau=tau,
+                                                                  device=device))
+    return overall, by_scene
+
+
+def group_representatives(*, reps: list, tau: float, device: str) -> dict:
+    """The distinct screens of a group: a greedy pass at tau over its runs' representatives, pooled run after run
+    (each in the order seen), so a screen two runs share counts once."""
+    pooled = _concat(parts=reps)
+    if not len(pooled["key"]):
+        return pooled
+    return _subset(data=pooled, idx=distinct_screens(emb=pooled["emb"], keys=pooled["key"], tau=tau, device=device))
+
+
+def exact_frames(*, data: dict) -> dict:
+    """One frame per distinct image (the base other groups' screens are matched against)."""
+    _, first = np.unique(data["key"], return_index=True)
+    return _subset(data=data, idx=np.sort(first))
+
+
+def compare_groups(*, env_name: str, groups: dict, key: str, tau: float, at_steps: Optional[int], parameters: dict,
+                   sheets: bool = True) -> dict:
+    """Groups of runs (cusi.search.groups) by their distinct screens: each run reduced to its distinct screens, a
+    group's distinct screens the greedy union of its runs', and a group's screen matched by another group when any
+    frame of any of that group's runs is within tau. At tau / 2, tau and 2 tau; per scene; with sheets of each
+    group's screens no other group matched (at tau), each beside its nearest frame among the other groups."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    runs = [r for members in groups.values() for r in members]
     data = {}
     for run in runs:
         d = load_frames(directory=search_run(parameters=parameters, env=env_name, run=run), key=key)
         if at_steps is not None:
-            keep = d["step"] <= at_steps
-            d = {k: v[keep] for k, v in d.items()}
+            d = _subset(data=d, idx=np.where(d["step"] <= at_steps)[0])
         data[run] = d
     taus = {"tau/2": tau / 2, "tau": tau, "2tau": 2 * tau}
-    meta = {"env": env_name, "runs": runs, "embedder": key, "tau": tau, "at_steps": at_steps}
+    meta = {"env": env_name, "groups": groups, "embedder": key, "tau": tau, "at_steps": at_steps}
     out_dir = os.path.join(search_root(parameters=parameters, env=env_name), "_compare", DIR, hash_meta_dict(meta))
     os.makedirs(out_dir, exist_ok=True)
     write_meta(out_dir, dict(meta), parameters)
-    summary = {**meta, "taus": taus, "runs_detail": {}}
-    nearest = {}   # (a, b) -> a's frames' distance to b
-    for a in runs:
-        for b in runs:
-            if a != b:
-                nearest[(a, b)] = distances_between(a=data[a], b=data[b], device=device)
-    lines = [f"# Screen coverage: {env_name}, {key}, tau = {tau:g}" + (f", first {at_steps} env steps" if at_steps
-                                                                         else ""),
-             "", "Frames of each run that no frame of the other run(s) comes within the threshold of "
-                 "(a screen counts as often as its run saw it).", ""]
-    for a in runs:
-        others = [b for b in runs if b != a]
-        n = len(data[a]["key"])
-        detail = {"frames": n, "distinct_frames_exact": int(len(np.unique(data[a]["key"]))),
-                  "distinct_screens": distinct_counts(data=data[a], taus=taus, device=device), "unmatched": {}}
-        none_of = np.min(np.stack([nearest[(a, b)] for b in others]), axis=0) if others else np.zeros(n)
-        for label, t in taus.items():
-            row = {f"by_{b}": int((nearest[(a, b)] > t).sum()) for b in others}
-            if len(others) > 1:
-                row["by_none_of_the_others"] = int((none_of > t).sum())
-            row["fraction"] = {k: v / n if n else None for k, v in row.items()}
-            scenes = {}
-            for s in np.unique(data[a]["scene"]):
-                m = data[a]["scene"] == s
-                scenes[str(s)] = {"frames": int(m.sum()), "unmatched": int((none_of[m] > t).sum())}
-            row["by_scene"] = scenes
-            detail["unmatched"][label] = row
-        summary["runs_detail"][a] = detail
-        r = detail["unmatched"]["tau"]
-        ds = detail["distinct_screens"]
-        lines.append(f"## {a}: {n} frames; distinct screens " +
-                     ", ".join(f"{ds[label]['overall']} at {label}" for label in taus))
-        for label, t in taus.items():
-            u = detail["unmatched"][label]
-            cells = ", ".join(f"unmatched by {k[3:]}: {v} ({u['fraction'][k]:.1%})" for k, v in u.items()
-                              if k.startswith("by_") and k != "by_scene")
-            lines.append(f"- {label} = {t:.3g}: {cells}")
-        lines += ["", "| scene | frames | distinct screens at tau | unmatched at tau |", "|---|---|---|---|"]
-        for s, v in sorted(r["by_scene"].items(), key=lambda kv: -kv[1]["unmatched"]):
-            lines.append(f"| {s} | {v['frames']} | {ds['tau']['by_scene'][s]} | {v['unmatched']} "
-                         f"({v['unmatched'] / max(v['frames'], 1):.0%}) |")
+    base = {g: exact_frames(data=_concat(parts=[{**data[r], "run": np.array([r] * len(data[r]["key"]))}
+                                                for r in members])) for g, members in groups.items()}
+    summary = {**meta, "taus": taus, "runs_detail": {r: {"frames": int(len(d["key"])),
+                                                         "distinct_frames_exact": int(len(np.unique(d["key"])))}
+                                                     for r, d in data.items()}, "by_tau": {}}
+    title = f"# Screen coverage: {env_name}, {key}, tau = {tau:g}" + (f", first {at_steps} env steps of each run"
+                                                                      if at_steps else "")
+    lines = [title, "", "Distinct screens (greedy at the threshold): each run's own, its group's (the union over the "
+             "group's runs, a screen two runs share counted once), and the group's screens that no frame of another "
+             "group comes within the threshold of.", ""]
+    sheet_reps = {}
+    for label, t in taus.items():
+        rep = {r: run_representatives(data=data[r], run=r, tau=t, device=device) for r in runs}
+        gstats = {}
+        group_reps = {}
+        for g, members in groups.items():
+            group_reps[g] = group_representatives(reps=[rep[r][0] for r in members], tau=t, device=device)
+            mean, sd = mean_sd(values=[len(rep[r][0]["key"]) for r in members])
+            gstats[g] = {"runs": {r: int(len(rep[r][0]["key"])) for r in members}, "run_mean": mean, "run_sd": sd,
+                         "distinct": int(len(group_reps[g]["key"]))}
+        # each group's screens' distance to the nearest frame of each other group
+        near = {g: {h: nearest_distance(query=group_reps[g]["emb"], base=base[h]["emb"], device=device)
+                    if len(group_reps[g]["key"]) and len(base[h]["key"]) else np.full(len(group_reps[g]["key"]), 2.0)
+                    for h in groups if h != g} for g in groups}
+        scenes = sorted({s for r in runs for s in rep[r][1]})
+        by_scene = {s: {} for s in scenes}
+        for g, members in groups.items():
+            others = [h for h in groups if h != g]
+            none_of = np.min(np.stack([near[g][h] for h in others]), axis=0) if others else \
+                np.full(len(group_reps[g]["key"]), 2.0)
+            all_of = np.max(np.stack([near[g][h] for h in others]), axis=0) if others else none_of
+            gstats[g]["unique"] = int((none_of > t).sum())
+            if len(groups) > 2:
+                gstats[g]["matched_by_all"] = int((all_of <= t).sum())
+            for h in others:
+                gstats[g][f"matched_by_{h}"] = int((near[g][h] <= t).sum())
+            for s in scenes:
+                scene_reps = group_representatives(reps=[rep[r][1][s] for r in members if s in rep[r][1]], tau=t,
+                                                   device=device)
+                in_scene = group_reps[g]["scene"] == s
+                by_scene[s][g] = {"distinct": int(len(scene_reps["key"])),
+                                  "unique": int((none_of[in_scene] > t).sum())}
+            if label == "tau":
+                sheet_reps[g] = (group_reps[g], none_of)
+        summary["by_tau"][label] = {"tau": t, "groups": gstats, "by_scene": by_scene}
+        lines += [f"## {label} = {t:.3g}", "",
+                  "| group | runs | each run's distinct screens | mean ± sd | group distinct | not matched by other "
+                  "group(s) |" + (" matched by all |" if len(groups) > 2 else ""),
+                  "|---|---|---|---|---|---|" + ("---|" if len(groups) > 2 else "")]
+        for g, s in gstats.items():
+            lines.append(f"| {g} | {len(groups[g])} | {', '.join(str(v) for v in s['runs'].values())} | "
+                         f"{fmt_mean_sd(m=s['run_mean'], sd=s['run_sd'])} | {s['distinct']} | {s['unique']} |"
+                         + (f" {s['matched_by_all']} |" if len(groups) > 2 else ""))
+        if len(groups) == 2:
+            a, b = list(groups)
+            lines += ["", f"{a} screens matched by {b}: {gstats[a]['matched_by_' + b]}; {b} screens matched by {a}: "
+                          f"{gstats[b]['matched_by_' + a]}."]
+        if label == "tau":
+            lines += ["", "| scene | " + " | ".join(f"{g} distinct | {g} unmatched" for g in groups) + " |",
+                      "|---|" + "---|---|" * len(groups)]
+            for s in scenes:
+                lines.append(f"| {s} | " + " | ".join(f"{by_scene[s][g]['distinct']} | {by_scene[s][g]['unique']}"
+                                                     if g in by_scene[s] else "0 | 0" for g in groups) + " |")
         lines.append("")
-        if sheets:
+    if sheets:
+        readers = {r: FrameReader(directory=search_run(parameters=parameters, env=env_name, run=r)) for r in runs}
+        for g, (reps_g, none_of) in sheet_reps.items():
             idx = np.where(none_of > tau)[0]
-            _, uniq = np.unique(data[a]["key"][idx], return_index=True)
-            idx = idx[uniq]
             pick = sorted(random.Random(0).sample(list(idx), min(SHEET_SAMPLES, len(idx))))
-            if pick:
-                # each unmatched frame beside its nearest frame among the other runs
-                readers = {r: FrameReader(directory=search_run(parameters=parameters, env=env_name, run=r))
-                           for r in runs}
-                q = torch.from_numpy(data[a]["emb"][pick].astype(np.float32))
-                best = [(-2.0, None, None)] * len(pick)
-                for b in others:
-                    sims = q @ torch.from_numpy(data[b]["emb"].astype(np.float32)).T
-                    v, j = sims.max(dim=1)
-                    best = [max(x, (float(vv), b, int(jj)), key=lambda y: y[0]) for x, vv, jj in zip(best, v, j)]
-                images, captions = [], []
-                for i, (_, b, j) in zip(pick, best):
-                    images += [readers[a].image(str(data[a]["ref"][i])), readers[b].image(str(data[b]["ref"][j]))]
-                    captions += [f"{a[-22:]} {data[a]['scene'][i]}", f"nearest d={none_of[i]:.3f} ({b[-14:]})"]
-                contact_sheet(images=images, captions=captions, path=os.path.join(out_dir, f"unmatched_{a}.png"))
+            others = [h for h in groups if h != g]
+            if not pick or not others:
+                continue
+            other = _concat(parts=[base[h] for h in others])
+            q = torch.from_numpy(reps_g["emb"][pick].astype(np.float32))
+            j = (q @ torch.from_numpy(other["emb"].astype(np.float32)).T).max(dim=1).indices.tolist()
+            images, captions = [], []
+            for i, jj in zip(pick, j):
+                images += [readers[str(reps_g["run"][i])].image(str(reps_g["ref"][i])),
+                           readers[str(other["run"][jj])].image(str(other["ref"][jj]))]
+                captions += [f"{g} {reps_g['scene'][i]}", f"nearest d={none_of[i]:.3f} {str(other['run'][jj])[-14:]}"]
+            contact_sheet(images=images, captions=captions, path=os.path.join(out_dir, f"unmatched_{g}.png"))
     with open(os.path.join(out_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
     with open(os.path.join(out_dir, "summary.md"), "w") as f:
@@ -473,26 +532,26 @@ def embed(env_name, runs, embedder, encoder_model):
 
 @main.command()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
-@click.option("--runs", required=True, help="Comma-separated runs of this env (2 or more).")
+@click.option("--runs", default=None, help="Comma-separated runs of this env (2 or more), each its own group.")
+@click.option("--groups", default=None, help='Groups of runs: "name=run1,run2;name=run3,run4" (2+ groups).')
 @_key_opts
 @click.option("--tau", default=None, type=float, help="Default: configs/screen_coverage.yaml for this env/embedder.")
 @click.option("--at_steps", default=None, type=int, help="Only each run's first N env steps.")
-def compare(env_name, runs, embedder, encoder_model, tau, at_steps):
+def compare(env_name, runs, groups, embedder, encoder_model, tau, at_steps):
     parameters = load_parameters()
-    runs = [r.strip() for r in runs.split(",") if r.strip()]
-    if len(runs) < 2:
-        raise click.UsageError("--runs needs two or more runs")
-    for run in runs:
+    groups = parse_groups(groups=groups, runs=runs)
+    if len(groups) < 2:
+        raise click.UsageError("compare needs two or more runs or groups (one run alone: the distinct command)")
+    for run in (r for members in groups.values() for r in members):
         if not os.path.isdir(search_run(parameters=parameters, env=env_name, run=run)):
             raise click.UsageError(f"{run} is not a {env_name} run (runs compared must all be of --env {env_name})")
     key = embedder_key(embedder=embedder, encoder_model=encoder_model)
     tau = tau if tau is not None else config_tau(parameters=parameters, env_name=env_name, key=key)
-    summary = compare_runs(env_name=env_name, runs=runs, key=key, tau=tau, at_steps=at_steps, parameters=parameters)
-    for run, d in summary["runs_detail"].items():
-        u = d["unmatched"]["tau"]
-        print(f"{run}: {d['frames']} frames, {d['distinct_screens']['tau']['overall']} distinct screens; at tau={tau:g}: " +
-              ", ".join(f"{k}: {v} ({u['fraction'][k]:.1%})" for k, v in u.items()
-                        if k.startswith("by_") and k != "by_scene"))
+    summary = compare_groups(env_name=env_name, groups=groups, key=key, tau=tau, at_steps=at_steps,
+                             parameters=parameters)
+    for g, s in summary["by_tau"]["tau"]["groups"].items():
+        print(f"{g}: runs {s['runs']}, group distinct screens {s['distinct']}, not matched by other group(s) "
+              f"{s['unique']} (tau = {tau:g})")
 
 
 @main.command()

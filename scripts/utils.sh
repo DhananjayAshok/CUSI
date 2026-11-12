@@ -292,8 +292,10 @@ declare -A TASK_COVERAGE_DEFAULTS=(
 )
 
 # scripts/slurm/screen_coverage.sh (encoder_model "none": siglip's own default, google/siglip2-base-patch16-224)
-SCREEN_COVERAGE_ESSENTIALS=("env" "runs")
+SCREEN_COVERAGE_ESSENTIALS=("env")
 declare -A SCREEN_COVERAGE_DEFAULTS=(
+    ["runs"]="none"
+    ["groups"]="none"
     ["embedder"]="siglip"
     ["encoder_model"]="none"
     ["stage"]="both"
@@ -302,8 +304,19 @@ declare -A SCREEN_COVERAGE_DEFAULTS=(
 )
 
 # scripts/slurm/text_coverage.sh
-TEXT_COVERAGE_ESSENTIALS=("env" "runs")
+TEXT_COVERAGE_ESSENTIALS=("env")
 declare -A TEXT_COVERAGE_DEFAULTS=(
+    ["runs"]="none"
+    ["groups"]="none"
+    ["at_steps"]="none"
+)
+
+# scripts/slurm/state_coverage.sh
+STATE_COVERAGE_ESSENTIALS=("env")
+declare -A STATE_COVERAGE_DEFAULTS=(
+    ["runs"]="none"
+    ["groups"]="none"
+    ["stage"]="compare"
     ["at_steps"]="none"
 )
 
