@@ -2480,3 +2480,24 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   required 98304, hardware limit 65536 (Turing). The kernel itself is too big, so --enforce-eager would not help:
   Gemma-4-31B does not run on Quadro RTX 8000s with this vLLM (0.30.0). Resubmitted unchanged to A6000 pairs, bf16
   (tmp_la_a6000.sh, jobs in storage/tmp/la_a6000_jobs.txt); no tree data was lost (none had started).
+- 2026-11-12 (Qwen trees unpinned; 4B added): user's call. 32B non-Android chains: any 2 GPUs except lg10 (2 x 24 GB
+  A5000 can't hold 32B fp16), via scontrol update (ReqNodeList cleared, TresPerNode gres/gpu:2, ExcNodeList eclairlg10);
+  the 7 unstarted ones took the 14 idle Quadros (lg09, lg11-13) at once. 8B: the 6 unstarted non-Android long-lg jobs
+  could only ever run on lg14 (long-lg's only Quadro node), so they were cancelled and resubmitted as 4 x 23 h
+  medium-lg chains on any Quadro (ports kept). 4B (new): Red, Link's Awakening, Web, Android x s0-s2, same settings
+  (tmp_submit_qwen_quadro.sh, jobs in storage/tmp/qwen_quadro_jobs.txt). Android stays one per node (search trees'
+  emulator is always port 5554): 8B on lg14, 32B on lg15, 4B on lg11, each a singleton. Budget per tree: 69 h
+  exploration wall-clock (--budget_metric wall_s --budget 248400); ~3,100 GPU-hours left over the three models.
+- 2026-11-12 (Qwen 32B set aside): user's call, so 8B and 4B get the Quadros. All 47 32B jobs cancelled
+  (storage/tmp/qwen32_cancel_ids.txt), including the running Red s0 (segment 2) and Web s0 (~21 h) on lg15; their run
+  dirs are kept and resume with --overwrite false. The 7 started minutes earlier have ~1 min of data.
+- 2026-11-12 (4B Android unblocked): the 4B Android chain (96 GB) could not fit on lg11 next to three 64 GB trees (64 GB
+  left), so 4B Web s0 (~2 min of data) was cancelled and resubmitted excluding lg11 (tmp_move_4b_web.sh, 295770-3, now
+  on lg12); 4B Android s0 (295729) started on lg11. 96 GB kept: the 8B Android tree peaked at ~96 GB RSS.
+- 2026-11-12 (oracle lookahead -> GameBoyWorlds peek): cusi/world_action/oracle_lookahead.py now takes each button's
+  candidate frame from GameBoyWorlds' env.peek_high_level_action(LowLevelAction, low_level_action=...) instead of its
+  own PyBoy press/release copy. Why: on the current emulator (37b80e3) Pokemon's step adds screen-fade waits, the
+  options-menu nudge, naming-screen exit and dialogue skip, which the copy missed. Live check (tmp_oracle_check.py,
+  60 random steps from Red task 0's state): the old copy's chosen candidate != real next screen on 14/60 steps, peek
+  on 0/60; Link's Awakening: no differences; peek leaves step_count unchanged. The earlier oracle runs (*_rep1,
+  *_fixparse) started before the 37b80e3 pull and show pred_pixel_error 0.00 on Red, so were not hit by this.
