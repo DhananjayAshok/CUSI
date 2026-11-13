@@ -2,8 +2,10 @@
 The common contract for CUSI's text-action environments: a gym.Env whose observation is a frame plus
 named texts, and whose action is the model's text. "test" mode is the benchmark; "free_play" has no goal.
 """
+import copy
 import hashlib
 import string
+import time
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Optional
@@ -146,6 +148,54 @@ class TextActionEnv(gym.Env, ABC):
         self._import_state_impl(state_id=state_id, path=path)
         self._saved_state_ids.add(state_id)
         return state_id
+
+    # Lookahead: what each action would do from here, without doing it.
+    #: Attributes peek puts back after each candidate (episode bookkeeping that step and load_state change, such as a
+    #: step counter); deep-copied before and restored after.
+    _peek_keep: tuple = ()
+
+    def peek(self, *, actions: list) -> list:
+        """The step result (obs, reward, terminated, truncated, info) each action would give from the current state,
+        the env put back after each: no step is counted. current_obs is then the put-back state's observation (read it
+        again: an env that reloads to put back may label elements differently; Web peeks in a second browser and leaves
+        it as it was). info["peek_restored"]: whether the screen after putting it back matches the screen before
+        (screen_changed); info["peek_seconds"]: the time the candidate took, putting back included. Envs whose peek
+        can be inexact also set info["peek_synced"] (whether the peek started from a state matching the current one)
+        and, when a candidate could not be run, info["peek_failed"] (the reason; the result is then not the action's)."""
+        if self._episode_over:
+            log_error("peek() called after the episode ended; call reset() first.", parameters=self._parameters)
+        keep = {k: copy.deepcopy(getattr(self, k)) for k in self._peek_keep}
+        before = self.raw_frame
+        try:
+            results = self._peek_impl(actions=list(actions))
+        finally:
+            for k, v in keep.items():
+                setattr(self, k, v)
+            self._episode_over = False
+        for r in results:
+            r[4].setdefault("peek_restored", not screen_changed(before=before, after=self.raw_frame,
+                                                                ignore_top=self.change_ignore_top))
+        return results
+
+    def _peek_impl(self, *, actions: list) -> list:
+        """Default: save the state once, then step each action and load the state back (exact as far as the env's
+        save / load is); info["peek_restored"] compares the screen after each load with the one before."""
+        before = self.raw_frame
+        state_id = self.save_state()
+        results = []
+        try:
+            for action in actions:
+                start = time.time()
+                obs, reward, terminated, truncated, info = self.step_str(action)
+                self._episode_over = False
+                self.load_state(state_id=state_id)
+                info["peek_seconds"] = time.time() - start
+                info["peek_restored"] = not screen_changed(before=before, after=self.raw_frame,
+                                                           ignore_top=self.change_ignore_top)
+                results.append((obs, reward, terminated, truncated, info))
+        finally:
+            self.delete_state(state_id=state_id)
+        return results
 
     def _check_state_id(self, *, state_id: str) -> None:
         if state_id not in self._saved_state_ids:

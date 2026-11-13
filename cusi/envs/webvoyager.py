@@ -3,6 +3,7 @@ WebVoyager as a TextActionEnv, driving the browser with WebVoyager's own run.py 
 Sites are live, so reset restores the browser, not the page content. Reward is 0: the LLM judge scores afterwards.
 """
 import argparse
+import contextlib
 import importlib.util
 import io
 import json
@@ -22,7 +23,7 @@ from selenium.common.exceptions import JavascriptException, TimeoutException as 
 from urllib3.exceptions import HTTPError as WebDriverHang
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
-from cusi.envs.base import TextActionEnv, scene_hash
+from cusi.envs.base import TextActionEnv, scene_hash, screen_changed
 from cusi.envs.web_boxes import MAX_BOX_CHARS, TEXT_BOXES_JS, web_text_boxes
 
 TEXT_KEYS = ("web_elements",)
@@ -104,6 +105,20 @@ return arguments[0].map(function (e) {
     try {
         var a = (e.tagName === 'A' || e.tagName === 'AREA') ? e : (e.closest ? e.closest('a[href]') : null);
         return a && a.href ? a.href : null;
+    } catch (err) { return null; }
+});
+"""
+#: Each labelled element as [tag, its text (or aria-label, placeholder; first 60 chars), its value (a field's
+#: content, first 60 chars), x, y, width, height] (viewport pixels, rounded): what identifies "element i" when a peek
+#: replays actions in another browser, and what a synced sandbox must show.
+_ELEMENT_DESC_JS = """
+return arguments[0].map(function (e) {
+    try {
+        var r = e.getBoundingClientRect();
+        var t = (e.innerText || e.getAttribute('aria-label') || e.getAttribute('placeholder') || '');
+        var v = (typeof e.value === 'string') ? e.value : '';
+        return [e.tagName.toLowerCase(), t.trim().replace(/\\s+/g, ' ').slice(0, 60), v.slice(0, 60),
+                Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
     } catch (err) { return null; }
 });
 """
@@ -194,6 +209,22 @@ def in_scope(*, url: Optional[str], scope: Optional[dict]) -> bool:
     if not any(host == h or host.endswith("." + h) for h in scope["hosts"]):
         return False
     return not scope.get("path") or parts.path.startswith(scope["path"])
+
+
+def same_page_url(*, a: Optional[str], b: Optional[str]) -> bool:
+    """Whether two URLs name the same page: equal scheme, host, path and query keys. Query values may differ (a
+    site's per-load tokens, Booking's chal_t), and so may the path segments of a map's viewport (Google Maps'
+    /@lat,lng,zoom and /data=...): what they would change shows in the page itself."""
+    if a == b:
+        return True
+    if not a or not b:
+        return False
+
+    def key(url):
+        p = urlparse(url)
+        path = "/".join(seg for seg in p.path.split("/") if not seg.startswith(("@", "data=")))
+        return p.scheme, p.netloc, path, sorted(kv.split("=", 1)[0] for kv in p.query.split("&") if kv)
+    return key(a) == key(b)
 
 
 def load_webvoyager(*, project_root: str):
@@ -384,8 +415,24 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._js_seen: set = set()      # hashes of every (script, function) this env's browsers have run
         self._states: dict[str, dict] = {}   # saved state_id -> browser state
         self.browser_restarts = 0
+        self._ele_desc: list = []        # per labelled element: _ELEMENT_DESC_JS's row (or None)
+        # peek's sandbox browser (see _peek_impl): its values of _SANDBOX_ATTRS while the main browser's are in place.
+        sandbox_dir = os.path.join(self._work_dir, "peek")
+        self._sandbox = {"_driver": None, "_web_eles": [], "_last_obs": None, "_raw_frame": None, "_text_boxes": [],
+                         "_challenge": None, "_url": None, "_ele_off_site": [], "_ele_desc": [], "_download_files": [],
+                         "_work_dir": sandbox_dir, "_download_dir": os.path.join(sandbox_dir, "downloads"),
+                         "_args": argparse.Namespace(**{**vars(self._args),
+                                                        "download_dir": os.path.join(sandbox_dir, "downloads")}),
+                         "_js_coverage": False}
+        self._in_sandbox = False
+        # The episode so far, for the sandbox to reproduce: where it started ({"open": url} or {"state": saved state})
+        # and every step since, each {"action", "desc" (the element rows the action's index refers to), "new_doc"
+        # (whether the step loaded a new document), "snapshot" (the browser state after a new_doc step, or None)}.
+        self._episode_log = {"start": {"open": self.start_url}, "steps": []}
+        self._doc_id = None
 
         frame = self._open(url=self.start_url)
+        self._doc_id = self._document_id()
         super().__init__(mode=mode, frame_shape=frame.shape, text_keys=TEXT_KEYS, parameters=self._parameters)
         if max_steps is None and mode == "test":
             max_steps = DEFAULT_TEST_MAX_STEPS
@@ -499,6 +546,12 @@ class WebVoyagerPlayEnv(TextActionEnv):
         except self._wv.WebDriverException:
             self._raw_frame = frame
         self._web_eles = web_eles
+        self._ele_desc = []
+        if web_eles:
+            try:
+                self._ele_desc = self._driver.execute_script(_ELEMENT_DESC_JS, web_eles)
+            except self._wv.WebDriverException:
+                pass
         self._ele_off_site = []
         if self._scope is not None and web_eles:
             try:
@@ -581,11 +634,36 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _reset_impl(self):
         obs, info = self._reset_core()
+        self._episode_log = {"start": {"open": self.start_url}, "steps": []}
+        self._doc_id = self._document_id()
         return obs, self._page_info(info=info)
 
     def _step_impl(self, action: str):
+        if self._in_sandbox:
+            obs, reward, terminated, truncated, info = self._step_core(action)
+            return obs, reward, terminated, truncated, self._page_info(info=info)
+        record = {"action": action, "desc": list(self._ele_desc), "new_doc": False, "snapshot": None}
         obs, reward, terminated, truncated, info = self._step_core(action)
+        # A step that loaded a new document (a navigation, not an in-page change or a pushState URL) is where the
+        # sandbox can start reproducing the episode: keep the browser state it left.
+        doc_id = self._document_id()
+        if doc_id is None or doc_id != self._doc_id:
+            record["new_doc"] = True
+            try:
+                record["snapshot"] = self._browser_state()
+            except (self._wv.WebDriverException, WebDriverHang):
+                pass
+        self._doc_id = doc_id
+        self._episode_log["steps"].append(record)
         return obs, reward, terminated, truncated, self._page_info(info=info)
+
+    def _document_id(self) -> Optional[float]:
+        """The current document's performance.timeOrigin: it changes when a new document loads and not on in-page
+        changes (including history.pushState). None if it cannot be read."""
+        try:
+            return self._driver.execute_script("return performance.timeOrigin;")
+        except (self._wv.WebDriverException, WebDriverHang):
+            return None
 
     def _reset_core(self):
         if not self._at_initial_state:
@@ -737,38 +815,289 @@ class WebVoyagerPlayEnv(TextActionEnv):
 
     def _save_state_impl(self, *, state_id: str) -> None:
         try:
-            cookies = self._driver.execute_cdp_cmd("Storage.getCookies", {})["cookies"]
-            storage = self._driver.execute_script(self._STORAGE_JS)
-            scroll = self._driver.execute_script("return [window.scrollX, window.scrollY];")
-            url = self._driver.current_url
+            self._states[state_id] = self._browser_state()
         except (self._wv.WebDriverException, WebDriverHang) as e:
             log_error(f"Could not save web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
-        self._states[state_id] = {"url": url, "cookies": cookies, "storage": storage, "scroll": scroll}
 
     def _load_state_impl(self, *, state_id: str) -> dict:
         state = self._states[state_id]
+        try:
+            self._restore_browser_state(state=state)
+        except (self._wv.WebDriverException, WebDriverHang) as e:
+            log_error(f"Could not load web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
+        self._at_initial_state = False
+        self._steps = 0
+        self._episode_log = {"start": {"state": state}, "steps": []}
+        self._doc_id = self._document_id()
+        return self._obs()
+
+    def _browser_state(self) -> dict:
+        """The current browser's saved-state dict (URL, cookies, storage, scroll); raises on a WebDriver error."""
+        cookies = self._driver.execute_cdp_cmd("Storage.getCookies", {})["cookies"]
+        storage = self._driver.execute_script(self._STORAGE_JS)
+        scroll = self._driver.execute_script("return [window.scrollX, window.scrollY];")
+        return {"url": self._driver.current_url, "cookies": cookies, "storage": storage, "scroll": scroll}
+
+    def _restore_browser_state(self, *, state: dict) -> None:
+        """A new browser on a _browser_state dict, observed; raises on a WebDriver error."""
         cookies = []
         for cookie in state["cookies"]:
             param = {k: cookie[k] for k in self._COOKIE_PARAM_FIELDS if k in cookie}
             if cookie.get("session") or param.get("expires", -1) < 0:
                 param.pop("expires", None)
             cookies.append(param)
+        self._new_browser()
+        self._driver.execute_cdp_cmd("Storage.setCookies", {"cookies": cookies})
+        # Open the origin once to write storage, then reopen so page scripts start with it.
+        self._driver.get(state["url"])
+        self._driver.execute_script(self._SET_STORAGE_JS, state["storage"])
+        self._wv.open_start_page(self._driver, state["url"])
+        self._wait_for_stable_layout()
+        self._driver.execute_script("window.scrollTo(arguments[0], arguments[1]);", *state["scroll"])
+        self._wv._settle(self._driver, 2)
+        self._observe()
+
+    # ------------------------------------------------------------------ peek
+    # The main browser is never touched: each candidate runs in a second, sandbox browser that is first brought to the
+    # main browser's state by reproducing the episode (_sync_sandbox), and checked against it (_sync_check). Saved states
+    # cannot do this exactly (in-page state: typed text, open pickers, filters, is not in them).
+
+    #: The attributes that belong to one browser; _sandboxed swaps the sandbox's in for the main browser's.
+    _SANDBOX_ATTRS = ("_driver", "_web_eles", "_last_obs", "_raw_frame", "_text_boxes", "_challenge", "_url",
+                      "_ele_off_site", "_ele_desc", "_download_files", "_work_dir", "_download_dir", "_args",
+                      "_js_coverage")
+    #: Episode bookkeeping that the sandbox's steps change and peek puts back (the sandbox's coverage read included).
+    _peek_keep = ("_steps", "_at_initial_state", "_js_seen", "browser_restarts")
+
+    @contextlib.contextmanager
+    def _sandboxed(self):
+        """Inside, every browser method (_open, _observe, _step_core, true_state, ...) works on the sandbox browser."""
+        main = {k: getattr(self, k) for k in self._SANDBOX_ATTRS}
+        for k in self._SANDBOX_ATTRS:
+            setattr(self, k, self._sandbox[k])
+        self._in_sandbox = True
         try:
-            self._new_browser()
-            self._driver.execute_cdp_cmd("Storage.setCookies", {"cookies": cookies})
-            # Open the origin once to write storage, then reopen so page scripts start with it.
-            self._driver.get(state["url"])
-            self._driver.execute_script(self._SET_STORAGE_JS, state["storage"])
-            self._wv.open_start_page(self._driver, state["url"])
-            self._wait_for_stable_layout()
-            self._driver.execute_script("window.scrollTo(arguments[0], arguments[1]);", *state["scroll"])
-            self._wv._settle(self._driver, 2)
-            self._observe()
+            yield
+        finally:
+            for k in self._SANDBOX_ATTRS:
+                self._sandbox[k] = getattr(self, k)
+                setattr(self, k, main[k])
+            self._in_sandbox = False
+
+    def _remap(self, *, action: str, desc: list) -> tuple:
+        """action with its element index moved to the same element in the current (sandbox) labelling: desc is the
+        element rows of the labelling the index was chosen on. Returns (action text, the new index or None if
+        unchanged, an error or None). The same element is the one with equal rows, else the one with the same tag and
+        text nearest to where it was."""
+        key, parsed = self._wv.extract_information(action_text(text=action))
+        if key == "click":
+            index = int(parsed[0])
+        elif key in ("type", "scroll") and parsed["number"] != "WINDOW":
+            index = int(parsed["number"])
+        else:
+            return action, None, None
+        here = self._ele_desc
+        if here == desc or (index < len(here) and index < len(desc) and here[index] == desc[index]):
+            return action, None, None
+        if index >= len(desc) or not desc[index]:
+            return action, None, None        # an index that was out of range stays so (the step reports it)
+        same = [j for j, d in enumerate(here) if d and d[:2] == desc[index][:2]]
+        if not same:
+            return action, None, f"element {index} {desc[index][:2]} not on the page"
+        x, y = desc[index][3], desc[index][4]
+        j = min(same, key=lambda j: abs(here[j][3] - x) + abs(here[j][4] - y))
+        if key == "click":
+            return f"Click [{j}]", j, None
+        if key == "type":
+            return f"Type [{j}]; [{parsed['content']}]", j, None
+        return f"Scroll [{j}]; [{parsed['content']}]", j, None
+
+    def _sync_methods(self, *, action: str) -> list:
+        """The ways to sync the sandbox for a candidate, most faithful first (see _sync_sandbox). A GoBack, as the
+        candidate or among the steps an anchor replay would replay, needs the browser's history, which only the full
+        replay rebuilds: it is synced only so."""
+        steps = self._episode_log["steps"]
+        anchor = self._sync_anchor()
+        if self._is_goback(action=action) or (anchor is not None and any(
+                self._is_goback(action=r["action"]) for r in steps[anchor + 1:])):
+            return ["full"]
+        if not steps:
+            return ["full"]
+        return (["anchor"] if anchor is not None else []) + ["full", "state"]
+
+    def _sync_anchor(self) -> Optional[int]:
+        """The last logged step that loaded a new document and kept its browser state, or None."""
+        steps = self._episode_log["steps"]
+        return next((i for i in range(len(steps) - 1, -1, -1) if steps[i]["new_doc"] and steps[i]["snapshot"]), None)
+
+    def _sync_sandbox(self, *, method: str, ref: dict) -> dict:
+        """Bring the (current, sandbox) browser to the main episode's state. "anchor": open the browser state saved
+        after the last step that loaded a new document, then replay the steps since (in-page: typing, clicks that did
+        not navigate, scrolls, pushState URLs); "full": open the episode's start and replay every step; "state": open
+        the main browser's current URL, cookies, storage and scroll (ref["state"]; in-page state is lost, as with
+        load_state). Replayed element indices are remapped (_remap). Returns {"method", "replayed", "remapped",
+        "error"}."""
+        steps = self._episode_log["steps"]
+        out = {"method": method, "replayed": 0, "remapped": 0, "error": None}
+        if method == "state":
+            self._restore_browser_state(state=ref["state"])
+            return out
+        if method == "anchor":
+            anchor = self._sync_anchor()
+            self._restore_browser_state(state=steps[anchor]["snapshot"])
+            todo = steps[anchor + 1:]
+        else:
+            start = self._episode_log["start"]
+            if "open" in start:
+                self._open(url=start["open"])
+            else:
+                self._restore_browser_state(state=start["state"])
+            todo = steps
+        for record in todo:
+            action, index, error = self._remap(action=record["action"], desc=record["desc"])
+            if error is not None:
+                out["error"] = f"replay step {out['replayed'] + 1}: {error}"
+            out["remapped"] += index is not None
+            self._step_core(action)
+            out["replayed"] += 1
+        return out
+
+    def _sync_check(self, *, ref: dict) -> dict:
+        """The (sandbox) browser against the main browser's reference (_peek_ref): which of URL, element rows, element
+        text, skeleton and screen agree, and the screen's mean absolute pixel difference. "synced": the same page
+        (same_page_url) and element rows (what the agent is shown; the skeleton also differs by hidden nodes, a site's
+        late widgets, and the screen by animation, so they are reported, not required). On a URL that differs,
+        "sandbox_url" is the sandbox's."""
+        try:
+            title, skeleton, _ = self._driver.execute_script(_SKELETON_JS, SKELETON_DEPTH)
+        except (self._wv.WebDriverException, WebDriverHang):
+            title, skeleton = None, None
+        a, b = ref["raw_frame"], self._raw_frame
+        same_shape = a is not None and b is not None and a.shape == b.shape
+        out = {"url": self._url == ref["url"], "elements": self._ele_desc == ref["desc"],
+               "elements_text": self._last_obs[1] == ref["elements_text"], "skeleton": skeleton == ref["skeleton"],
+               "title": title == ref["title"],
+               "screen": not screen_changed(before=a, after=b, ignore_top=self.change_ignore_top),
+               "mae": float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) if same_shape else None}
+        out["synced"] = same_page_url(a=self._url, b=ref["url"]) and out["elements"]
+        out["score"] = (out["synced"], same_page_url(a=self._url, b=ref["url"]), out["elements"], out["skeleton"],
+                        out["elements_text"], out["screen"], -(out["mae"] if out["mae"] is not None else 255.0))
+        if not out["url"]:
+            out["sandbox_url"] = self._url
+        return out
+
+    def _peek_ref(self) -> dict:
+        """What the sandbox must match: the main browser's last observation, and its skeleton (read, not changed)."""
+        try:
+            title, skeleton, _ = self._driver.execute_script(_SKELETON_JS, SKELETON_DEPTH)
+        except (self._wv.WebDriverException, WebDriverHang):
+            title, skeleton = None, None
+        try:
+            state = self._browser_state() if self._episode_log["steps"] else None
+        except (self._wv.WebDriverException, WebDriverHang):
+            state = None
+        return {"url": self._url, "desc": list(self._ele_desc), "elements_text": self._last_obs[1],
+                "raw_frame": self._raw_frame, "title": title, "skeleton": skeleton, "state": state}
+
+    def _is_goback(self, *, action: str) -> bool:
+        return self._wv.extract_information(action_text(text=action))[0] == "goback"
+
+    def _needs_browser(self, *, action: str) -> bool:
+        """Whether _step_core would act on the browser (not reject or answer the action first)."""
+        key, _ = self._wv.extract_information(action_text(text=action))
+        if key in (None, "google", "answer"):
+            return False
+        if self.action_mode == "no_typing" and key == "type":
+            return False
+        return not (self.action_mode == "typing" and key not in ("type", "scroll"))
+
+    def _peek_impl(self, *, actions: list) -> list:
+        """Each candidate in the sandbox browser, synced to the main state just before it (_sync_sandbox: from the
+        last new document, else the whole episode replayed, else the current URL, cookies and storage; the first that
+        matches the main state, _sync_check). Actions rejected before reaching the browser
+        are stepped on the main env, which they do not change. Extra info per candidate: "peek_sync" (_sync_check of
+        the synced sandbox, with _sync_sandbox's method / replayed / remapped / error and the methods "tried"),
+        "peek_synced", "peek_index"
+        (the sandbox's index for the candidate's element when the labelling differed) and, if the sandbox failed or
+        did not show the candidate's element, "peek_failed" (the result is then the current observation, invalid).
+        The main browser only has its state read (_peek_ref)."""
+        ref = self._peek_ref()
+        steps = self._steps
+        results = []
+        for action in actions:
+            start = time.time()
+            self._steps = steps
+            if not self._needs_browser(action=action):
+                # Not _step_impl, which would log the step, nor true_state, which would take the main browser's
+                # coverage away from its next step.
+                obs, reward, terminated, truncated, info = self._step_core(action)
+                self._page_info(info=info)
+                info.update(changed=False, peek_synced=True, peek_sync={"method": "none"},
+                            true=self._true_state(coverage=False))
+            else:
+                obs, reward, terminated, truncated, info = self._peek_in_sandbox(action=action, ref=ref, steps=steps)
+            info["peek_seconds"] = time.time() - start
+            info["peek_restored"] = True        # the main browser was not used
+            results.append((obs, reward, terminated, truncated, info))
+        self._steps = steps
+        return results
+
+    def _peek_in_sandbox(self, *, action: str, ref: dict, steps: int) -> tuple:
+        try:
+            with self._sandboxed():
+                # The first method whose sandbox matches the main state; if none does, the closest one once more (a
+                # live page can load differently twice), kept whether it then matches or not.
+                methods = [m for m in self._sync_methods(action=action) if m != "state" or ref["state"] is not None]
+                tried = []
+                for method in methods:
+                    sync = self._sync_sandbox(method=method, ref=ref)
+                    check = self._sync_check(ref=ref)
+                    tried.append((check["score"], method))
+                    if check["synced"]:
+                        break
+                if not check["synced"]:
+                    method = max(tried)[1]
+                    sync = self._sync_sandbox(method=method, ref=ref)
+                    check = self._sync_check(ref=ref)
+                    tried.append((check["score"], method))
+                check.update(sync)
+                check["tried"] = [m for _, m in tried]
+                del check["score"]
+                text, index, error = self._remap(action=action, desc=ref["desc"])
+                if error is None:
+                    self.true_state()        # drains the coverage the sync ran, so js_new is the candidate's alone
+                    before = self._raw_frame
+                    self._steps = steps
+                    obs, reward, terminated, truncated, info = self._step_impl(text)
+                    self._check_texts(obs=obs)
+                    info["changed"] = screen_changed(before=before, after=self._raw_frame,
+                                                     ignore_top=self.change_ignore_top)
+                    self._add_true_state(info=info)
         except (self._wv.WebDriverException, WebDriverHang) as e:
-            log_error(f"Could not load web state {state_id}: {str(e)[:200]}", parameters=self._parameters)
-        self._at_initial_state = False
-        self._steps = 0
-        return self._obs()
+            log_warn(f"peek of {action_text(text=action)!r} failed in the sandbox browser: {str(e)[:200]}",
+                     parameters=self._parameters)
+            return self._peek_failed(failure=str(e)[:200], steps=steps, sync=None)
+        if error is not None:
+            # The candidate's element is not on the sandbox's page: stepping its index there would act on another
+            # element, so there is no result.
+            return self._peek_failed(failure=f"candidate {error}", steps=steps, sync=check)
+        if index is not None:
+            info["peek_index"] = index
+            if info.get("parsed_action") and "index" in info["parsed_action"]:
+                key, parsed = self._wv.extract_information(action_text(text=action))
+                info["parsed_action"]["index"] = canonical_action(action_key=key, info=parsed)["index"]
+        info["peek_sync"] = check
+        info["peek_synced"] = check["synced"]
+        return obs, reward, terminated, truncated, info
+
+    def _peek_failed(self, *, failure: str, steps: int, sync: Optional[dict]) -> tuple:
+        """A candidate the sandbox could not run: the current (main) observation, invalid, with info["peek_failed"]."""
+        info = self.make_info(valid=False, error="The peek failed.", parsed_action=None, step=steps + 1,
+                              scene_id=self.scene_id, stale=True, peek_failed=failure, peek_synced=False,
+                              peek_sync=sync or {})
+        self._page_info(info=info)
+        info["true"] = self._true_state(coverage=False)
+        return self._obs(), 0.0, False, False, info
 
     def _wait_for_stable_layout(self, *, timeout: float = 8.0, stable_for: float = 1.0) -> None:
         """Wait until the page height stops changing, so the restored scroll lands where it was saved."""
@@ -798,13 +1127,17 @@ class WebVoyagerPlayEnv(TextActionEnv):
     def true_state(self) -> Optional[dict]:
         """The URL, title and page skeleton hash, and js_new: how many JavaScript functions (script URL without its
         query, function name, offset) ran for the first time in this env during the last step."""
+        return self._true_state(coverage=True)
+
+    def _true_state(self, *, coverage: bool) -> dict:
+        """true_state; without coverage, no js_new and the browser's coverage is left unread."""
         out = {"url": self._url}
         if self._driver is None:
             return out
         try:
             out["title"], out["skeleton"], out["skeleton_paths"] = self._driver.execute_script(_SKELETON_JS,
                                                                                               SKELETON_DEPTH)
-            if self._js_coverage:
+            if coverage and self._js_coverage:
                 new = 0
                 for script in self._driver.execute_cdp_cmd("Profiler.takePreciseCoverage", {})["result"]:
                     url = script.get("url", "").split("?")[0]
@@ -824,4 +1157,6 @@ class WebVoyagerPlayEnv(TextActionEnv):
         self._states.clear()
         self._saved_state_ids.clear()
         self._quit()
+        with self._sandboxed():
+            self._quit()
         shutil.rmtree(self._work_dir, ignore_errors=True)

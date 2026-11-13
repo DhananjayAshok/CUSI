@@ -2501,3 +2501,64 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   60 random steps from Red task 0's state): the old copy's chosen candidate != real next screen on 14/60 steps, peek
   on 0/60; Link's Awakening: no differences; peek leaves step_count unchanged. The earlier oracle runs (*_rep1,
   *_fixparse) started before the 37b80e3 pull and show pred_pixel_error 0.00 on Red, so were not hit by this.
+- 2026-11-13 (how much of vlm_w_typing's novelty is typing; tmp_typing_attr.py, job 295790, out
+  storage/tmp/typing_attr_2026-11-13/{android,web}.md): leave-one-out over vlm_no_typing s0-s2, base_i = random
+  s0-s2 + the other two no-typing trees (full trees); each w_typing tree's (s0-s2) exclusive items are attributed to
+  the step that first reached them: typing step / later in an expansion that typed / no typing. Random never types;
+  no_typing's 13 Web Type attempts were blocked. Typing steps are 6% of w_typing steps (after typing 24-26%).
+  Web (one more no-typing tree vs a w_typing tree; typing / after / none): URLs 1,103 vs 1,655 (29/28/43%); routes
+  324 vs 369 (17/32/52%); skeletons 249 vs 402 (20/30/51%); text 5,586 vs 7,432 (19/28/53%); screens 2,541 vs 3,199
+  (13/26/61%). The no-typing part alone is below one more no-typing tree on every Web measure, so W's Web excess is
+  typing-related. Android: activities 7 vs 13 (0/32/68%); activity states 38 vs 65 (1/24/75%); text 465 vs 1,199
+  (34/30/36%); screens 249 vs 615 (22/36/42%). Android's extra activities / activity states are mostly NOT typing
+  (no-typing part 9 vs 7, 49 vs 38); its extra text is mostly typing, and the top typing items are keyboard
+  autocomplete fragments ('navigatio', 'setting so', 'barbara'), i.e. inflated.
+- 2026-11-13 (oracle WM feasibility, Web / Android; tmp_web_typing_tasks.py): Web test + test_env (204 tasks), Gemma
+  base 3 reps: 189 tasks typed in >=1 rep (182 in every rep); of 153 tasks solved at least once, 133 typed in every
+  successful episode. 1,271 Type steps: new URL holds the typed text 48%, URL unchanged 29%, new URL without the text
+  23%. Google Flights (42 tasks, 564 Type steps): URL unchanged 55% (form fields typed before search), rest the
+  encoded tfs URL; Huggingface 42% unchanged (in-page filters); Booking 22%; ArXiv / GitHub / Coursera / ESPN /
+  Google Map / Wolfram mostly GET URLs. Restore costs from sat_vlm_w_typing_s0: Web load_state (new browser, URL +
+  cookies + storage + scroll) median 7.2 s; Android snapshot load ("cached") median 13.9 s, replay median 73 s.
+  Android test + test_env (55): ~7 read-only (Q&A / open app); the rest write app data, settings, files, SMS,
+  camera or timers, which Back does not undo.
+- 2026-11-13 (peek: lookahead on every env without stepping it): TextActionEnv.peek(actions=[...]) in cusi/envs/base.py
+  returns each candidate's step result with the env put back (episode bookkeeping in _peek_keep restored; no step
+  counted); info peek_restored / peek_seconds, and on envs where a peek can be inexact peek_synced / peek_failed.
+  Default _peek_impl: save once, step + load per candidate. Web (cusi/envs/webvoyager.py): load_state is lossy for
+  in-page state (typed fields, pickers, filters), so each candidate runs in a second, sandbox Chrome synced by
+  replaying the episode (from the last new-document snapshot, else from the start, else URL + cookies + storage),
+  checked against the main browser (same page + identical element rows = peek_synced); the main browser is only
+  read (checked: 355/355 states read-only commands). Element indices are remapped by (tag, text, position); a
+  candidate whose element is missing in the sandbox returns peek_failed rather than clicking another element. Live
+  test (tmp_peek_web.py, storage/tmp/peek_web/run5; 12 test tasks, 120 states, 533 candidates, eval waits): synced
+  77%; peek vs the real step: same page 92%, same element text 80%, text + pixels 70%; two peeks of the same action
+  agree on text 82%, so most misses are the live site differing between loads (Booking results / language, Google
+  Maps ads and viewport, ESPN live scores, Wolfram banner, Apple carousel). Per site (synced / text match): Google
+  Flights 1.00/1.00 (forms, date picker, pushState), GitHub 1.00/1.00, ArXiv .93/1.00, Apple .90/1.00, Wolfram
+  .98/.80, Huggingface .72/.95, Coursera .90/.75, Google Map .83/.75, Booking .39/.50, ESPN .15/.35 (ESPN reloads
+  itself). peek_failed 12/533. Cost: 90 s mean / 76 s median per candidate (max 337 s), growing with episode length
+  (in-page-URL sites and GoBack replay the whole episode). Failed: on an overloaded node (24 Chromes / 16 CPUs) the
+  sandbox's Wolfram open hit the 120 s WebDriver timeout (12-14 peek_failed per run).
+- 2026-11-13 (Android peek, cusi/envs/android_world.py): snapshot-based _peek_impl (save once, step + load per
+  candidate), _peek_keep = (_steps, _at_initial_state), interaction_cache put back, raises on an emulator restart, and
+  a device fingerprint check (peek_verify; UI tree minus status bar, activity + fragments, global/secure/system
+  settings, md5 of task + foreground apps' /data/data, shared storage, clock, is_successful). Known post-load system
+  writes (Play services boot counter, launcher DBs, WebView metrics, Google telemetry stores) are PEEK_LOAD_NOISE.
+  base.peek now restores _peek_keep in a finally. Live test (tmp_peek_android.py, results/peek_android/; 10
+  state-changing test tasks, runs 3-6: 129 states, 499 candidates, scripted Save/Delete/toggle + 2 random + status
+  complete): activity, settings, files and is_successful restored 100%; UI tree 91-100% (misses are elapsed-time text:
+  stopwatch, Contacts time label); main state unchanged 100%; peeked vs real activity 97-100%, reward / valid 100%,
+  elements 87-100%; status reward = is_successful 21/21. Cost: ~21-27 s per candidate (save 3.6-3.9 s once, step 7-8.5
+  s, load 11-15 s median, check ~3 s), 3.6 GB per snapshot (one at a time). The load puts the device clock back (shift
+  median 6-7 s over ~100 s peeks; eclairlg09 7-94 s ahead). Fixed in the shared load path (also trees / resets):
+  _wait_until_restored ignores the keyboard package (every load after input_text timed out at 120 s) and re-sends the
+  a11y kick every 10 s. Not fixed: (1) emulator segfault on snapshot load, ~2% of loads (host GL renderer errors);
+  (2) after a load a 1 s long press registers as a tap (4-10 of 6-19 trials vs 0/9 without a load; 3 s or motionevent
+  works) - opt-in long_press_ms (3000 makes MarkorDeleteNote's peek match), not on by default since it changes
+  actuation vs stock AndroidWorld and also affects tree search loads; (3) after a load GPU-texture views go blank on
+  redraw (home 10.6%, Markor editor 11%, Pro Expense form up to 91% of pixels) while the UI tree is right;
+  swiftshader_indirect worse (99.5%), guest -> lavapipe same, SurfaceFlinger recompose no effect. Screen pixels
+  restored 56-82%.
+- 2026-11-13 (Android long press, user's call): peek holds long presses PEEK_LONG_PRESS_MS = 3000 (at least) during the
+  peek only; real steps, tree search and eval keep AndroidWorld's 1 s (long_press_ms=None).

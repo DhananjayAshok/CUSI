@@ -20,7 +20,7 @@ from android_world.env import adb_utils, device_constants, env_launcher, interfa
 from android_world.utils import datetime_utils
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.log_handling import log_info, log_warn, log_error
-from cusi.envs.base import TextActionEnv, scene_hash
+from cusi.envs.base import CHANGE_PIXEL_DELTA, TextActionEnv, scene_hash, screen_changed
 from cusi.envs.android_boxes import android_text_boxes
 
 DEFAULT_SUITE_SEED = 30   # android_world/run.py --task_random_seed
@@ -122,6 +122,85 @@ def top_fragments(*, dump: str) -> list:
     """The fragment classes listed under the last (top) ACTIVITY block of `dumpsys activity top`, sorted."""
     block = dump[dump.rfind("ACTIVITY "):] if "ACTIVITY " in dump else ""
     return sorted(set(_FRAGMENT_RE.findall(block)))
+
+
+_UI_FIELDS = ("text", "content_description", "class_name", "hint_text", "is_checked", "is_checkable", "is_clickable",
+              "is_editable", "is_enabled", "is_focused", "is_focusable", "is_long_clickable", "is_scrollable",
+              "is_selected", "is_visible", "package_name", "resource_name", "tooltip")
+
+
+def ui_signature(*, ui_elements: list, top: int) -> list:
+    """The UI tree as comparable tuples (every field and the pixel box), without the status bar's elements (system
+    UI above `top` pixels: its clock ticks)."""
+    out = []
+    for ui in ui_elements:
+        box = ui.bbox_pixels
+        coords = (box.x_min, box.y_min, box.x_max, box.y_max) if box is not None else None
+        if ui.package_name == "com.android.systemui" and coords is not None and coords[3] <= top:
+            continue
+        out.append(tuple(getattr(ui, f, None) for f in _UI_FIELDS) + (coords,))
+    return out
+
+
+_ELEMENT_LINE_RE = re.compile(r"UI element (\d+):")
+
+
+def app_element_lines(*, text: str, ui_elements: list, top: int) -> list:
+    """The lines of an observation's element list (M3A's, one per element) without the status bar's elements (system
+    UI above `top` pixels: its clock and signal icons change on their own)."""
+    out = []
+    for line in (text or "").splitlines():
+        m = _ELEMENT_LINE_RE.match(line)
+        i = int(m.group(1)) if m else -1
+        ui = ui_elements[i] if 0 <= i < len(ui_elements) else None
+        box = ui.bbox_pixels if ui is not None else None
+        if ui is not None and ui.package_name == "com.android.systemui" and box is not None and box.y_max <= top:
+            continue
+        out.append(line)
+    return out
+
+
+#: What the system and Google's app libraries write on their own right after a snapshot load (live check, 2026-11;
+#: mostly on the first loads after an emulator boot): Google Play services' boot counter and active-unlock settings,
+#: the launcher's databases, WebView metrics, the media provider's thumbnail folders, and in-app telemetry / flag /
+#: job stores (Primes, Phenotype, GrowthKit, WorkManager). None is data a task reads or a screen shows; peek reports
+#: them apart (info["peek_noise"]) rather than as a failed restore.
+PEEK_LOAD_NOISE = (r"secure/active_unlock_.*", r"global/Phenotype_boot_count",
+                   r"/data/data/com\.google\.android\.apps\.nexuslauncher/databases/.*",
+                   r"/data/data/[\w.]+/app_webview/.*", r".*/\.thumbnails/.*", r"/data/data/[\w.]+/.*primes.*",
+                   r"/data/data/[\w.]+/files/phenotype/.*", r"/data/data/[\w.]+/databases/growthkit\.db.*",
+                   r"/data/data/[\w.]+/no_backup/androidx\.work\.workdb.*")
+#: How long peek holds a long_press (at least): after a snapshot load AndroidWorld's 1 s press registers as a tap about
+#: 2 times in 3, a 3 s press never did (6 / 6; MarkorDeleteNote's peek then matches the real step). Only peek's steps.
+PEEK_LONG_PRESS_MS = 3000
+
+
+def fingerprint_diff(*, before: dict, after: dict, examples: int = 8, skip: tuple = ("clock",),
+                     noise: tuple = ()) -> dict:
+    """What differs between two AndroidPlayEnv.fingerprint()s (the parts in skip, and dict keys matching a noise
+    regex, aside), {part: description}; {} when nothing does. Dict parts name the differing keys (a few), list parts
+    the first differing position."""
+    diff = {}
+    for part in before:
+        if part in skip:
+            continue
+        a, b = before[part], after.get(part)
+        if noise and isinstance(a, dict) and isinstance(b, dict):
+            a, b = ({k: v for k, v in d.items() if not any(re.fullmatch(n, k) for n in noise)} for d in (a, b))
+        if a == b:
+            continue
+        if isinstance(a, str) and isinstance(b, str):    # the element list: by line
+            a, b = a.splitlines(), b.splitlines()
+        if isinstance(a, dict) and isinstance(b, dict):
+            keys = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+            diff[part] = {"n": len(keys), "examples": {k: [a.get(k), b.get(k)] for k in keys[:examples]}}
+        elif isinstance(a, list) and isinstance(b, list):
+            first = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+            diff[part] = {"len": [len(a), len(b)], "first": first,
+                          "examples": [a[first] if first < len(a) else None, b[first] if first < len(b) else None]}
+        else:
+            diff[part] = [a, b]
+    return diff
 
 
 def add_resource_ids(*, text: str, ui_elements: list) -> str:
@@ -285,6 +364,8 @@ class AndroidPlayEnv(TextActionEnv):
         action_mode: str = "all",
         connection: Optional[interface.AsyncEnv] = None,
         stabilize_after_action: bool = True,
+        peek_verify: bool = True,
+        long_press_ms: Optional[int] = None,
         parameters: dict[str, Any] = None,
     ) -> None:
         """emulator enables hang recovery; probe_success is for logging only, never show it to the policy. scope
@@ -294,7 +375,11 @@ class AndroidPlayEnv(TextActionEnv):
         lands in one of them is undone (Back, else Home; a scoped scene reopens its app) before it is observed, and is
         invalid with MSG_BLOCKED_APP. action_mode "typing" accepts only
         TYPING_ACTIONS (hide_keyboard is this env's: Back while the keyboard is shown); "no_typing" refuses
-        NO_TYPING_REFUSED and clicks on the on-screen keyboard."""
+        NO_TYPING_REFUSED and clicks on the on-screen keyboard. peek_verify: peek checks each put-back state against
+        the state before (fingerprint: UI tree, activity, settings, app data, files), ~5 s more per candidate.
+        long_press_ms: hold a long_press this long (an `input swipe` in place); None keeps AndroidWorld's 1000 ms, which
+        after a snapshot load registers as a tap about 2 times in 3 (3000 ms held: 6 / 6 long presses). peek holds
+        at least PEEK_LONG_PRESS_MS whatever this is."""
         self._parameters = load_parameters(parameters)
         if reset_mode not in ("snapshot", "reinit"):
             log_error(f"reset_mode must be 'snapshot' or 'reinit', got {reset_mode!r}", parameters=self._parameters)
@@ -325,6 +410,8 @@ class AndroidPlayEnv(TextActionEnv):
         self._blocked = frozenset(blocked_packages or ())
         self.scoped_app = self.app_label if self._scope is not None else None   # the explorer's "Do not leave" names it
         self.stabilize_after_action = stabilize_after_action
+        self.peek_verify = peek_verify
+        self.long_press_ms = long_press_ms
         if start_app:
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
@@ -463,12 +550,20 @@ class AndroidPlayEnv(TextActionEnv):
             time.sleep(1)
         if not focused:
             raise RuntimeError("Device did not come back after the snapshot load")
+        kicked = time.time()
         while time.time() < deadline:
+            # The on-screen keyboard's keys are not counted: they outnumber a form's own elements, and a state with
+            # the keyboard up (a peek after input_text) never passed this check.
             packages = [u.package_name for u in env.get_state(wait_to_stabilize=False).ui_elements
-                        if u.package_name and u.package_name != "com.android.systemui"]
+                        if u.package_name and u.package_name not in ("com.android.systemui", KEYBOARD_PACKAGE)]
             if packages and max(set(packages), key=packages.count) == focused:
                 return
             time.sleep(1)
+            if time.time() - kicked > 10:
+                # The forwarder can keep serving the tree from before the load until a window event (_refresh_a11y);
+                # without one this wait timed out on 3 of ~150 peek loads.
+                self._adb("shell", "am", "broadcast", "-a", "android.intent.action.CLOSE_SYSTEM_DIALOGS")
+                kicked = time.time()
         raise RuntimeError(f"UI tree did not catch up with the restored screen ({focused}) after the snapshot load")
 
     def _device_time(self) -> datetime.datetime:
@@ -747,10 +842,28 @@ class AndroidPlayEnv(TextActionEnv):
             time.sleep(3.0)
         return self._observe_raw(env, stabilize=True)
 
+    def _long_press(self, *, env: interface.AsyncEnv, action: json_action.JSONAction) -> None:
+        """AndroidWorld's long_press (the element's centre, from a fresh UI tree, or x / y) held long_press_ms."""
+        if action.index is not None:
+            elements = env.get_state(wait_to_stabilize=False).ui_elements
+            index = int(action.index)
+            if index < 0 or index >= len(elements) or elements[index].bbox_pixels is None:
+                raise ValueError(f"Invalid element index for long_press: {index}")
+            x, y = elements[index].bbox_pixels.center
+        elif action.x is not None and action.y is not None:
+            x, y = action.x, action.y
+        else:
+            raise ValueError(f"Invalid long_press: {action}")
+        x, y = str(int(x)), str(int(y))
+        adb_utils.issue_generic_request(["shell", "input", "swipe", x, y, x, y, str(int(self.long_press_ms))],
+                                        env.controller)
+
     def _execute(self, env: interface.AsyncEnv, ja: json_action.JSONAction) -> Optional[str]:
         try:
             if ja.action_type == "input_text" and ja.text:   # F57: typing never presses Enter (decisions.md E8.2)
                 type_without_enter(env=env, action=ja)
+            elif ja.action_type == "long_press" and self.long_press_ms:
+                self._long_press(env=env, action=ja)
             else:
                 env.execute_action(ja)
         except Exception as e:
@@ -797,6 +910,182 @@ class AndroidPlayEnv(TextActionEnv):
         if "OK" not in out:
             log_warn(f"Could not delete Android state {state_id}: {out!r}", parameters=self._parameters)
         del self._states[state_id]
+
+    # ---------------------------------------------------------------- lookahead
+    # peek (TextActionEnv): save a snapshot once, then per candidate step and load it back. Back-button undo was ruled
+    # out (it does not undo saves, deletes, sends, toggles or timers); a disk + RAM snapshot puts back everything,
+    # app data, files, settings, the running apps and SystemClock included. A load brings the device clock back to its
+    # value at save (the snapshot does; _load_snapshot pins it when more than 2 s off), so every candidate starts at
+    # about the same time and the clock hardly advances over a peek (peek_clock_shift: 3-27 s, median 6-7 s; on one
+    # node the clock came back 7-94 s ahead and read 8-72 s ahead even after the pin). A running stopwatch continues
+    # from its saved reading. The step counter and _at_initial_state are episode bookkeeping that the step and the load
+    # change; the observation is the put-back state's. What a load does not put back (live check, 2026-11): pixels of
+    # views drawn from GPU textures (the launcher's icons, Markor's editor bars go blank on their next redraw; the UI
+    # tree is right), and input timing (AndroidWorld's 1 s long press registers as a tap after most loads:
+    # long_press_ms).
+
+    _peek_keep = ("_steps", "_at_initial_state")
+
+    def _peek_impl(self, *, actions: list) -> list:
+        """As TextActionEnv's, plus: AndroidWorld's interaction_cache (an `answer`) is put back after each load, an
+        emulator restart mid-peek raises RuntimeError (the saved state is gone: reset()), and with peek_verify each
+        put-back state is compared with the state before (fingerprint): info["peek_restored"] is the screen and the
+        fingerprint matching, info["peek_diff"] what differed, info["peek_obs_same"] whether the put-back observation's
+        element list is the one before (the status bar aside), info["peek_noise"] all differences when some were only
+        PEEK_LOAD_NOISE, info["peek_screen_moved"] the fraction of pixels off. info also has the seconds of the save,
+        the step, the load and the check, and peek_clock_shift: how far the device clock moved over the peek. Long
+        presses are held PEEK_LONG_PRESS_MS (at least) during the peek only."""
+        long_press_ms = self.long_press_ms
+        self.long_press_ms = max(long_press_ms or 0, PEEK_LONG_PRESS_MS)
+        try:
+            return self._peek_steps(actions=actions)
+        finally:
+            self.long_press_ms = long_press_ms
+
+    def _peek_steps(self, *, actions: list) -> list:
+        cache, recoveries = self._env.interaction_cache, self.recoveries
+        before_frame = self.raw_frame
+        start = time.time()
+        state_id = self.save_state()
+        save_seconds = time.time() - start
+        results = []
+        try:
+            # The reference is taken just after the save, so what the device does on its own before it (an app's or
+            # Google Play services' background writes) does not count as a restore error.
+            start = time.time()
+            packages = self._peek_packages() if self.peek_verify else []
+            before = self.fingerprint(packages=packages) if self.peek_verify else None
+            verify_before = time.time() - start
+            for action in actions:
+                start = time.time()
+                obs, reward, terminated, truncated, info = self.step_str(action)
+                step_seconds = time.time() - start
+                if self.recoveries != recoveries or not self.has_state(state_id=state_id):
+                    raise RuntimeError(f"the emulator was restarted while peeking {action!r}: the state peek started "
+                                       "from is gone (reset() before going on)")
+                self._episode_over = False
+                start = time.time()
+                load_attempts = self._peek_load(state_id=state_id)
+                self._env.interaction_cache = cache
+                load_seconds = time.time() - start
+                info.update(peek_save_seconds=save_seconds, peek_step_seconds=step_seconds,
+                            peek_load_seconds=load_seconds, peek_load_attempts=load_attempts)
+                screen_ok = not screen_changed(before=before_frame, after=self.raw_frame,
+                                               ignore_top=self.change_ignore_top)
+                info["peek_screen_restored"] = screen_ok
+                if before_frame is not None and before_frame.shape == self.raw_frame.shape:
+                    # How far off the screen is (peek_screen_restored allows a blinking cursor's 0.05%).
+                    top = int(round(before_frame.shape[0] * self.change_ignore_top))
+                    moved = np.abs(before_frame[top:].astype(np.int16) - self.raw_frame[top:].astype(np.int16))
+                    info["peek_screen_moved"] = float((moved.max(axis=-1) > CHANGE_PIXEL_DELTA).mean())
+                if self.peek_verify:
+                    start = time.time()
+                    after = self.fingerprint(packages=packages)
+                    # The device's state decides; the observation before the peek may have been read before the screen
+                    # settled (stabilize_after_action=False), so whether the put-back one equals it is kept apart.
+                    full = fingerprint_diff(before=before, after=after, skip=("clock", "elements"))
+                    diff = fingerprint_diff(before=before, after=after, skip=("clock", "elements"),
+                                            noise=PEEK_LOAD_NOISE) if full else {}
+                    if full != diff:
+                        info["peek_noise"] = full
+                    info.update(peek_diff=diff, peek_verify_seconds=verify_before + time.time() - start,
+                                peek_clock_shift=after["clock"] - before["clock"],
+                                peek_obs_same=before["elements"] == after["elements"])
+                    screen_ok = screen_ok and not diff
+                    if diff:
+                        log_warn(f"peek of {action[:80]!r} did not put {self.task_name} back exactly: "
+                                 f"{json.dumps(diff, default=str)[:400]}", parameters=self._parameters)
+                info["peek_restored"] = screen_ok
+                info["peek_seconds"] = sum(info.get(k, 0.0) for k in ("peek_step_seconds", "peek_load_seconds",
+                                                                     "peek_verify_seconds"))
+                results.append((obs, reward, terminated, truncated, info))
+        finally:
+            if self.has_state(state_id=state_id):
+                self.delete_state(state_id=state_id)
+        return results
+
+    def _peek_load(self, *, state_id: str, attempts: int = 3) -> int:
+        """load_state, tried again when it fails (the a11y tree has been seen not to catch up with a restored Markor
+        editor within 120 s; loading the same snapshot again puts the device back); returns the attempts used. An
+        emulator that died in the load (~2% of loads in the live check: `snapshot load` answers '' and the emulator
+        segfaults in its host GL renderer) is not retried: its snapshots are gone, and _recover rebuilds the scene on
+        the next call."""
+        for attempt in range(1, attempts + 1):
+            try:
+                self.load_state(state_id=state_id)
+                return attempt
+            except RuntimeError as e:
+                time.sleep(5.0)    # an emulator that crashed in the load takes a moment to exit
+                if attempt == attempts or self._emulator_died():
+                    raise
+                log_warn(f"peek: loading the saved state failed ({str(e)[:200]}); loading it again "
+                         f"({attempt}/{attempts - 1})", parameters=self._parameters)
+
+    def _peek_packages(self) -> list:
+        """The packages whose private data fingerprint hashes: the task's apps' and the foreground one."""
+        packages = set()
+        for app_name in self._task.app_names:
+            try:
+                packages.add(adb_utils.extract_package_name(adb_utils.get_adb_activity(app_name)))
+            except Exception:
+                continue
+        try:
+            focused = self._focused_package()
+        except Exception:
+            focused = None
+        if focused and focused not in SYSTEM_PACKAGES:
+            packages.add(focused)
+        return sorted(p for p in packages if p and re.fullmatch(r"[\w.]+", p))
+
+    def fingerprint(self, *, packages: list) -> dict:
+        """What the device is, for checking that a put-back state is the one saved: "ui" the (stabilized) UI tree
+        without the status bar, "elements" the observation's element list (what the agent indexes), "true" the
+        activity and fragments, "settings" every global / secure / system setting (wifi, bluetooth, ...), "files"
+        md5 of packages' private data (minus caches) and of shared storage's files (path, size, mtime; md5 under 1 MB),
+        "clock" the device clock (epoch s; compared by the caller, not by fingerprint_diff), "success" the task's
+        is_successful in test mode."""
+        env = self._env
+        state = self._guarded(fn=lambda: env.get_state(wait_to_stabilize=True))
+        top = int(state.pixels.shape[0] * self.change_ignore_top)
+        out = {"ui": ui_signature(ui_elements=state.ui_elements, top=top),
+               "elements": app_element_lines(text=(self.current_obs or {}).get("texts", {}).get("ui_elements"),
+                                             ui_elements=self._ui_elements, top=top),
+               "true": {k: v for k, v in (self.true_state() or {}).items() if k != "true_error"}}
+        settings = {}
+        for namespace in ("global", "secure", "system"):
+            for line in self._adb("shell", "settings", "list", namespace, timeout=30).splitlines():
+                key, _, value = line.partition("=")
+                settings[f"{namespace}/{key}"] = value
+        out["settings"] = settings
+        files = {}
+        dirs = " ".join(f"/data/data/{p}" for p in packages)
+        if dirs:
+            cmd = (f"find {dirs} -type f ! -path '*/cache/*' ! -path '*/code_cache/*' -exec md5sum {{}} + "
+                   "2>/dev/null")
+            for line in self._adb("shell", cmd, timeout=120).splitlines():
+                digest, _, path = line.partition("  ")
+                if path:
+                    files[path] = digest
+        shared = "/storage/emulated/0"
+        for line in self._adb("shell", f"find {shared} -type f ! -path '{shared}/Android/*' -exec stat -c '%s %Y %n' "
+                                       "{} + 2>/dev/null", timeout=120).splitlines():
+            size, mtime, path = (line.split(" ", 2) + ["", ""])[:3]
+            if path:
+                files[path] = f"{size} {mtime}"
+        for line in self._adb("shell", f"find {shared} -type f -size -1048576c ! -path '{shared}/Android/*' -exec "
+                                       "md5sum {} + 2>/dev/null", timeout=120).splitlines():
+            digest, _, path = line.partition("  ")
+            if path in files:
+                files[path] += f" {digest}"
+        out["files"] = files
+        out["clock"] = self._device_time().timestamp()
+        if self.mode == "test":
+            task = self._task
+            try:
+                out["success"] = float(self._guarded(fn=lambda: task.is_successful(env)))
+            except Exception as e:
+                out["success"] = f"error: {type(e).__name__}: {str(e)[:100]}"
+        return out
 
     # One emulator holds several scenes' envs (cusi.search.envs.SceneEnvs): the scene not in use is suspended, its
     # connection closed but its snapshots kept, and resumed from its scene snapshot.
