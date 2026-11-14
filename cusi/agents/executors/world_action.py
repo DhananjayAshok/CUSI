@@ -50,10 +50,37 @@ def world_action_executor_class(*, base: type, model: WorldActionModel, shadow_b
             else:
                 super().restore_history(history)
 
+        def _base_policy(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str], calls: list):
+            """The base executor's policy for a uses_policy model: policy(feedback=None) -> {decision, response,
+            reasoning}; each deciding call is appended to calls."""
+            def policy(*, feedback: Optional[str] = None) -> dict:
+                if feedback is None:
+                    decision = base.decide(self, obs=obs, info=info, error=error, hint=hint)
+                else:      # base.decide, not self.decide (which would plan again)
+                    with base.feedback(self, error=error, feedback=feedback) as err:
+                        decision = base.decide(self, obs=obs, info=info, error=err, hint=hint)
+                calls.append(self._current_call)
+                response = self._current_call.response
+                return {"decision": decision, "response": response,
+                        "reasoning": getattr(self, "_last_reasoning", None) if base.env_name == "gameboy"
+                        else str(response)[:1500]}
+            return policy
+
         def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
             if not self._queued:
-                shadow = self._shadow_decision(obs=obs, info=info, error=error, hint=hint) if self.SHADOW_BASE else {}
-                plan = model.plan(obs=obs, info=info, error=error, call=self.call)
+                if model.uses_policy:
+                    calls: list = []
+                    plan = model.plan(obs=obs, info=info, error=error, call=self.call,
+                                      policy=self._base_policy(obs=obs, info=info, error=error, hint=hint, calls=calls))
+                    # the executed (last) proposal's call owns the step; the earlier ones are marked rejected
+                    for c in calls[:-1]:
+                        c.tag, c.decision = f"rejected_{c.tag}", None
+                    self._current_call = calls[-1]
+                    shadow = {}
+                else:
+                    shadow = self._shadow_decision(obs=obs, info=info, error=error, hint=hint) if self.SHADOW_BASE \
+                        else {}
+                    plan = model.plan(obs=obs, info=info, error=error, call=self.call)
                 plan.record.update(shadow)
                 if shadow:
                     plan.record["diverged"] = None if plan.invalid is not None or shadow["base_action"] is None \
@@ -66,7 +93,7 @@ def world_action_executor_class(*, base: type, model: WorldActionModel, shadow_b
                 if plan.invalid is not None:
                     return Decision(invalid=plan.invalid, error=plan.error)
                 if plan.finish:
-                    return Decision(finish=True, answer=plan.answer)
+                    return Decision(finish=True, answer=plan.answer, action_text=plan.finish_text)
                 self._plan, self._queued = plan, list(plan.actions)
             return Decision(action_text=self._queued.pop(0))
 
@@ -96,6 +123,18 @@ def episode_summary(*, legs: list) -> dict:
     def mean(key, rows):
         vals = [r[key] for r in rows if r.get(key) is not None]
         return float(np.mean(vals)) if vals else None
+    if any("proposals" in r for r in recs):      # oracle_preview
+        props = [p for r in recs for p in r.get("proposals", [])]
+        return {"wa_decisions": len(recs), "wa_proposals": len(props),
+                "wa_revised": mean("_r", [{"_r": float(bool(r.get("revised")))} for r in recs]),
+                "wa_diverged": mean("_d", [{"_d": float(bool(r.get("diverged")))} for r in recs]),
+                "wa_rejected": sum(p.get("kept") is False for p in props),
+                "wa_rejected_invalid": sum(p.get("kept") is False and p.get("valid") is False for p in props),
+                "wa_rejected_no_change": sum(p.get("kept") is False and p.get("valid") and p.get("changed") is False
+                                             for p in props),
+                "wa_preview_failed": sum("preview_failed" in p for p in props),
+                "wa_preview_unsynced": sum(p.get("synced") is False for p in props),
+                "wa_preview_seconds": float(sum(p.get("preview_seconds") or 0.0 for p in props))}
     return {"wa_decisions": len(recs), "wa_invalid_choices": sum(r.get("chosen") is None for r in recs),
             "wa_scored": len(scored), "wa_changed": len(changed),
             "wa_pred_pixel_error": mean("predicted_pixel_error", changed),

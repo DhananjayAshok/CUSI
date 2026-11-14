@@ -412,6 +412,9 @@ class AndroidPlayEnv(TextActionEnv):
         self.stabilize_after_action = stabilize_after_action
         self.peek_verify = peek_verify
         self.long_press_ms = long_press_ms
+        #: The device was last put back by peek's snapshot load: the next real long press is held PEEK_LONG_PRESS_MS too
+        #: (a 1 s press right after a load registers as a tap, so the step would not do what its peek showed).
+        self._after_peek = False
         if start_app:
             self.scene_id = scene_hash(parts=("androidworld", task, suite_seed, instance, start_app))
         self._snapshot_name = f"cusi_{self.scene_id}"
@@ -862,10 +865,16 @@ class AndroidPlayEnv(TextActionEnv):
         try:
             if ja.action_type == "input_text" and ja.text:   # F57: typing never presses Enter (decisions.md E8.2)
                 type_without_enter(env=env, action=ja)
-            elif ja.action_type == "long_press" and self.long_press_ms:
-                self._long_press(env=env, action=ja)
+            elif ja.action_type == "long_press" and (self.long_press_ms or self._after_peek):
+                held = self.long_press_ms
+                self.long_press_ms = max(held or 0, PEEK_LONG_PRESS_MS if self._after_peek else 0)
+                try:
+                    self._long_press(env=env, action=ja)
+                finally:
+                    self.long_press_ms = held
             else:
                 env.execute_action(ja)
+            self._after_peek = False
         except Exception as e:
             log_info(f"execute_action failed: {e}", parameters=self._parameters)
             return MSG_EXEC_FAILED
@@ -941,6 +950,7 @@ class AndroidPlayEnv(TextActionEnv):
             return self._peek_steps(actions=actions)
         finally:
             self.long_press_ms = long_press_ms
+            self._after_peek = True
 
     def _peek_steps(self, *, actions: list) -> list:
         cache, recoveries = self._env.interaction_cache, self.recoveries

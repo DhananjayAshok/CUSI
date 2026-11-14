@@ -2562,3 +2562,242 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   restored 56-82%.
 - 2026-11-13 (Android long press, user's call): peek holds long presses PEEK_LONG_PRESS_MS = 3000 (at least) during the
   peek only; real steps, tree search and eval keep AndroidWorld's 1 s (long_press_ms=None).
+- 2026-11-13 (oracle WM executor v1, "oracle_preview", cusi/world_action/oracle_preview.py): why the GameBoy oracle
+  lookahead did not beat base (oracle_red_fixparse 10/27): its picking prompt has no history (the base's visual
+  history block, plan step context) and asks the VLM to compare 7 near-identical frames; it diverged from the shadow
+  base on 28% of decisions. New design, same for every env: the base executor proposes with its own prompt and memory
+  (policy hook; Executor.feedback: GameBoy's error block, WebVoyager's chat, M3A's history line), the env's
+  exact peek (TextActionEnv.peek; GameBoyPlayEnv._peek_impl added via peek_high_level_action: 30/30 peeks == real
+  next screen) previews it, proposals the env refuses or that change nothing are rejected outright, else a check call
+  (screen now, screen after, the action and reasoning, Web URL / Android activity) says good / bad; bad -> feedback
+  with the previewed outcome and reason, re-decide; at most 3 proposals, the last one executed. Finishes are never
+  previewed (a peek would leak the reward). Web/Android evals take --world_action (Android emulators start with
+  snapshots). Dev sets (storage/tmp/wam_dev/): web_dev2 40 test tasks (30 mixed across the 3 base reps, 5 never, 5
+  always; base 30/14/16 per rep), android_dev2 26 (4 mixed, 16 never, 6 always; base 10/6). Round 1 jobs: GameBoy Red
+  49 preview_red_v1 (295980), Web preview_web_dev2_v1 (295981) with a same-day base base_web_dev2_r1 (295982), Android
+  preview_aw_dev2_v1 (295983).
+- 2026-11-13 (oracle_preview round 1 failed, fixed): (1) bug: the default feedback hook called self.decide, which on
+  the world action executor plans again, so every revision recursed (GameBoy task 004: 5 proposals and 5 identical
+  checks for one decision); now Executor.feedback() is a context manager around base.decide. (2) GameBoy's
+  executor has a `_policy` attribute, which my policy method shadowed (every task TypeError). (3) Android
+  ClockTimerEntry: the digit pad fills from the right, so after 1, 6 the click on 3 shows "00h 01m 63s"; the check
+  called that intermediate screen bad, the agent backspaced and looped, failed. The check prompt now judges an action
+  as one step of the agent's stated plan (an odd-looking unfinished screen is good; bad = the action did something
+  other than intended, an error, undoing progress). Rounds 1 runs cancelled; same-day bases: base_web_dev2_r1 27/40.
+  Round 2 (v2): preview_red_v2 295987, preview_web_dev2_v2 295988, preview_aw_dev2_v2 295989, base_aw_dev2_r1 295990.
+  Android preview is slow: snapshot loads retry ("device did not come back", "UI tree did not catch up") and the
+  emulator crashed on one load (task error).
+- 2026-11-13 (oracle_preview v3, GameBoy): v2 partial (21/49 Red tasks before I stopped it): 17/21 vs 13 and 15 for
+  the two new-emulator base reps on the same tasks (8-13 for older reps). Its 4 failures were battle / long tasks
+  where the preview kept rejecting A: during battle text and animations a press shows no change yet, so it was
+  auto-rejected as no-change or judged bad (Defeat Blue: 143 rejected A presses), stalling the agent. v3: no-change
+  auto-reject only outside GameBoy dialogue / menu / battle (GameBoyPlayEnv peek info["agent_state"]); in those
+  states the check is told repeated A presses are normal; a proposal the executor makes again after its rejection is
+  kept ("insisted"). Run preview_red_v3 (296021, 10 workers). Web v2 check verdicts look sensible (wrong element /
+  date / page); Android v2 7 done: 3/7 = base 3/7 on the same tasks; BrowserDraw's 34 no-change rejections were real
+  (canvas clicks do nothing; base fails it too).
+- 2026-11-13 (GameBoy v3 placement): all A6000s taken (another user's higher-priority arrays took lg03's pair; my
+  CPU-only jobs pinned to lg06 stayed PENDING (Priority) even at 3 h). So preview_red_v3 runs as a step inside the Web
+  preview job 295988 on lg06, using its localhost vLLM (port 8488). Failed first: `srun --jobid --overlap` without
+  -n1 launched 3 copies (the job has 3 tasks) that raced on one run dir (004 twice, frames.zip.tmp FileNotFoundError);
+  killed, relaunched with -n1 --overwrite. The step dies when the Web job ends; resume elsewhere then.
+- 2026-11-13 (Web v2, Wolfram blocked): 14 of web_dev2's 40 tasks are Wolfram Alpha (base 14/14 the same day). In
+  preview_web_dev2_v2 they end with 0 iterations (opening wolframalpha.com times out). From lg06 curl cannot connect
+  to wolframalpha.com (exit 7 after 21 s) while the login node gets 200 in 0.25 s: lg06 looks blocked / rate-limited,
+  plausibly by the preview's extra traffic (each peek replays the episode in a sandbox browser). A live-site hazard of
+  peeking. v2 is compared without Wolfram; its Wolfram tasks are rerun from another node.
+- 2026-11-13 (v4 check rubric; GPU holding): Android v2 = base on all 9 shared tasks so far (3/9 each).
+  ClockTimerEntry v2 still failed: the check called "00h 01m 63s" (correct right-filling digit pad) a mistake and
+  later "1 went to seconds" bad, steering the agent to a wrong theory (digits in reverse order). v4 rubric: bad only
+  if image 2 shows the wrong target hit, an error / refusal, an unrelated place, or progress destroyed; never for a
+  guess about later app behaviour or a different plan. New Slurm pair eval_server (slurm/ + scripts/slurm/): holds a
+  GPU pair as one vLLM server and runs eval commands dropped in $tmp_dir/eval_queue/<job>/ (eval.sh --vllm_port
+  $VLLM_PORT --keep_vllm true; eval.sh gained --keep_vllm), because released A6000 pairs go to another user's
+  higher-priority arrays. Two submitted (296027, 296028).
+- 2026-11-13 (failure: edited a running bash script): adding --keep_vllm to scripts/slurm/eval.sh while 295988 was
+  running broke it: bash reads a script as it runs, so after the agent runs it hit "syntax error near unexpected token
+  done" (line 141) and never judged preview_web_dev2_v2 (agent runs complete, unscored; judge later with
+  --judge_only). Never edit a bash script that running jobs execute; copy it under a new name instead. The GameBoy v3
+  step inside that job died with it at 15/49 tasks (resume). Android base base_aw_dev2_r1 finished all 26 (8/26).
+- 2026-11-13 (Android preview: long press after a peek): MarkorDeleteNote (base 1, preview v2 0): the peek's long
+  press (held 3 s) previewed "note selected, delete toolbar", but the real step that followed the peek's snapshot load
+  used AndroidWorld's 1 s press, which after a load registers as a tap: the note opened instead, the agent then hunted
+  for delete inside the editor and failed. Fix: AndroidPlayEnv._after_peek (set when a peek ends, cleared by the next
+  executed action): a real long press right after a peek is held PEEK_LONG_PRESS_MS too, so the step does what its
+  preview showed. Steps not preceded by a peek (base runs, trees) keep 1 s. Android v2 so far: 4/12 vs base 5/12.
+- 2026-11-13 (piggybacking on tree jobs' vLLM, user's suggestion): no free A6000s for ~3 h (eval_server jobs
+  296027/8 cancelled while still pending). Each Gemma tree job serves on localhost:8100 + (job id mod 800); an
+  `srun --jobid=<tree job> --overlap -n1 --cpus-per-task=8` step on its node reaches it (eval.sh --vllm_port <port>
+  --keep_vllm true). Steps are capped by the tree job's own 8 CPUs / 64 GB (asking 12 CPUs left the step waiting:
+  "step creation still disabled") and die when it ends. Placement: lg03 294855 (port 8555) GameBoy v3 resume then the
+  Web v2 judge; lg07 294849 (8549) Web v4, 3 workers (lg16's and lg06's Web trees are blocked by wolframalpha.com;
+  lg07 and lg03 reach it); lg18 294840 (8540) Android v4, 2 emulators (no Android job on lg18; lg03's port 8555
+  would clash with the 2nd emulator's gRPC port).
+- 2026-11-13 (GameBoy v5): v3 so far 13/15 scored vs 10-12 for base reps on the same tasks, but three long
+  free-roam tasks (005 aide, 016 map, 012 potion) hit 176 steps with ~59% of decisions revised and 75-103 no-change
+  rejections each: the "insist" rule let the agent re-propose a blocked UP / A and execute it anyway. v5: insisting
+  overrides only the check's judgement; a repeated refused / no-change action stays rejected (not previewed again);
+  on a GameBoy no-change rejection the feedback names the buttons that would change the screen (all 7 peeked, exact
+  and instant). preview_red_v5 runs on lg18 inside tree job 295055 (port 8755).
+- 2026-11-13 (Android v4 on a shared 8-CPU step): with 2 emulators inside tree job 294840's 8 CPUs, 3 of the first 4
+  tasks errored (emulator hung and restarted x2, "Could not get a11y tree" x1). Restarted with 1 emulator (run dir
+  preview_aw_dev2_v4, the 2-emulator shards' rows are in preview_aw_dev2_v4_s0/_s1).
+- 2026-11-13 (FAILURE, my fault: killed a tree job): running `eval.sh --judge_only true` as a step inside tree job
+  294855 (gameboy sat_vlm_no_typing_s4) stopped the tree's own vLLM server: eval.sh's judge branch always restarts the
+  server when judge_only is set (`judge_model != model || judge_only`), ignoring --keep_vllm, and the restart then
+  failed inside the step. The tree's search died on connection errors (FAILED at 23:03, 13.6 h in). Resubmitted the
+  same command without its old dependency (job 296076, --overwrite false, resumes). Fix later (not while my steps run
+  eval.sh): with --keep_vllm, never stop / restart the server for the judge when judge_model == model. Until then, run
+  judges by calling run_eval.py web --judge_* directly, not eval.sh --judge_only, in piggyback steps. GameBoy v3 was
+  stopped on purpose just before (v5 supersedes it; v3 ended at 13 successes over its scored tasks).
+- 2026-11-13 (Web v2 scored; Gemma judge, judged by calling run_eval.py web --judge_* directly in a lg07 step):
+  preview_web_dev2_v2 21/40 overall (its 14 Wolfram tasks failed to open: lg06 blocked), base_web_dev2_r1 27/40. On
+  the 26 non-Wolfram tasks: preview 18 vs base 13 (+6 Apple--8, ArXiv--15, Booking--5, Booking--8, GitHub--9, Google
+  Map--33; -1 Google Flights--21). Android v2 so far on scored tasks 8/19 vs base 6/19 (+3 RetroPlayingQueue,
+  SportsTrackerTotalDistance..., VlcCreatePlaylist; -1 MarkorDeleteNote, the long-press bug fixed for v4; 3 emulator
+  errors). GameBoy v5 12/14 so far.
+- 2026-11-13 (Android v4 placement failed): inside tree job 294840 (lg18) Android v4 errored on all 3 tasks run with 1
+  emulator ("emulator hung and was restarted"): the step only has the job's 8 CPUs, and the tree's two vLLM servers
+  keep ~6 busy, starving the emulator (qemu 41%). Idea of a CPU-only Android job on an idle medium node (eclair12:
+  kvm, 40 CPUs) talking to the tree's vLLM through a TCP forwarder (tmp_tcp_forward.py) was blocked by the permission
+  classifier (it exposes an unauthenticated endpoint on a node port); not pursued. Android v4 queued as its own eval
+  job 296078 (1 emulator, resumes preview_aw_dev2_v4). Android needs its own allocation (16 CPUs) to be stable.
+- 2026-11-14 (tree resubmit failed, then fixed): 296076 (the resubmit of the killed gameboy sat_vlm_no_typing_s4 tree)
+  got lg03's GPUs at 00:15 and failed in 6 s ("Unknown argument: 50"): I rebuilt the command from sacct's SubmitLine,
+  which drops the quotes around --extra "...". Resubmitted with the args from the original log's "Active variables"
+  (job 296093). Lesson: rebuild a resubmit from the job log's parsed args, not sacct's SubmitLine. Its GPU pair went to
+  the Android v4 eval (296078, lg03) meanwhile.
+- 2026-11-14 (user): no cross-node forwarding of a job's vLLM server (the CPU-node Android idea is dropped for good);
+  tmp_tcp_forward.py is unused.
+- 2026-11-14 (GameBoy v6, battle rollouts): v5 so far 17/23 (base new-emu reps 13 / 16 on the same tasks); failures
+  are battles (Lass, Brock, Blue: preview revised 0-9% of decisions; one press only moves a cursor, so a one-step
+  preview shows nothing) and long navigation (bike 014, secret switch 018). v6: GameBoyPlayEnv.peek_rollout(action,
+  follow="B"): the press then B (advances battle text, never commits a menu choice) until the base battle menu or the
+  battle ends, emulator restored as peek_high_level_action does (live: restored exactly; a real replay of A then Bs
+  reproduced the rollout's 7 screens). oracle_preview: an A in a battle away from the base menu is previewed by the
+  rollout (up to 5 screens incl. the last) and the check judges the move's effect. preview_red_v6 runs on lg18
+  inside tree job 294840 (port 8540).
+- 2026-11-14 (Android v2 final): preview_aw_dev2_v2 26/26 run, 23 scored (3 emulator hangs: OsmAndTrack,
+  MarkorTranscribeVideo, RecipeAddMultipleRecipes): 9/23 vs base_aw_dev2_r1 7/23 on the same tasks (+3
+  RetroPlayingQueue, SportsTrackerTotalDistanceForCategoryOverInterval, VlcCreatePlaylist; -1 MarkorDeleteNote,
+  long-press-after-peek bug fixed in v4). Base overall 8/26.
+- 2026-11-14 (Web v5, sandbox browser reuse): lg07 got blocked by wolframalpha.com too (curl exit 7; login node 200)
+  after ~10 Wolfram tasks of preview_web_dev2_v4, whose later Wolfram tasks then ran 0 iterations. Each sync of the
+  sandbox started a new Chrome with a fresh profile and reloaded the site: cold sessions in bulk. v5
+  (WebVoyagerPlayEnv._fresh_browser): the sandbox's live browser is reset instead (cookies + the current origin's
+  storage cleared, about:blank, HTTP cache kept); a new Chrome only if it is dead or a full replay contains a GoBack.
+  preview_web_dev2_v5 runs on lg10 inside GameBoy tree job 295078 (port 8778; lg10 reaches Wolfram).
+- 2026-11-14 (host moves): tree job 294840 (lg18) hit its 23 h limit at 01:49 and took GameBoy v6's step with it;
+  295055 (GameBoy v5's host) was ~25 min from its limit. Both resumed (the run config has no server URL, so a resume on
+  another server is valid; errored tasks rerun): v5 on lg10 inside 295081 (port 8781), v6 on lg16 inside my
+  resubmitted tree 296093 (port 8193). Avoided lg17 (an Android tree: 8 shared CPUs would starve its emulator).
+  Web v5 first previews: 25 s mean vs 99 s in v4 (browser reuse).
+- 2026-11-14 (Web v4 scored): preview_web_dev2_v4 19/40 (8 Wolfram tasks never opened: lg07 blocked). Non-Wolfram 26:
+  v4 13 = base 13 (v2 18). The two previews intervened at the same rate on those tasks (revised 37 vs 38 decisions;
+  bad verdicts 48 vs 43; no-change rejections 30 vs 15), so v2 - v4 = 5 is mostly noise: the Web executor samples at
+  temperature 1.0 on live sites (the three historical base reps on these 40 tasks: 30 / 14 / 16). A second same-day
+  base on the 26 non-Wolfram tasks (base_web_dev2nw_r2, lg07 step) to size the noise. Wolfram tasks that ran in v4:
+  6/6 = base.
+- 2026-11-14 (Web noise check): second same-day base on the 26 non-Wolfram dev tasks (base_web_dev2nw_r2): 16/26.
+  Base 13 / 16 vs preview v2 18 / v4 13 on the same 26: means 14.5 vs 15.5, within run-to-run noise (temperature-1.0
+  executor on live sites). Web gain from oracle_preview so far is not established; v2's +5 was mostly noise.
+- 2026-11-14 (Web select mode, v6-v9): new executor hooks Executor.alternatives(n) / adopt(response) (WebVoyager
+  implements them) and an oracle_preview select mode: the greedy base decision plus up to 2 alternatives, each
+  previewed in the sandbox, and one call (PREVIEW_SELECT) picks the candidate whose previewed screen brings the agent
+  closest; the chosen reply is adopted into the chat. v6: no alternatives at all (eval decoding is greedy, so the
+  executor's temperature is ignored); v7: AgentVLM.chat(sample=True) at temperature 1: the model rewords its thought
+  but keeps the same action (3/3 identical actions per decision); also fixed: the fallback loop now names its own
+  call as the step's owner (record["owner_call"]). v8: alternatives asked for explicitly (ALTERNATIVE_ASK: "a
+  different action, other than X, that could also make progress", appended to a copy of the chat, never to the chat):
+  3 distinct candidates per decision, the select call reasons about each preview; but the base was always Image 2 and
+  always picked. v9: candidates shown in a shuffled order (sorted by the action's hash). preview_web_dev2nw_v9 on the
+  26 non-Wolfram tasks (lg07 step); compare with base r1 13 / r2 16, preview v2 18 / v4 13.
+- 2026-11-14 (GameBoy v7): v6 lost 013 (use a not very effective attack on Seaking; v5 solved it) and 012 (potion).
+  In 013 the rollout check was right (16 bad of 83: "Mega Drain is super effective on Seaking"), but the agent
+  re-proposed Mega Drain and the insist rule let it through (Seaking fainted: task impossible), and the check also
+  rejected A presses that only advanced text, judging them by an outcome already decided. v7: rollouts only for an A
+  that commits a battle choice (parser.is_in_fight_options_menu / is_in_fight_bag / is_in_pokemon_menu); a rejection
+  backed by a rollout cannot be overridden by insisting. preview_red_v7 on lg06 inside tree job 294864 (port 8564).
+- 2026-11-14 (GameBoy v5 FINAL, Red 50 tasks): preview_red_v5 28/50, vs base new-emulator reps 23 and 25, older
+  greedy reps 15-22 (all on the same tasks): the best GameBoy executor so far. On the 27 tasks the old oracle lookahead
+  (oracle_red_fixparse, VLM picks among 7 next frames, no history) ran: it 10, v5 19. Failures are tasks every base rep
+  fails (Lass and Brock battles, secret switch, Seafoam, Pallet without Surf, sell TM, ghost, minigame) plus a few
+  coin-flips (Defeat Blue, bike).
+- 2026-11-14 (GameBoy replicate): second run of the current code (v7) on lg10 inside 295081 (port 8781):
+  preview_red_v7_rep2, to size run-to-run noise (base reps range 15-25). (A run first started as "v5_rep2" was
+  stopped within seconds: the model code is v7 now, so that name would have been wrong.)
+- 2026-11-14 (GameBoy v8, walk previews): v7 lost 000 / 005 (v5 solved them) in no-change loops: the agent re-proposed
+  a blocked UP three times despite "buttons that would change the screen: DOWN, LEFT, RIGHT", the third executed. v8:
+  the no-change feedback adds how far each open direction walks in a straight line ("UP 9 tiles+; DOWN 5 tiles;
+  RIGHT 2 tiles; blocked: ..."), from GameBoyPlayEnv.peek_rollout(until="blocked") counting the player's RAM
+  map / x / y (counting changed frames overcounted: animated tiles change the screen while blocked). Live: env
+  restored exactly. v6 stopped at 19/32 (superseded by v7); preview_red_v8 on lg16 inside 296093 (port 8193).
+- 2026-11-14 (GameBoy preview runs stopped, user's call): v7 13/20, v7_rep2 16/19, v8 10/12 at stop (base new-emu
+  reps on the same tasks 12/14, 12/14, 10/9); v5 complete 28/50 remains the GameBoy result. Tree jobs untouched.
+  State the GameBoy oracle used: the emulator itself (PyBoy save/load in memory: next screen per action, exact; v6+
+  rollouts of several presses), the controller's "action unavailable", screen-parsed signals (GameBoyRL parser:
+  agent state FREE_ROAM / DIALOGUE / MENU / BATTLE, battle-menu predicates, MoveSteps movement judge), and from v8 the
+  player's map / x / y from RAM (walk distances). Never: reward, the test tracker, success, or other RAM.
+- 2026-11-14 (RAM position removed from the GameBoy oracle, user's call: keep it only if it proves its worth): on the
+  13 tasks v8 and both v7 runs finished, v8 (walk distances from RAM map / x / y) 11 vs v7 10 and 11; the one
+  disagreement (000 Pokemon Center) also split the two v7 runs; the feedback fired on 55 proposals. No measurable
+  gain, so removed (peek_rollout's until="blocked" and the walk feedback). The GameBoy oracle now reads no RAM: next
+  screens from emulator peeks / battle rollouts, the controller's unavailability, and screen-parsed state only.
+- 2026-11-14 (Web interim, judged on copies of the finished tasks: storage/tmp/web_interim/, tmp_web_interim.py): on
+  the 26 non-Wolfram dev tasks: base 13 / 16; check-and-reject previews v2 18, v4 13, v5 15 (mean 15.3 vs 14.5).
+  Best-of-3 select (v9) on its first 11 tasks: 8 vs base 5 / 8, v2 9, v4 4. Web v5's 4 finished Wolfram tasks: 4/4 =
+  base, none failed to open (sandbox browser reuse). No Web gain established yet; differences are within the
+  live-site noise.
+- 2026-11-14 (Web push, user: "focus all efforts on WebVoyager, reach as deep into state information as needed, max
+  GPU"): deeper state: the Web peek returns the previewed page's whole text (WebVoyagerPlayEnv.page_text():
+  document.body.innerText, below the fold too, 6000 chars), shown to the check (2500 chars) and, per candidate, to the
+  select call (1500 chars). Spec oracle_preview_check = check mode only (no select). Larger dev set web_dev3: 60
+  non-Wolfram test tasks (all 37 mixed across the 3 historical base reps, 15 never, 8 always; historical base 31 / 29
+  / 26). Runs (tree-job steps, 3 workers): base_web_dev3_r1 (lg06 294864), base_web_dev3_r2 (lg16 294869),
+  preview_web_dev3_sel10 (select + page text, lg10 295081), preview_web_dev3_chk10 (check + page text, lg16
+  296093); queued own-GPU jobs base_web_dev3_r3 (296114) and preview_web_dev3_sel10_rep2 (296115). Android trees'
+  nodes avoided (their emulators share the 8 CPUs).
+- 2026-11-14 (Wolfram blocks lg10 too): Web v5 (sandbox browser reuse) finished its 26 non-Wolfram tasks and 4
+  Wolfram tasks fine, then lg10 got blocked by wolframalpha.com as well (0-iteration tasks from 06:53). Reuse delays
+  the block, does not prevent it: previewing on Wolfram is not viable from a single node. v5 stopped (its non-Wolfram
+  results stand); its slot runs preview_web_dev3_chk10_rep2.
+- 2026-11-14 (hosts expiring): tree jobs 294849 (lg07), 294864 (lg06), 294869 (lg16) hit their 23 h limits ~08:30:
+  Web v9 died at 17/26 (dev2nw), base_web_dev3_r1's judge was cut (agent runs complete; re-judged by run_eval.py
+  directly on lg18 inside 295056, port 8756), an interim-judge step failed with them. dev3 so far: base r2 26/60, r3
+  27/60. Own-GPU jobs (sel10_rep2 lg05, sel10_rep3 lg04, chk10_rep3 lg06) and steps on lg10 (sel10, chk10_rep2; ~6.7
+  h left) and lg16 296093 (chk10; ~14.5 h left) continue.
+- 2026-11-14 (Web dev3 interim): base 28 / 26 / 27 of 60 (three same-day reps, steady). Finished preview tasks judged
+  on copies: check + page text (v10 chk, 3 runs) 34 solved over 50 task-runs vs the base mean 27.7 on the same tasks
+  (+23%; each run >= base mean); select + page text (v10 sel, 3 runs) 19 over 32 vs 17.3. Early (Apple / ArXiv /
+  Booking first in the list); check mode looks better and is cheaper.
+- 2026-11-14 (Web check-mode losses; v11 = check + page text + today's date): of the interim check-mode tasks, losses
+  vs base (base >= 2/3 solved, preview failed): Coursera--25, GitHub--11, Booking--2 (x2), Booking--35, GitHub--9;
+  gains (base 0/3, preview solved): Booking--8, Coursera--40, GitHub--19, Google Flights--10. GitHub--9 ("created in
+  the last week"): the agent searched created:>2025-05-15 (today is 2026-11-14) and the check approved it, not knowing
+  the date. v11: check / select prompts carry today's date (Web only; an Android device keeps its own clock).
+  preview_web_dev3_chk11 runs as a second step inside own-GPU job 296117 (lg04, port 8217; that job's own run is
+  sel10_rep3); a fourth chk10 run (chk10_rep4) on lg18 inside 295056.
+- 2026-11-14 (Android v4 final): preview_aw_dev2_v4 26 run, 20 scored, 6 emulator errors (hangs on snapshot loads):
+  9/20 vs base 8/20 on the same tasks (+1 TasksDueNextWeek, no losses; MarkorDeleteNote now solved, the long-press fix
+  works). With v2 (9/23 vs 7/23): the Android preview gains 1-3 tasks per 20-23 and never lost a task that was not a
+  bug; its cost is ~20-50 min per task and 13-26% of tasks lost to emulator hangs.
+- 2026-11-14 (Web dev3, first complete preview run): preview_web_dev3_chk10_rep3 (check mode + page text) 36/60 vs
+  base 28 / 26 / 27 (mean 27): +9 tasks (+33%), above the best base rep by 8.
+- 2026-11-14 (Web dev3 pooled, v12 = unsynced previews not judged): finals chk10_rep3 36/60, chk11_rep2 34/60 (base
+  mean 27). Pooled with interim tasks, vs the base mean on the same tasks: chk10 95/182 (52%) vs 45%, chk11 56/101
+  (55%) vs 45%, sel10 56/107 (52%) vs 46%. Select costs ~3 previews per step and is no better: check mode stays. One
+  rep (chk10_rep4, 32 tasks) is below base (-1.7); live-site noise per run is large. Largest check-mode losses:
+  ESPN--20 2/6 vs 3/3 (live stats, wrong table picked), Booking--2 1/6 vs 2/3, Coursera--4 / GitHub--9 / GitHub--11
+  4/6 vs 3/3. In two final runs (1545 previewed proposals), 18% of previews were unsynced (the sandbox did not reach
+  the live page's elements; in-page state such as filled inputs or an open calendar lost) and 4% failed. The check
+  rejected 43% of unsynced previews vs 22% of synced ones, mostly for "progress destroyed" that was the sandbox's loss
+  (Done "cleared the dates", typing "cleared the departure date", a scroll "closed the menu"). v12: an unsynced
+  preview is not judged (the action executes, kept = "unsynced preview"); select drops unsynced candidates. Runs:
+  preview_web_dev3_chk12 + _rep2.._rep6, sel12 + _rep2 (own 2-GPU jobs 296151-296158).
+- 2026-11-14 (wrap-up, user's call): v12 runs cancelled before results; v12 is not in the code. Final oracle_preview =
+  check mode only (Web v11, GameBoy v7 without RAM, Android v4); select mode and its executor hooks
+  (alternatives / adopt / sampled chat) removed, spec oracle_preview_check folded into oracle_preview. All versions and
+  results: plans/oracle_preview_versions.md.
+- 2026-11-14 (Web chk10 final): preview_web_dev3_chk10 27/60 (= base mean 27). Complete check runs: 36, 34, 27; pooled
+  with interim tasks 158/295 (54%) vs base 46% on the same tasks. Losses include tasks base always solves (ESPN--20,
+  Google Map--5); the "no losses on always-solved tasks" note from the first run no longer holds.

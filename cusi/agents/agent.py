@@ -50,7 +50,7 @@ class Agent:
         self.world_action = world_action
         if world_action is not None:
             from cusi.agents.executors.world_action import world_action_executor_class
-            if world_action.env_name != env_name:
+            if world_action.env_name not in (env_name, None):    # None: a model for any env
                 raise ValueError(f"world action model {world_action.directory} is for {world_action.env_name}, "
                                  f"not {env_name}")
             self.executor_class = world_action_executor_class(base=self.executor_class, model=world_action,

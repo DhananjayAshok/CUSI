@@ -2,6 +2,7 @@
 The shared executor skeleton: one leg is begin(), then act() / env.step / record() per decision; run() is that loop
 with the stopping rules. A caller that owns env.step itself (search) drives begin/act/record directly.
 """
+import contextlib
 import re
 import time
 from abc import ABC, abstractmethod
@@ -152,6 +153,14 @@ class Executor(ABC):
     @abstractmethod
     def decide(self, *, obs: dict, info: dict, error: Optional[str], hint: Optional[str]) -> Decision:
         """Make the deciding call(s) for the current state, via call/chat_call."""
+
+    @contextlib.contextmanager
+    def feedback(self, *, error: Optional[str], feedback: str):
+        """Around a decide() again on the same state, told `feedback` about its last decision (a world action model
+        that previews actions: cusi/world_action/oracle_preview.py); yields the `error` to pass that decide().
+        Default: the feedback joins `error`; executors that give feedback another way (WebVoyager's chat, M3A's
+        history) override this."""
+        yield "\n\n".join(e for e in (error, feedback) if e)
 
     def after_step(self, *, decision: Decision, obs_before: dict, info_before: dict, obs_after: dict,
                    info_after: dict, step: StepRecord) -> None:

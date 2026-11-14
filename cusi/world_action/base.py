@@ -30,6 +30,8 @@ class Plan:
     actions: list = field(default_factory=list)      # action strings in the env's own format
     finish: bool = False
     answer: Optional[str] = None
+    #: The finishing action's text for the env (WebVoyager's ANSWER, M3A's status reply), when finish is set.
+    finish_text: Optional[str] = None
     invalid: Optional[str] = None
     error: Optional[str] = None
     #: Whatever the model wants kept with the deciding call (CallRecord.extra["world_action"]); the model may keep
@@ -44,6 +46,9 @@ class WorldActionModel:
     so its calls are CallRecords like any executor's."""
 
     name = "base"
+    #: plan() takes `policy`: the executor's own policy on the current state (a model that edits or vets the base
+    #: executor's decisions, oracle_preview); the executor then makes no shadow call.
+    uses_policy = False
 
     def __init__(self, *, directory: str, meta: dict) -> None:
         self.directory = directory
@@ -85,7 +90,11 @@ class WorldActionModel:
     def begin(self, *, task: str, hint: Optional[str], obs: dict, info: dict) -> None:
         """Start of a leg from the current state. State restored by restore_history is kept."""
 
-    def plan(self, *, obs: dict, info: dict, error: Optional[str], call: Callable) -> Plan:
+    def plan(self, *, obs: dict, info: dict, error: Optional[str], call: Callable,
+             policy: Optional[Callable] = None) -> Plan:
+        """policy (uses_policy models only): policy(feedback=None) -> {"decision": the executor's Decision,
+        "response", "reasoning"}; feedback (a string) is shown to the executor about its last decision on this state.
+        The executed decision is the last one policy returned (Plan.record["owner"]: its index)."""
         raise NotImplementedError
 
     def observe(self, *, action_text: str, obs_before: dict, info_before: dict, obs_after: dict,

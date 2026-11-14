@@ -31,6 +31,8 @@ def _call_json(call, frames: FrameStore) -> dict:
     out = {"tag": call.tag, "decision": call.decision, "images": [frames(i) for i in call.images],
            "response": call.response, "input_tokens": call.input_tokens, "output_tokens": call.output_tokens,
            "seconds": getattr(call, "seconds", None), "steps": [_step_json(s, frames) for s in call.steps]}
+    if getattr(call, "extra", None) and "world_action" in call.extra:
+        out["world_action"] = jsonable(call.extra["world_action"])
     if call.messages is not None:
         out["messages"] = call.messages
     else:

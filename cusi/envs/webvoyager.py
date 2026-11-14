@@ -27,6 +27,8 @@ from cusi.envs.base import TextActionEnv, scene_hash, screen_changed
 from cusi.envs.web_boxes import MAX_BOX_CHARS, TEXT_BOXES_JS, web_text_boxes
 
 TEXT_KEYS = ("web_elements",)
+#: page_text(): at most this many characters of a page's text.
+PAGE_TEXT_CHARS = 6000
 _BROWSER_START_LOCK = threading.Lock()
 _LOAD_LOCK = threading.Lock()
 DEFAULT_TEST_MAX_STEPS = 15   # WebVoyager/run.sh --max_iter
@@ -480,6 +482,26 @@ class WebVoyagerPlayEnv(TextActionEnv):
             log_warn(f"JavaScript coverage unavailable ({str(e).splitlines()[0][:120]})", parameters=self._parameters)
             self._js_coverage = False
 
+    def _fresh_browser(self) -> None:
+        """A browser with no cookies or site storage. The main browser: a new one (_new_browser). The sandbox: its live
+        browser reset (cookies and the current site's storage cleared, then about:blank; its HTTP cache kept), since a
+        new Chrome per peek is a cold session that reloads the whole site, which got nodes blocked by
+        wolframalpha.com; a new one if it is dead (or _quit for a GoBack sync, which needs a fresh history)."""
+        if self._in_sandbox and self._driver is not None:
+            try:
+                origin = self._driver.execute_script("return window.location.origin;")
+                if origin and origin.startswith("http"):
+                    self._driver.execute_cdp_cmd("Storage.clearDataForOrigin", {
+                        "origin": origin, "storageTypes": "local_storage,session_storage,indexeddb,websql,"
+                                                          "service_workers,cache_storage"})
+                self._driver.execute_cdp_cmd("Network.clearBrowserCookies", {})
+                self._driver.get("about:blank")
+                self._download_files = []
+                return
+            except (self._wv.WebDriverException, WebDriverHang):
+                pass
+        self._new_browser()
+
     def _quit(self) -> None:
         if self._driver is not None:
             try:
@@ -493,7 +515,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
         (Apple's start page did, twice, with three searches' 30 browsers on one node): retried in a new browser."""
         for attempt in range(1, attempts + 1):
             try:
-                self._new_browser()
+                self._fresh_browser()
                 self._wv.open_start_page(self._driver, url)
                 return self._observe()[0]
             except (self._wv.WebDriverException, WebDriverHang) as e:
@@ -846,7 +868,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
             if cookie.get("session") or param.get("expires", -1) < 0:
                 param.pop("expires", None)
             cookies.append(param)
-        self._new_browser()
+        self._fresh_browser()
         self._driver.execute_cdp_cmd("Storage.setCookies", {"cookies": cookies})
         # Open the origin once to write storage, then reopen so page scripts start with it.
         self._driver.get(state["url"])
@@ -947,6 +969,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
             self._restore_browser_state(state=steps[anchor]["snapshot"])
             todo = steps[anchor + 1:]
         else:
+            if any(self._is_goback(action=r["action"]) for r in steps):
+                self._quit()        # the replayed GoBack needs the browser history to start where the episode's did
             start = self._episode_log["start"]
             if "open" in start:
                 self._open(url=start["open"])
@@ -998,6 +1022,15 @@ class WebVoyagerPlayEnv(TextActionEnv):
             state = None
         return {"url": self._url, "desc": list(self._ele_desc), "elements_text": self._last_obs[1],
                 "raw_frame": self._raw_frame, "title": title, "skeleton": skeleton, "state": state}
+
+    def page_text(self, *, max_chars: int = PAGE_TEXT_CHARS) -> str:
+        """The current page's whole text (document.body.innerText, below the fold included), whitespace collapsed and
+        capped; '' if it cannot be read. A world action model's preview reads it (peek info["page_text"])."""
+        try:
+            text = self._driver.execute_script("return document.body ? document.body.innerText : '';") or ""
+        except (self._wv.WebDriverException, WebDriverHang):
+            return ""
+        return " ".join(text.split())[:max_chars]
 
     def _is_goback(self, *, action: str) -> bool:
         return self._wv.extract_information(action_text(text=action))[0] == "goback"
@@ -1073,6 +1106,7 @@ class WebVoyagerPlayEnv(TextActionEnv):
                     info["changed"] = screen_changed(before=before, after=self._raw_frame,
                                                      ignore_top=self.change_ignore_top)
                     self._add_true_state(info=info)
+                    info["page_text"] = self.page_text()
         except (self._wv.WebDriverException, WebDriverHang) as e:
             log_warn(f"peek of {action_text(text=action)!r} failed in the sandbox browser: {str(e)[:200]}",
                      parameters=self._parameters)

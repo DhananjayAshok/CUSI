@@ -1,11 +1,14 @@
 """World Action Models: state in, actions out (base.py). load_world_action_model picks the class from the spec:
-"oracle" (the emulator lookahead, no directory) or a world model directory / name (siglip_lookahead)."""
+"oracle" (the emulator lookahead, no directory), "oracle_preview" (any env: the executor's proposals previewed with
+env.peek and vetted) or a world model directory / name (siglip_lookahead)."""
 import os
 from cusi.world_action.base import Plan, WorldActionModel, game_series, read_meta
 
 MODELS = {"siglip_lookahead": "cusi.world_action.siglip_lookahead:SiglipLookaheadModel",
-          "oracle_lookahead": "cusi.world_action.oracle_lookahead:OracleLookaheadModel"}
+          "oracle_lookahead": "cusi.world_action.oracle_lookahead:OracleLookaheadModel",
+          "oracle_preview": "cusi.world_action.oracle_preview:OraclePreviewModel"}
 ORACLE = "oracle"
+ORACLE_PREVIEW = "oracle_preview"
 
 
 def resolve_directory(*, spec: str, parameters: dict) -> str:
@@ -24,6 +27,8 @@ def load_world_action_model(*, spec: str, device: str, parameters: dict):
     import importlib
     if spec == ORACLE:
         model, directory = "oracle_lookahead", None
+    elif spec == ORACLE_PREVIEW:
+        model, directory = "oracle_preview", None
     else:
         model, directory = "siglip_lookahead", resolve_directory(spec=spec, parameters=parameters)
     module, cls = MODELS[model].split(":")

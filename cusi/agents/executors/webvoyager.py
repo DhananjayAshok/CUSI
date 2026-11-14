@@ -4,6 +4,7 @@ builds it, plus the iteration budget in each observation (F10), no Google action
 in the chat (F08=5), all fixed behaviour. WebVoyager's system prompt comes from the submodule and is patched here;
 a missing anchor raises.
 """
+import contextlib
 import os
 import re
 from typing import Optional
@@ -149,6 +150,13 @@ class WebVoyagerExecutor(Executor):
             self._fail_obs = MSG_EXEC_FAILED
             return Decision(invalid="unknown action", error=MSG_EXEC_FAILED)
         return Decision(action_text=f"Action: {chosen_action}")
+
+    @contextlib.contextmanager
+    def feedback(self, *, error: Optional[str], feedback: str):
+        """The feedback is the chat's next user message (as run.py's failure messages), in the same iteration."""
+        self._fail_obs = feedback
+        self._it -= 1
+        yield error
 
     def after_step(self, *, decision, obs_before, info_before, obs_after, info_after, step) -> None:
         self._fail_obs = "" if step.valid else (step.error or MSG_EXEC_FAILED)

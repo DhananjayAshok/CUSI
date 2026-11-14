@@ -1,8 +1,10 @@
 """
 GameBoyWorlds as a TextActionEnv: one game at a fixed savestate, deterministic on reset.
 """
+import io
 import os
 import shutil
+import time
 from enum import Enum
 from typing import Any, Optional
 import numpy as np
@@ -297,6 +299,13 @@ class GameBoyPlayEnv(TextActionEnv):
                               **self._extra(raw_info=raw_info))
         return self._obs(frame=frame), reward, bool(terminated), bool(truncated), info
 
+    def _agent_state(self, *, frame) -> Optional[str]:
+        """GameBoyRL's parse of a screen: FREE_ROAM, DIALOGUE, MENU, BATTLE...; None for a game without a parser."""
+        if self._mover is None or frame is None:
+            return None
+        state = self._env._emulator.state_parser.get_agent_state(frame)
+        return getattr(state, "name", str(state))
+
     def _screen_changed(self, *, before, after) -> bool:
         """info["changed"], from GameBoyRL's screen parsing: when the agent state (free roam, dialogue, menu,
         battle) changes, the screen did; while free-roaming before and after, only moving or turning counts (MoveSteps'
@@ -358,6 +367,70 @@ class GameBoyPlayEnv(TextActionEnv):
                 "items": sum(self._read(addr=a)[0] for a in ram["items"]),
                 "money": self._money(),
                 "flags_on": np.flatnonzero(flags & ~self._flags_start).tolist()}
+
+    # ------------------------------------------------------------ lookahead
+
+    def _peek_impl(self, *, actions: list) -> list:
+        """GameBoyWorlds' peek_high_level_action per action: the PyBoy state saved to memory, the action run through
+        the controller as a step runs it (listeners and video off), the screen read, the emulator restored; exact and
+        no step counted. Each result is the next screen with valid / error / changed; reward 0 (a peek does not reach
+        the test tracker)."""
+        frame_now, _ = self._last
+        before = self._env.get_info()["core"]["current_frame"]
+        results = []
+        for action in actions:
+            start = time.time()
+            action_class, kwargs = self._parse(text=action)
+            if action_class is None:
+                info = self.make_info(valid=False, error=MSG_PARSE_FAILED, parsed_action=None, step=self._steps + 1,
+                                      scene_id=self.scene_id, changed=False)
+                frame = frame_now
+            else:
+                after = self._env.peek_high_level_action(action_class, **kwargs)
+                unavailable = after is None
+                frame = frame_now if unavailable else self._frame(raw_obs=after)
+                info = self.make_info(valid=not unavailable, error=MSG_UNAVAILABLE if unavailable else None,
+                                      parsed_action=canonical_action(action_class=action_class, kwargs=kwargs),
+                                      step=self._steps + 1, scene_id=self.scene_id,
+                                      action_name=action_display_name(action_class=action_class, kwargs=kwargs),
+                                      changed=False if unavailable else self._screen_changed(before=before,
+                                                                                             after=after))
+            info.update(peek_seconds=time.time() - start, peek_restored=True, agent_state=self._agent_state(frame=before))
+            results.append((self._obs(frame=frame), 0.0, False, False, info))
+        return results
+
+    def peek_rollout(self, *, action: str, follow: str = "B", max_follow: int = 15) -> list:
+        """The screens after `action` and then `follow` pressed until the next decision point, the emulator put back
+        exactly as peek_high_level_action does (PyBoy state in memory, listeners and video off, no step counted).
+        Pokemon battles: B advances battle text and never commits a menu choice; the rollout stops at the base battle
+        menu, when the battle ends, or after max_follow presses. Returns the distinct screens, in order (the first is
+        the screen after `action`); [] if the action cannot be run here."""
+        emulator, parser = self._env._emulator, self._env._emulator.state_parser
+        snapshot = io.BytesIO()
+        emulator._pyboy.save_state(snapshot)
+        attributes = dict(vars(emulator))
+        emulator.save_video = False
+        emulator._update_listeners_after_actions = lambda frames: None
+        frames = []
+        try:
+            for i, text in enumerate([action] + [follow] * max_follow):
+                action_class, kwargs = self._parse(text=text)
+                if action_class is None:
+                    break
+                transition_states, _ = self._env._controller.execute(action_class, **kwargs)
+                if transition_states is None:
+                    break
+                frame = emulator.get_current_frame()
+                if not frames or np.abs(np.asarray(frame, np.int16) - np.asarray(frames[-1], np.int16)).max() > 0:
+                    frames.append(np.asarray(frame).copy())
+                if i > 0 and (not parser.is_in_battle(frame) or parser.is_in_base_battle_menu(frame)):
+                    break
+        finally:
+            snapshot.seek(0)
+            emulator._pyboy.load_state(snapshot)
+            vars(emulator).clear()
+            vars(emulator).update(attributes)
+        return [self._frame(raw_obs=f) for f in frames]
 
     # ------------------------------------------------------------ saved states
     # load_custom_state overwrites the emulator's init_state; it is restored so reset() returns to the scene start.

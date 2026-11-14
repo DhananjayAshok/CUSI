@@ -10,6 +10,9 @@
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> \
 #       [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--seed <n>] [--vllm_port <value>]
 #   bash scripts/slurm/eval.sh --env gameboy ... [--game <value>]   # a GameBoyWorlds game other than pokemon_red
+#   bash scripts/slurm/eval.sh --env <env> ... [--world_action <value>]   # a World Action Model deciding in place of the
+#       # executor (cusi/world_action): GameBoy a model dir / world model name / oracle / oracle_preview; Web and
+#       # Android oracle_preview (Android's emulators then start with snapshots, ~3.6 GB each in /tmp)
 #   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
 #   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
 #   bash scripts/slurm/eval.sh --env android ... [--android_wait <seconds>]   # sleep after each action (default 2)
@@ -24,6 +27,8 @@
 # A run may only be resumed with the config it started with. --overwrite deletes the run dir (and its
 # <run>_s<i> shards) first; --ignore_config_violation resumes anyway.
 #
+# --keep_vllm true leaves the vLLM server running at the end (with --vllm_port of an eval_server.sh job, whose server
+# serve_vllm.sh then reuses; the Web judge must use the same model).
 # --vllm_port <vllm_port> to 8100 + (job id mod 400): serve_vllm.sh reuses a healthy server on its port
 # and stop_vllm.sh stops whatever serves there, so two jobs on a node must not share one. The range
 # (8100-8499) stays below the Android emulators' gRPC ports (8554 and up).
@@ -63,7 +68,8 @@ fi
 mkdir -p "$RUN_DIR"
 GPU_NAMES=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sort | uniq -c | sed 's/^ *//' | paste -sd ';')
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none} ($GPU_NAMES)  env: $ENV_NAME  model: $MODEL  port: $PORT  -> $RUN_DIR"
-trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
+# --keep_vllm true: a server this job did not start (scripts/slurm/eval_server.sh's) stays up afterwards
+[[ "${ARGS["keep_vllm"]}" != "true" ]] && trap "bash scripts/stop_vllm.sh --port $PORT" EXIT
 
 serve() {   # serve <model> [more vllm serve flags]; prints the start-up seconds
     local t0=$(date +%s)
@@ -87,9 +93,11 @@ case "$ENV_NAME" in
                                                         --world_action_shadow "${ARGS["world_action_shadow"]}")
         [[ "${ARGS["n_tasks"]}" != "none" ]] && FLAGS+=(--n_tasks "${ARGS["n_tasks"]}") ;;
     web)
-        FLAGS+=(--workers "${ARGS["workers"]}" --task_file "${ARGS["task_file"]}") ;;
+        FLAGS+=(--workers "${ARGS["workers"]}" --task_file "${ARGS["task_file"]}")
+        [[ "${ARGS["world_action"]}" != "none" ]] && FLAGS+=(--world_action "${ARGS["world_action"]}") ;;
     android)
-        [[ "${ARGS["android_wait"]}" != "none" ]] && FLAGS+=(--wait_after_action_seconds "${ARGS["android_wait"]}") ;;
+        [[ "${ARGS["android_wait"]}" != "none" ]] && FLAGS+=(--wait_after_action_seconds "${ARGS["android_wait"]}")
+        [[ "${ARGS["world_action"]}" != "none" ]] && FLAGS+=(--world_action "${ARGS["world_action"]}") ;;
     *) echo "Unknown --env $ENV_NAME"; exit 1 ;;
 esac
 
@@ -108,10 +116,12 @@ if [[ "${ARGS["judge_only"]}" != "true" ]]; then
             # server port, so two Android jobs must not share a node: submit with --exclusive).
             # Emulator i: console 5554+2i, gRPC 8554+i, shard i/K into run <run>_s<i> (K=1: <run>).
             K="${ARGS["n_emulators"]}"
+            SNAP=false
+            [[ "${ARGS["world_action"]}" != "none" ]] && SNAP=true   # the world action model's peek loads snapshots
             SCRIPT="set -u; adb start-server > /dev/null; STOP=''"
             for i in $(seq 0 $((K - 1))); do
                 CP=$((5554 + 2 * i)); GP=$((8554 + i))
-                SCRIPT+="; bash scripts/android_emulator.sh --action start --port $CP --grpc_port $GP || exit 1"
+                SCRIPT+="; bash scripts/android_emulator.sh --action start --port $CP --grpc_port $GP --snapshots $SNAP || exit 1"
                 SCRIPT+="; STOP=\"\$STOP bash scripts/android_emulator.sh --action stop --port $CP;\""
                 SCRIPT+="; trap \"\$STOP\" EXIT; adb -s emulator-$CP wait-for-device"
             done

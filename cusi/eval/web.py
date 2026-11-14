@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import Optional
 import click
 import numpy as np
 from PIL import Image
@@ -84,23 +85,28 @@ def materialize_screenshots(*, run_dir: str) -> list:
 
 
 def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
-             run_dir: str, parameters=None, vlm=None) -> dict:
+             run_dir: str, parameters=None, vlm=None, world_action: Optional[str] = None) -> dict:
     """One task with run.py's browser-death retries; vlm overrides the served model (tests). The outcome (and
-    outcome.json) carries the task's compute over all its attempts."""
+    outcome.json) carries the task's compute over all its attempts. world_action: a World Action Model spec
+    (cusi/world_action) deciding in place of the executor's policy."""
     with tally() as compute:
         return _run_task(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, data_file=data_file, run_dir=run_dir, parameters=parameters,
-                         vlm=vlm, compute=compute)
+                         vlm=vlm, compute=compute, world_action=world_action)
 
 
 def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
-              run_dir: str, parameters, vlm, compute) -> dict:
+              run_dir: str, parameters, vlm, compute, world_action: Optional[str] = None) -> dict:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.webvoyager import WebVoyagerPlayEnv, load_webvoyager
     from cusi.eval.supervision import model
     parameters = load_parameters(parameters)
     vlm = vlm or model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
     wv = load_webvoyager(project_root=parameters["project_root"])
+    wam = None
+    if world_action is not None:
+        from cusi.world_action import load_world_action_model
+        wam = load_world_action_model(spec=world_action, device="cpu", parameters=parameters)
     t0 = time.time()
     for attempt in range(1, MAX_TASK_ATTEMPTS + 1):
         shutil.rmtree(task_dir, ignore_errors=True)
@@ -111,7 +117,8 @@ def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str,
                                     fast_waits=False, headless=True, fix_box_color=True, window_width=1024,
                                     window_height=768, parameters=parameters)
             obs, info = env.reset()
-            agent = make_agent(env_name="web", env=env, vlm=vlm, parameters=parameters)
+            agent = make_agent(env_name="web", env=env, vlm=vlm, parameters=parameters, world_action=wam,
+                               world_action_shadow=False)
             supervisor, result = agent.run(task=task["ques"], obs=obs, info=info, max_steps=MAX_ITER)
             report = result["report"]
             if any(s.error == BROWSER_CRASHED for r in report.executor_reports for s in r.env_steps):
@@ -137,7 +144,7 @@ def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str,
             return _finish(task=task, task_dir=task_dir, run_dir=run_dir, report=report, result=result,
                            screenshots=screenshots,
                            error=error or (final.error if final else None), model_name=model_name,
-                           seconds=time.time() - t0, compute=compute.snapshot())
+                           seconds=time.time() - t0, compute=compute.snapshot(), wam=wam)
         log_warn(f"[web eval] task{task['id']}: browser died (attempt {attempt}/{MAX_TASK_ATTEMPTS}): {crashed}",
                  parameters=parameters)
         if attempt == MAX_TASK_ATTEMPTS:
@@ -149,7 +156,7 @@ def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str,
 
 
 def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screenshots: dict, error, model_name: str,
-            seconds: float, compute: dict) -> dict:
+            seconds: float, compute: dict, wam=None) -> dict:
     """Writes outcome.json and the episode artifacts; screenshots go in the episode's frames, mapped by name."""
     from cusi.eval.episode import write_episode
     final = report.last_report if report is not None else None
@@ -163,6 +170,10 @@ def _finish(*, task: dict, task_dir: str, run_dir: str, report, result, screensh
                "seconds": seconds,
                "extra": supervisor_extra(report=report, result=result) if report is not None else {},
                "compute": compute}
+    if wam is not None and report is not None:
+        from cusi.agents.executors.world_action import episode_summary
+        outcome["extra"].update(episode_summary(legs=report.executor_reports))
+        outcome["extra"]["world_action"] = wam.summary()
     with open(os.path.join(task_dir, "outcome.json"), "w") as f:
         json.dump(outcome, f, indent=1, default=str)
     if report is None:     # no episode to hold them
@@ -215,12 +226,14 @@ def judge(*, run_dir: str, judge_model_name: str, judge_model_backend: str, judg
 @click.option("--tasks", default=None, help="Comma-separated task ids (default: every task in the file).")
 @click.option("--skip_judge", is_flag=True, help="Only run the agent; score later.")
 @click.option("--workers", default=1, show_default=True, help="Tasks run in parallel (one browser each).")
+@click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy "
+                                                   "(cusi/world_action), e.g. oracle_preview.")
 @seed_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, judge_model_name, judge_model_backend,
-            judge_vllm_base_url, run_name, task_file, tasks, skip_judge, workers, overwrite, ignore_config_violation,
-            seed):
+            judge_vllm_base_url, run_name, task_file, tasks, skip_judge, workers, world_action, overwrite,
+            ignore_config_violation, seed):
     """WebVoyager test-set evaluation through WebVoyagerPlayEnv, with the final Web agent (cusi/agents/agent.py)."""
     if task_file == "cusi":
         from cusi.envs.webvoyager import excluded_sites, filtered_task_file
@@ -237,7 +250,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
                                              "judge_model_name": judge_model_name,
                                              "task_file": storage_relative(parameters=parameters, path=task_file),
                                              "tasks": [r["id"] for r in rows], "max_iter": MAX_ITER,
-                                             "workers": workers, "seed": seed},
+                                             "workers": workers, "seed": seed,
+                                             **({"world_action": world_action} if world_action else {})},
                   overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     jobs = []
     for task in rows:
@@ -248,7 +262,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
             continue
         jobs.append(dict(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, data_file=task_file, run_dir=run_dir,
-                         parameters=parameters if workers <= 1 else None))
+                         parameters=parameters if workers <= 1 else None, world_action=world_action))
     log_info(f"[web eval] {run_name}: {len(jobs)} tasks to run ({len(rows)} in the file), "
              f"{workers} worker(s) -> {run_dir}", parameters=parameters)
 

@@ -417,6 +417,14 @@ declare -A EVAL_DEFAULTS=(
     ["world_action"]="none"
     ["world_action_device"]="cpu"
     ["world_action_shadow"]="true"
+    ["keep_vllm"]="false"
+)
+
+# scripts/slurm/eval_server.sh
+EVAL_SERVER_ESSENTIALS=("model")
+declare -A EVAL_SERVER_DEFAULTS=(
+    ["queue"]="none"
+    ["vllm_port"]="none"
 )
 
 # scripts/slurm/vllm_python.sh

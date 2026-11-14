@@ -41,8 +41,10 @@ def trajectory(*, reports: list) -> list:
 
 
 def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emulator, vlm, console_port: int,
-            grpc_port: int, out_dir: str, parameters: dict, wait_after_action_seconds: float = 2.0) -> tuple:
-    """One task instance -> (fields, process_episodes dict, trajectory, connection, report, extra)."""
+            grpc_port: int, out_dir: str, parameters: dict, wait_after_action_seconds: float = 2.0,
+            wam=None) -> tuple:
+    """One task instance -> (fields, process_episodes dict, trajectory, connection, report, extra). wam: a World
+    Action Model deciding in place of the executor's policy (cusi/world_action)."""
     from cusi.envs.android_world import AndroidPlayEnv
     from cusi.eval.episode import write_episode
     start = time.time()
@@ -57,7 +59,8 @@ def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emula
         goal, complexity_steps = env._task.goal, env.max_steps
         recoveries = env.recoveries
         obs, info = env.reset()
-        agent = make_agent(env_name=ENV_NAME, env=env, vlm=vlm, parameters=parameters)
+        agent = make_agent(env_name=ENV_NAME, env=env, vlm=vlm, parameters=parameters, world_action=wam,
+                           world_action_shadow=False)
         _, result = agent.run(task=goal, obs=obs, info=info, max_steps=env.max_steps)
         report = result["report"]
         final = report.last_report
@@ -87,6 +90,10 @@ def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emula
     extra = {"budget": complexity_steps}
     if report is not None:
         extra.update(supervisor_extra(report=report, result=result))
+        if wam is not None:
+            from cusi.agents.executors.world_action import episode_summary
+            extra.update(episode_summary(legs=report.executor_reports))
+            extra["world_action"] = wam.summary()
         write_episode(directory=eval_episode(run_dir=out_dir, task_id=f"{task_name}_{instance}"), report=report, meta={
             "task_id": f"{task_name}_{instance}", "task": goal, "env": ENV_NAME, "model": vlm.model_name,
             "agent": AGENT_VERSION, "executor": "m3a", "supervisor": "none",
@@ -119,11 +126,15 @@ def shard_of(*, names: list, shard: str) -> list:
 @click.option("--shard", default=None, help="k/n: every n-th task from the k-th (0-based).")
 @click.option("--wait_after_action_seconds", default=2.0, show_default=True,
               help="Fixed sleep after each action, before the agent observes (M3A's default is 2).")
+@click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy "
+                                                   "(cusi/world_action), e.g. oracle_preview; needs an emulator "
+                                                   "started with snapshots.")
 @seed_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, tasks, n_task_combinations,
-            task_random_seed, console_port, grpc_port, rerun_failed, shard, wait_after_action_seconds, overwrite, ignore_config_violation, seed):
+            task_random_seed, console_port, grpc_port, rerun_failed, shard, wait_after_action_seconds, world_action,
+            overwrite, ignore_config_violation, seed):
     """AndroidWorld on the test suite through AndroidPlayEnv, with the final Android agent (cusi/agents/agent.py)."""
     tasks = task_list(tasks=tasks)
     if tasks:   # instance ids (Name_0) as in the results -> template names
@@ -136,14 +147,20 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
         "env": ENV_NAME, "agent": AGENT_VERSION, "model_name": model_name, "model_backend": model_backend,
         "tasks": tasks, "n_task_combinations": n_task_combinations, "task_random_seed": task_random_seed,
         "shard": shard, "seed": seed, "decoding": DECODING,
-        **({} if wait_after_action_seconds == 2.0 else {"wait_after_action_seconds": wait_after_action_seconds})},
+        **({} if wait_after_action_seconds == 2.0 else {"wait_after_action_seconds": wait_after_action_seconds}),
+        **({"world_action": world_action} if world_action else {})},
         overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     os.makedirs(eval_trajectories(run_dir=out_dir), exist_ok=True)
     names = suite_tasks(tasks=tasks)
     if shard:
         names = shard_of(names=names, shard=shard)
     vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
-    emulator = AndroidEmulator(port=console_port, grpc_port=grpc_port, snapshots=False, parameters=parameters)
+    wam = None
+    if world_action is not None:
+        from cusi.world_action import load_world_action_model
+        wam = load_world_action_model(spec=world_action, device="cpu", parameters=parameters)
+    emulator = AndroidEmulator(port=console_port, grpc_port=grpc_port, snapshots=wam is not None,
+                               parameters=parameters)
     import shutil
     connection = env_launcher.load_and_setup_env(console_port=console_port, grpc_port=grpc_port,
                                                  emulator_setup=False, adb_path=shutil.which("adb"))
@@ -158,7 +175,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
                 fields, episode, traj, connection, report, extra = run_one(
                     task_name=name, instance=i, suite_seed=task_random_seed, connection=connection,
                     emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, out_dir=out_dir,
-                    parameters=parameters, wait_after_action_seconds=wait_after_action_seconds)
+                    parameters=parameters, wait_after_action_seconds=wait_after_action_seconds, wam=wam)
             tokens = (0, 0) if report is None else (
                 (report.executor_input_tokens or 0) + (report.supervisor_input_tokens or 0),
                 (report.executor_output_tokens or 0) + (report.supervisor_output_tokens or 0))

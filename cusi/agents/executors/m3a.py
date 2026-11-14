@@ -4,6 +4,7 @@ plus a carried notes field (F27) and Minitap's pieces F55–F61, all fixed behav
 typing without Enter, F60 resource ids) live in AndroidPlayEnv. M3A's prompt text comes from the android_world
 submodule and is patched here; every patch's anchor is checked at import, so a submodule change fails loudly.
 """
+import contextlib
 import json
 import re
 from typing import Optional
@@ -273,6 +274,19 @@ class M3AExecutor(Executor):
         self._pending = {"action": action, "reason": reason,
                          "answer": parsed.get("text") if parsed.get("action_type") == "answer" else None}
         return Decision(action_text=response)
+
+    @contextlib.contextmanager
+    def feedback(self, *, error: Optional[str], feedback: str):
+        """The feedback is the last line of M3A's history for this decision only (M3A's feedback channel)."""
+        entry = str(feedback)
+        self._summaries.append(entry)
+        try:
+            yield error
+        finally:
+            for i in range(len(self._summaries) - 1, -1, -1):
+                if self._summaries[i] is entry:
+                    del self._summaries[i]
+                    break
 
     def after_step(self, *, decision, obs_before, info_before, obs_after, info_after, step) -> None:
         pending = self._pending
