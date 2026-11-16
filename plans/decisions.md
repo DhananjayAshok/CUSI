@@ -2801,3 +2801,60 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
 - 2026-11-14 (Web chk10 final): preview_web_dev3_chk10 27/60 (= base mean 27). Complete check runs: 36, 34, 27; pooled
   with interim tasks 158/295 (54%) vs base 46% on the same tasks. Losses include tasks base always solves (ESPN--20,
   Google Map--5); the "no losses on always-solved tasks" note from the first run no longer holds.
+- 2026-11-14 (tree resumes): leftover preview jobs (296115/7/20, step 295056.2) and the zombie 295161 (Qwen 8B Android
+  s0, search dead since 02:17, job still holding a Quadro) cancelled. 19 unfinished trees resubmitted with
+  --overwrite false (296187-296205; 295161 had been submitted with --overwrite true). The six Web trees that died in
+  every job within ~15 min (random s3/s4, Qwen 4B s0/s1, Qwen 8B s1/s2) were not a code bug: opening
+  wolframalpha.com timed out on lg09 / lg12 / lg15. Wolfram check before placing: reachable from lg01, 02, 03, 08,
+  12, 13, 19; blocked from lg07, lg10. Web trees pinned to reachable nodes; GameBoy / Android to lg07 / lg10.
+- 2026-11-14 (tree resume failed, resubmitted): 296195 (Android Gemma sat_vlm_no_typing_s4, lg05) died 47 min in at
+  emulator setup: the accessibility-forwarder APK download was cut off (http IncompleteRead), so a network glitch,
+  not code. Resubmitted as 296219 on lg15 (4 Quadros, no Android job there) without --exclusive, since another
+  user's CPU job holds lg15; --overwrite false, args from the job log.
+- 2026-11-14 (FAILURE, my fault: tree resumes past the 69 h cap): the seed 3-4 Gemma / random trees cap at 69 h as
+  3 chained 23 h segments (2026-11-11), so a third segment ending in TIMEOUT is the designed stop, not a crash. I
+  resumed every chain whose last segment timed out. Legit resumes (a failed segment in the chain): Web random s3/s4
+  (296199/200, at 44.5/45.1 h of expansion wall time vs s0-s2 64 h), Android vlm_w_typing s3 (296196, 45.7 h vs
+  56-57.5 h), plus the original 4th segment 294867 (w_typing s4, 51.8 h). Cancelled ~20:15 on the user's OK as over or at cap
+  (expansion wall time): Red vlm_no_typing s0/s1/s3 (71.4 h each), s4 (296093, 78.9 h: its 4th segment after a failed
+  one ran ~10 h over); Web vlm_no_typing s3/s4 (70.2/70.4 h), vlm_w_typing s3/s4 (70.1 h; s0-s2 ended 67.6-67.8 h);
+  Android vlm_no_typing s3/s4 (61.4/60.6 h vs s0-s2 60.4-61.8 h) and random s3/s4 (48.8/50.9 h vs 48.2-52.2 h).
+  Analyses of the over-cap trees must cut them at 248400 s of cumulative expansion wall time (Qwen trees stop on
+  that budget themselves). Red vlm_no_typing s2 (295056) is its chain's real third segment and keeps running.
+- 2026-11-14 ~20:30 (job moves, user: "watch for free GPUs and move jobs accordingly"): the Qwen Android trees were
+  serialised by a singleton name (one emulator per node), so 4B s1/s2 waited on s0 (~5 / ~8 days) and 8B s2 on s1.
+  With lg01, lg08 and lg15 free, the pending chains were re-pointed in place (scontrol update, stored args kept):
+  4B s1 (295745-48) -> lg01, 4B s2 (295761-64) -> lg08, each with a per-seed job name; 8B s2 (295167) -> lg15 as a
+  23 h medium-lg leg plus 296222-24 (afterany); 4B s0's next leg 295732 renamed per seed. All stay on Quadro RTX 8000
+  (fp16) like the other Qwen trees: the budget is wall time, so the GPU type must match across seeds. The five
+  single-job Qwen resumes (Web 4B s0/s1 and 8B s1/s2, Android 8B s0) got 3 follow-on legs each on their own nodes
+  (296225-39, --overwrite false); their 69 h wall_s budget stops them, and spare legs exit at once.
+- 2026-11-15 00:00 (Android vlm_w_typing s4 short of parity): its 4th segment 294867 timed out at 53.9 h of expansion
+  wall time (s0-s2 56.3-57.5 h; it lost time to a11y reconnects). Resumed as 296240 on lg02 (--exclusive, args from
+  the job log, --overwrite false) with --time 03:20:00, so it stops itself near 57 h; resumed at 253 expansions /
+  301 nodes. vlm_w_typing s3 (296196, 49.1 h at 00:00) reaches parity ~08:00 but its job runs to ~16:15. Result: 296240 stopped at 56.89 h (268 expansions), in the s0-s2 range.
+- 2026-11-15 16:15 (tree chain ends): Web random s4 ended at 64.12 h of expansion wall time (s0-s2 63.65-64.19 h): done.
+  Web random s3 ended at 62.76 h: topped up as 296297 (lg12, --time 01:15:00, --overwrite false). Android
+  vlm_w_typing s3 (296196) ran its job out to 63.37 h (277 expansions) vs s0-s2 56.3-57.5 h: no stop was approved
+  after it reached parity at 08:45, so it needs the cut (to ~57 h) before analysis. Qwen follow-on legs started on
+  schedule (296225, 296231, 296234, 296237; Android 8B s0 resumed at 70 expansions / 89 nodes).
+- 2026-11-15 16:20 (Wolfram blocks lg12 and lg13): the Web jobs that started there at 16:15 (296225, 296231, 296234,
+  296297) failed opening wolframalpha.com (ReadTimeout 120 s), as on 2026-11-14. curl from each lg node: blocked from
+  lg12, lg13; reachable (200) from lg01-04, 06, 08, 09, 11, 14, 15, 16, 18, 19 (lg09, lg15 recovered). Pending Web
+  Qwen legs re-pointed in place: 4B s0 / s1 (296226-30) -> lg09, 8B s1 / s2 (296232-33, 296235-36) -> lg15, all
+  Quadro. Web random s3's top-up resubmitted on lg01 (296313).
+  Web random s3 top-up 296313 stopped at 63.83 h (3038 expansions), in the s0-s2 range (63.65-64.19 h).
+- 2026-11-16 15:30 (extra legs): four Qwen chains could not reach the 248400 s budget with the legs left (Web 4B s0,
+  8B s1, 8B s2 lost a leg each to the lg12/lg13 Wolfram block; Android 8B s1's 3-day job ends with ~26 h of
+  expansion time still to go plus emulator overhead). One more 23 h leg each, afterany, same nodes: 296403 (Web 4B
+  s0, lg09), 296404 (Web 8B s1, lg15), 296405 (Web 8B s2, lg15), 296406 (Android 8B s1, lg14). The budget stops each
+  tree; a spare leg exits at once.
+- 2026-11-16 15:35 (Wolfram blocks lg15): Web 8B s1 / s2 legs 296233 / 296236 failed opening wolframalpha.com on
+  lg15; their extra legs 296404 / 296405 had already started there (doomed). curl check: lg15 blocked; lg01, 08, 09,
+  11, 12 (recovered), 13, 14 reachable. Both trees continue on lg11 (free Quadros): 296415-16 (8B s1) and 296417-18
+  (8B s2), afterany on the lg15 legs so only one process writes each tree. Web 4B s0 / s1 on lg09 resumed fine.
+- 2026-11-16 (old annotations deleted, user's call): the 13 annotated trees (android / web sat_random_s0-s2 and
+  sat_vlm_w_typing_s0-s2, android tt_annot) were annotated Nov 2-3, before the Nov 11 prompt changes (app names,
+  one-action rule, context frames). Their annotation rows were stripped from nodes.jsonl (rows with annotate_compute,
+  and the parent {"id", "tasks"} rows), and annotations.json, task_coverage and task_diversity deleted. The search's
+  own rows (nodes, search-time updates, flags) are kept, so the trees are as the search left them.
