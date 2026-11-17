@@ -16,6 +16,10 @@ Per decision, up to MAX_PROPOSALS proposals:
   5. rejected: policy(feedback=...) with what the preview showed and why it was rejected; the last proposal is executed
      whatever its verdict (the executor's memory, WebVoyager's chat, ends with it).
 A preview that cannot be made (Web's peek_failed, an error) keeps the proposal.
+oracle_preview_image (OraclePreviewImageModel): the check judges from images alone. It is given none of the per-env
+text below; every previewed proposal goes to the check (step 4's env refusal and no-change shortcuts, the GameBoy
+game-UI exemption read from RAM and the buttons-that-change feedback are off); and a battle choice is previewed as its
+one next screen (no rollout).
 
 Per env, the check also sees: Web, the previewed page's URL / title and text (page_text) and today's date; Android,
 the app screen (activity) before and after; GameBoy, a battle choice's whole turn (peek_rollout: the press, then B
@@ -94,6 +98,10 @@ def _field(*, name: str, text: str) -> Optional[str]:
 class OraclePreviewModel(WorldActionModel):
     name = "oracle_preview"
     uses_policy = True
+    #: The check sees the previewed outcome only as images: no page / app facts after, no page text, no game-UI note.
+    image_only = False
+    #: How the check is told what image 2 is (a learned world model's preview is a prediction, not exact).
+    one_after = ONE_AFTER
 
     def __init__(self, *, parameters: dict) -> None:
         super().__init__(directory=None, meta={"env": None, "game": None, "game_series": None, "oracle": True})
@@ -125,7 +133,7 @@ class OraclePreviewModel(WorldActionModel):
             return {"failed": str(info["peek_failed"])[:200], "seconds": time.time() - t0}
         true = info.get("true") or {}
         frames = [info.get("raw_frame", obs["frame"])]
-        if self._battle_commit(action=action, info=info):
+        if not self.image_only and self._battle_commit(action=action, info=info):
             rolled = self._env.peek_rollout(action=action)
             if len(rolled) > 1:     # the press, then the turn's text: the screens that carry it, the last one kept
                 keep = np.unique(np.linspace(0, len(rolled) - 1, min(ROLLOUT_IMAGES, len(rolled))).round().astype(int))
@@ -172,10 +180,11 @@ class OraclePreviewModel(WorldActionModel):
                preview: dict) -> dict:
         prompt = (PREVIEW_CHECK.replace("[TASK]", self.task).replace("[TODAY]", _today() if hasattr(self._env, "start_url") else "").replace("[ENV]", self._env.env_description)
                   .replace("[ACTION]", _short(action)).replace("[REASONING]", (reasoning or "(none)")[:1500])
-                  .replace("[FACTS]", self._facts(info=info, preview=preview))
-                  .replace("[PAGE_TEXT]", _page_text_block(preview=preview, chars=PAGE_TEXT_CHECK))
-                  .replace("[ENV_NOTE]", GAMEBOY_NOTE if _in_game_ui(preview) else "")
-                  .replace("[AFTER_IMAGES]", ONE_AFTER if len(preview["frames"]) == 1 else
+                  .replace("[FACTS]", "" if self.image_only else self._facts(info=info, preview=preview))
+                  .replace("[PAGE_TEXT]", "" if self.image_only else
+                           _page_text_block(preview=preview, chars=PAGE_TEXT_CHECK))
+                  .replace("[ENV_NOTE]", GAMEBOY_NOTE if _in_game_ui(preview) and not self.image_only else "")
+                  .replace("[AFTER_IMAGES]", self.one_after if len(preview["frames"]) == 1 else
                            ROLLOUT_AFTER.format(last=len(preview["frames"]) + 1)))
         response = call(tag="preview_check", prompt=prompt, images=[_rgb(obs["frame"])] + [_rgb(f) for f in preview["frames"]],
                         max_new_tokens=CHECK_MAX_NEW_TOKENS)
@@ -224,10 +233,11 @@ class OraclePreviewModel(WorldActionModel):
                 break
             p.update(valid=preview["valid"], changed=preview["changed"], synced=preview["synced"],
                      rollout=len(preview["frames"]) > 1)
-            if not preview["valid"]:
+            # image_only: every preview goes to the check (no env refusal, no no-change shortcut, no RAM game-UI gate)
+            if not preview["valid"] and not self.image_only:
                 p.update(kept=False, outcome=f"The environment refuses it: {preview['error']}",
                          reason="it cannot be performed here.")
-            elif not preview["changed"] and not _in_game_ui(preview):
+            elif not preview["changed"] and not _in_game_ui(preview) and not self.image_only:
                 p.update(kept=False, outcome="Nothing on the screen changes.",
                          reason="it has no effect here." + self._changing_buttons())
             else:
@@ -242,6 +252,12 @@ class OraclePreviewModel(WorldActionModel):
         record["revised"] = len(proposals) > 1
         record["diverged"] = proposals[-1]["action"] != proposals[0]["action"]
         return Plan(actions=[proposals[-1]["action"]], record=record)
+
+
+class OraclePreviewImageModel(OraclePreviewModel):
+    """oracle_preview whose check sees the previewed outcome as images only (image_only)."""
+    name = "oracle_preview_image"
+    image_only = True
 
 
 def _today() -> str:
