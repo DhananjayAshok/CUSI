@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Slurm job for scripts/slurm/world_model.sh (all logic lives there). Submit from the CUSI root:
+#   sbatch --output="$results_dir/logs/world_model_%j.out" slurm/world_model.sh \
+#       --env <env> --name <name> --command <data|embedder|wm|all> --extra "<run_world_model.py flags>"
+# Arguments after the script name are passed through to scripts/slurm/world_model.sh.
+#SBATCH --job-name=cusi-world-model
+#SBATCH --partition=medium-lg
+#SBATCH --gres=gpu:rtxa6000:1
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=128G
+#SBATCH --time=23:00:00
+[[ -f scripts/slurm/world_model.sh ]] || { echo "Submit from the CUSI root"; exit 1; }
+bash scripts/slurm/world_model.sh "$@"
