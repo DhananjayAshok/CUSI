@@ -2858,3 +2858,237 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   one-action rule, context frames). Their annotation rows were stripped from nodes.jsonl (rows with annotate_compute,
   and the parent {"id", "tasks"} rows), and annotations.json, task_coverage and task_diversity deleted. The search's
   own rows (nodes, search-time updates, flags) are kept, so the trees are as the search left them.
+- 2026-11-16 (re-annotation of every finished tree): 67 cusi-annotate jobs (296488-296554, list in
+  storage/tmp/annotate_jobs_2026-11-16.txt), google/gemma-4-31b-it as in the Nov 2-3 annotations, defaults
+  (max_features 8, workers 8): Android / Web sat_random, sat_vlm_no_typing, sat_vlm_w_typing s0-s4, Red sat_random and
+  sat_vlm_no_typing s0-s4, Link's Awakening sat_zelda_la_random / vlm_no_typing s0-s5, and the finished Qwen trees
+  (Red and LA 4B / 8B s0-s2, Web 4B s2 and 8B s0, Android 4B s0). 2x A6000 each; Web random s0 / s2 on lg10's 4x A5000.
+  Not annotated: the 9 Qwen trees still running, the set-aside 32B trees, the older sat_random_zelda_la world-model
+  runs, side-game and smoke trees. Over-cap trees (Red Gemma s0/s1/s3/s4, Web s3/s4, Android w_typing s3) are annotated
+  whole; a later cut must also drop edge tasks that cut children added to their parents' task lists.
+- 2026-11-16 (task coverage + diversity on every re-annotated tree): one task_coverage and one task_diversity job per
+  annotation job, afterok on it (296557-296690; storage/tmp/task_eval_jobs_2026-11-16.txt: annotate, coverage,
+  diversity ids), judge google/gemma-4-31b-it for all (user's call), embedder Qwen/Qwen3-Embedding-8B, k 5, semantic
+  dedup (defaults), v2 judge prompts. Caveat (open since 2026-11-11): Android test goals are drawn from AndroidWorld
+  at seed 30 and some depend on the date, and each tree snapshots its own test set at its embed stage, so Android trees
+  embedded on different days can be scored against slightly different goals. The 16 Android trees here embed within a
+  few hours of each other; the 6 Qwen Android trees still searching will embed later.
+- 2026-11-16 (image-only oracle preview): --world_action oracle_preview_image (OraclePreviewImageModel, image_only):
+  the check call is given the previewed outcome as images only: no page / app facts (Web URL and title before and
+  after, Android activity before and after), no page text, no GameBoy dialogue / menu / battle note. oracle_preview is
+  unchanged. Rendered for all three envs: 2 images each, none of those texts in the prompt. Then (user's call) the
+  rest of the non-image channels off too: every previewed proposal goes to the check (no env-refusal or no-change
+  rejection, so no env error text or buttons-that-change list in the executor's feedback; no RAM game-UI gate), and
+  no battle rollout (a battle choice is previewed as its one next screen). Live check on a Pokemon Red emulator
+  (tmp_preview_image_check.py, fixed-action policy, check call recorded): free-roam B (no change), an unparseable
+  action and a battle A each went to one 2-image check with none of the texts, and the feedback carried only the
+  check's own outcome / reason; oracle_preview still rejected the first two without a check, as before. The
+  rollout path was not reached in this check (the fight menu was not open); it is gated off in code.
+- 2026-11-16 (clicked element recorded): Web and Android steps now carry info["target"] for indexed actions (the
+  element as on the screen acted from: Web tag / text / value / box in viewport CSS px; Android resource name / text /
+  content description / class / package / box in screen px), kept in trees (tree.INFO_KEYS). Older trees lack it.
+- 2026-11-17 (cut and sweep fill, GameBoy only; user's call): cusi/search/cut.py cuts a run at a compute budget into
+  a new run (fork, then the store's commit truncation; the expansion that crosses the budget is kept, as run_search's
+  budget stop keeps it; annotated parents lose edge tasks of cut children; the archive is the source's).
+  run_search --from_run <cut> --sweep_expansions k (selection.SweepSelector): every source node expanded k times in id
+  order, only each expansion's last step a node (closing_node, threshold 1e9), new nodes never expanded, resumable.
+  Tested on gameboy/sat_random_zelda_la_s0 (not in the annotation set): a 1000 s cut kept 3604 / 7500 expansions (an
+  exact prefix, nodes 0-245) with the source's whole-directory sha256 unchanged; a k=2 x 10-step fill passed the audit
+  (tmp_fill_check.py: every source node exactly k expansions, one child each at the last step, parent = the expanded
+  node, no new node expanded, source prefix intact, cut tree's sha256 unchanged; a relaunch adds nothing); a
+  k=100 x 100-step fill killed at 6 min and relaunched resumed mid-node (node 1: 74 -> 100) in id order. Measured on
+  Link's Awakening: 1.34 s per 100-step expansion, ~0.4 MB on disk per expansion (steps ~105 KB, frames ~100 KB, the
+  new node's saved state ~190 KB). Red steps are ~9 KB each (screen text boxes), so Red at k=100 x 100 is ~100 MB of
+  expansions.jsonl per source node: not feasible as is (see the reply of 2026-11-17).
+- 2026-11-17 (target field live): the smoke trees show info["target"] on every indexed action (web 218 / 218,
+  android 185 / 185; jobs 296691-2).
+- 2026-11-16 FAILURE (HF rate limit): annotate / task_coverage / task_diversity jobs were submitted without
+  HF_HUB_OFFLINE=1, so each vLLM start queries the Hub; 296581 (task_coverage web sat_vlm_w_typing_s3) died at vLLM
+  start with 429 Too Many Requests. Resubmitted offline as 296693 (its embed stage was done).
+- 2026-11-17: task_diversity 296614 (gameboy sat_vlm_no_typing_s1) failed on the same HF 429 at vLLM start; resubmitted as 296694 with HF_HUB_OFFLINE=1.
+- 2026-11-17: task evals 296656/296657/296658 (LA vlm_no_typing s3 div, s0 cov+div) failed on HF 429 at vLLM start; resubmitted with HF_HUB_OFFLINE=1.
+- 2026-11-17: 12 more task evals failed on HF 429 at vLLM start (296642, 296671-76, 296683-87); resubmitted as 296698-296709 with HF_HUB_OFFLINE=1. Offline resubmissions verified: vLLM loads weights from HF_HOME with no Hub call.
+- 2026-11-17: task_diversity 296670 also failed on HF 429 (missed by the watcher between restarts); resubmitted as 296759 offline. All 8 still-pending evals (web sat_random s0/s2/s3/s4, waiting on annotations 296488-91) cancelled and resubmitted with HF_HUB_OFFLINE=1 and the same afterok dependencies (296751-296758).
+- 2026-11-17 (Qwen3-VL-32B trees back on): user's call ("send out the Qwen3-VL-32B trees across all GPUs ... all trees
+  on all 3 envs generated fully"). 12 trees: Red, Link's Awakening, Web, Android x s0-s2, vlm_no_typing, same settings
+  and ports (8200-8211) as the 2026-11-12 32B jobs and the 8B / 4B trees (fp16, 20 steps, thresholds 0.1 GameBoy /
+  0.5 Web and Android, saturation_patience 50, 69 h wall_s budget). tmp_submit_qwen32_full.sh, jobs in
+  storage/tmp/qwen32_full_jobs.txt: 5 chained 23 h medium-lg legs each, 2 GPUs, HF_HUB_OFFLINE=1. Non-Android on any
+  2 GPUs except eclairlg10 (A5000s too small); Android pinned one per node to eclairlg02 / 03 / 04 (A6000; emulator
+  port 5554). Red s0 (24.1 h used, 214 expansions) and Web s0 (20.2 h, 88 expansions) resume their run dirs; the rest
+  start fresh. Caveat: hardware is mixed (A6000 and Quadro pairs, both fp16), and Red s0 / Web s0 began on Quadros, so
+  per-expansion speed differs between and within trees; the budget is wall-clock, so faster pairs give bigger trees.
+  All 12 first legs started at once (296762 ... 296817).
+- 2026-11-17 04:05 (Wolfram still blocks lg15): Web 32B s1 leg 1 (296792) landed on lg15 and timed out opening
+  wolframalpha.com. curl from every lg node: only lg15 blocked (lg12, lg13 recovered). 296792 cancelled before any
+  expansion; leg 2 (296793) took over on lg12. lg15 (and lg10) excluded from all pending Web 32B legs (s0 296773-76,
+  s1 296793-96, s2 296813-16).
+- 2026-11-17 (random fill: k=20 for Red and Link's Awakening): user's call (k=20, 100 steps per expansion, GameBoy only).
+  The 34 GameBoy trees (Red and LA: random, Gemma vlm_no_typing, Qwen 4B / 8B) are cut at 69 h first
+  (<tree>_cut69h; Red random s0 used 4,809 s, so its cut is the whole tree). Red test (296761, 20 min, GPU-free on
+  extra-long, sat_random_s0_cut69h): 128 fill expansions in order, 100 steps and 1 child each, but 3.95 s per expansion
+  (env 2.06, novelty score 1.36 against a 3k archive, embed + record 0.5) and 13 GB RSS. Scoring grows with the
+  archive, and every fill node joins it: Red s0's archive would go 3k -> 61k, ~11 days for that tree. Fix: sweep runs
+  skip step scoring (TreeSearch score_steps=False from run_search --sweep_expansions): fill steps get value 0 and
+  nothing enters the archive; novelty plays no part in a fill (endpoints are nodes regardless). Default unchanged,
+  no new config key (sweep_expansions already marks a fill), so every other run behaves as before. Retest 296842.
+- 2026-11-17 04:21 (32B LA s1 vLLM hang): leg 1 (296782, lg19) hung at vLLM startup: one tensor-parallel worker died
+  with OSError Stale file handle (Errno 116) reading the shared Triton cache on the NAS while Red s1 (same node)
+  compiled the same kernels; the other worker waited forever (shm_broadcast every 60 s). No tree data; cancelled,
+  leg 2 (296783) took over.
+  Retest 296842 (no scoring): flat ~2.8-4.2 s per Red fill expansion (all emulator; varies with node load), RSS
+  +1.63 MB per fill expansion (10.44 -> 10.55 GB over 69). All 34 cuts done (Red random and Qwen trees and every LA
+  tree kept whole: random under the cap, Qwen exactly at it, LA saturated early). 34 fills submitted
+  (tmp_submit_fill.sh, jobs in storage/tmp/fill_jobs.txt: 296845-296878), GPU-free on the rtx2080ti partitions,
+  memory 1.3 x (source load + 1.63 MB x fills) + 2 GB (Red random 91-139 GB, other Red 49-77 GB, LA 16 GB), time
+  1.3 x 4.5 s x fills (Red random 65-96 h on extra-long). Output <tree>_random_filled; the cut and source trees are
+  untouched.
+- 2026-11-17 (test trees deleted, user's call): tt_fill_cut1000s, tt_fill_cut1000s_filled_k2 / _k100, tt_fill_cut1h, tt_red_fill_k20, tt_red_fill_k20b (cut and fill tests; sources untouched, their write-once dirs were hard links).
+- 2026-11-17 (random fill cancelled, user's call): the fill would dominate the data (~97% of a filled GameBoy tree's steps would be random fill). The 28 still-running fill jobs were cancelled; 6 LA fills had already completed. The <tree>_random_filled dirs (complete and partial) are kept; the <tree>_cut69h trees and the source trees are untouched.
+  Then resumed on the side (user's call: CPU only, so keep them): the 28 cancelled fills resubmitted unchanged (k=20, same memory / time), resuming their partial dirs: 296881-296908 (storage/tmp/fill_resume_jobs.txt).
+- 2026-11-17 (image-only oracle evals, user's call): oracle_preview_image with Gemma-4-31B (executor = check = judge),
+  same settings as the final oracle_preview runs: GameBoy Red (preview_image_red_v1, 296909, lg07), Web dev3
+  (preview_image_web_dev3_v1, 296910, lg06), Android dev2 (preview_image_aw_dev2_v1, 296911, lg05, no Android tree on
+  that node). Link's Awakening added (user's call): preview_image_la_v1 on its 50 tasks, plus a Gemma base run
+  base_la_gemma-4-31b-it (no Gemma LA eval existed to compare against; only Qwen 2B / 4B test runs). The oracle
+  preview was built and tuned on Red; LA is its first run.
+- 2026-11-17 (tree world models, cusi/world_model + run_world_model.py + slurm/world_model.sh): user's spec. Data from
+  the original trees (not the fills): every committed expansion step -> (screen before with the one before it, action,
+  screen after); split 85/15 by expansion (user's call: seeded hash of run + expansion); val dedup (user's call): a val
+  transition is dropped when a train transition has pixel-identical before AND after screens (action not compared).
+  Actions (user's call: type + target box): discrete type (GameBoy 7 buttons; Web click / type / scroll element or
+  window / wait / goback / answer; Android click / long_press / input_text / scroll x4 / back / home / enter / wait /
+  open_app / answer / status), typing one type whatever the text, plus the target element's box on the screen before
+  ([x0, y0, x1, y1] / frame size, from that screen's text_boxes by ref). Steps with no type are left out: Android
+  no-typing trees' refused typing (23% of android Gemma s0, no action performed), Web unparsed replies (Format ERROR,
+  1241 of 17.7k in web Gemma s0), Web bot checks. Box found for 97% (Android) / 96% (Web) of indexed actions.
+  SigLIP 2 base fine-tuned per model (reconstruction with the EmbeddingDecoder, as run_explore's train_siglip) on the
+  train screens, val loss on held-out screens every 500 steps, early stop after 6 without a new best, best kept.
+  World model: BoxActionWorldModel ([emb t-1, emb t] + type embedding + box MLP -> emb t+1, residual), MSE, val every
+  epoch, early stop after 15 epochs, best kept; reports val cos vs the copy baseline (overall and changed only).
+  Per policy (user's call): red_random / red_gemma / la_random / la_gemma / web_random / web_gemma / android_random /
+  android_gemma (tmp_submit_wm.sh, jobs 296916-296923, storage/world_model/<env>/<name>); GameBoy trees at their 69 h
+  cuts, Web / Android whole trees.
+  Test (tt_la_random_s2, LA random s2 only, 600 SigLIP steps, 40 WM epochs): val pixel MAE 87 -> 18; WM val cos 0.921
+  vs copy 0.857 (changed-only 0.920 vs 0.855), still rising. Residual start dips at lr 1e-3 (0.29 after epoch 1, then
+  recovers past copy by ~epoch 12); early stopping patience covers it.
+  Executor: wm_preview_image:<name> (cusi/world_action/wm_preview.py) = oracle_preview_image with the peek replaced by
+  the WM's decoded prediction (resized to the screen); the check is told image 2 is a blurred prediction, not an exact
+  preview (OraclePreviewModel.one_after). Reads only the executor's observation, the env's action parser and its
+  description. Test eval tt_wm_preview_la (296915, 2 LA tasks).
+  Executor test fix: GameBoy eval workers reload the model from wam.directory, which load_world_action_model treated
+  as a siglip_lookahead dir (FileNotFoundError world_model_meta.json, 0 tasks run in 296915); a directory holding a
+  tree WM (wm_meta.json, or wm/wm_meta.json) now loads as wm_preview_image. Retest 296924 (tt_wm_preview_la, the
+  tiny LA random s2 test WM, 2 LA tasks): ran end to end, 1/2 (stuck-behind-bed solved in 158 steps; Tarin task
+  truncated at 176). 330 decisions all wm_preview_image, 360 previews checked, 43 judged bad (e.g. LEFT into the bed:
+  "the predicted image shows no movement"), 42 decisions revised, 13 insisted, 0 preview failures; ~4 s per preview
+  (SigLIP + WM + decoder on CPU, vLLM holds the GPUs).
+- 2026-11-17 08:10 (GPU fault on lg14): Web 32B s2 leg 1 (296812, lg14 Quadro pair) lost its vLLM after 4 h 14 min
+  (OpenAI connection error), and every restart (legs 296813-16) died at vLLM startup with pynvml NVMLError_Unknown:
+  a GPU fault on lg14, not code. The other lg14 jobs (Android 8B s1 tree 295164, red_gemma WM 296917) kept running.
+  lg14 added to the exclusions of all 30 pending 32B legs; Web 32B s2 resubmitted as 4 x 23 h legs excluding lg10,
+  lg14, lg15: 296925 296926 296927 296928. Its tree resumes (--overwrite false).
+- 2026-11-17 (Link's Awakening base): base_la_gemma-4-31b-it (296913) 20/50. preview_image_la_v1 so far 11/22 vs base 6/22 on the same tasks (+5 tasks, none lost: 000, 002, 012, 015, 024); one base run, so base noise is unknown.
+- 2026-11-17 (Web image-only oracle): preview_image_web_dev3_v1 (296910) 34/60 on web_dev3, vs base 28 / 26 / 27 and the full (text) oracle_preview's complete runs 27 / 36 / 34 / 32 (chk10, chk10_rep3, chk11_rep2, chk11_rep3). One run: inside the full preview's spread, ~7 above base mean.
+- 2026-11-17 (image-only oracle, Red 50 tasks, 296909): preview_image_red_v1 21/50, vs the full text+image preview
+  (preview_red_v5) 28/50 and base reps 23 / 25. On Red, dropping the text part of the preview costs about 7 tasks and
+  falls slightly below base. LA image-only 23/44 so far (base 20/50); Android image-only 4/10 scored after 5 h (slow).
+- 2026-11-17 (WM la_gemma, 296919, done in 4.5 h): SigLIP fine-tune ran the full 50k steps (stopped on max_steps, not
+  patience: val pixel MAE still falling, 1.82 at the end). WM early-stopped at epoch 55 (best 39): val cos 0.935 vs
+  copy-the-current-frame 0.757; on changed transitions 0.935 vs 0.752 (train 0.956). Usable as
+  wm_preview_image:la_gemma.
+- 2026-11-17 (image-only oracle, LA 50 tasks, 296912): preview_image_la_v1 23/50 vs base 20/50 (same tasks, same
+  Gemma-4-31B). Image-only so far: Web +7 over base mean, LA +3, Red -2 to -4 (full text preview +3 to +5 on Red).
+- 2026-11-17 (WM la_random, 296918): SigLIP early-stopped at 43.5k steps (val pixel MAE 1.98). WM best epoch 75 of
+  91: val cos 0.932 vs copy 0.648; changed-only 0.931 vs 0.642 (train 0.968; small set, 17k train). Bigger gain over
+  copy than la_gemma (random steps change the screen more per action).
+- 2026-11-17 (WM web_gemma, 296921): SigLIP hit the 50k-step cap (val pixel MAE 6.92, still falling). WM best epoch
+  63 of 79: val cos 0.625 vs copy 0.415; changed-only 0.600 vs 0.362 (train 0.711). Far below GameBoy (0.93): web
+  next pages (new sites, search results) are much harder to predict from a 5-dim box + type.
+- 2026-11-17 (WM red_gemma, 296917 on lg14): SigLIP ran the full 50k steps (val pixel MAE 2.93, best at the last
+  step) and saved vision_model.pt / decoder.pt / embedder_meta.json, then CUBLAS_STATUS_EXECUTION_FAILED on lg14
+  while drawing val_reconstructions.png (lg14 GPU fault again, cf. NVMLError_Unknown), so no train_summary.json.
+  Weights are intact: resubmitted only the wm stage (296929, --exclude=eclairlg14) instead of `all`, which would
+  redo the 6 h fine-tune. lg14 should not get new GPU jobs.
+- 2026-11-17 (WM red_gemma, wm-only rerun 296929 on lg03): best epoch 77 of 93: val cos 0.826 vs copy 0.751;
+  changed-only 0.816 vs 0.726 (train 0.905). Smaller gain over copy than LA (0.93); untested guess: Red Gemma steps are often
+  dialogue / menu text advances whose next frame depends on hidden game state.
+- 2026-11-17 (WM web_random, 296920): SigLIP hit the 50k-step cap (val pixel MAE 6.08). WM best epoch 80 of 96:
+  val cos 0.730 vs copy 0.519; changed-only 0.693 vs 0.449 (best_train not recorded). Better than web_gemma (0.625)
+  on 4x the training transitions; Web stays far below GameBoy.
+- 2026-11-17 (WM red_random, 296916): SigLIP hit the 50k-step cap (val pixel MAE 2.20). WM best epoch 58 of 74:
+  val cos 0.858 vs copy 0.776; changed-only 0.840 vs 0.747 (460k train transitions). Above red_gemma (0.826), below
+  LA (0.93).
+- 2026-11-17 (WM test on real Gemma task attempts, user's request before the WM oracle runs): new
+  `run_world_model.py test` (cusi/world_model/evaluate.py) + Slurm pair world_model_test: every valid step of eval
+  episodes (base Gemma-4-31B runs: LA base_la_gemma-4-31b-it 5,890 steps; Red newemu rep1+rep2 10,628; Web
+  base_web_dev3_r1-3 1,985), one-step embedding cos vs copy, decoded pixel MAE vs copy and the decoder's floor, and
+  open-loop rollouts k=1..5. Eval episodes do not store element boxes, so indexed Web/Android actions get NO_BOX
+  (reported apart as box "missing"). Results (one-step cos vs copy; pixel MAE vs copy):
+    la_gemma 0.848 vs 0.799; 14.1 vs 10.5 (floor 7.6). Rollout falls below copy from k=2.
+    la_random 0.834 vs 0.814; 15.5 vs 10.5. Same pattern.
+    red_gemma 0.826 vs 0.785; 19.7 vs 16.5. Above copy to k=3.
+    red_random 0.846 vs 0.790; 14.6 vs 16.5 (only model that beats copy in pixels). Above copy to k=5.
+    web_gemma 0.587 vs 0.643 (below copy); 29.8 vs 19.9.
+    web_random 0.474 vs 0.686 (below copy; Type -0.01, scroll_down 0.01); 32.9 vs 19.9.
+  So on real test steps the GameBoy WMs are a little better than "nothing changes" in embedding space (tree val
+  overstated them: LA 0.93 there), worse than copying in decoded pixels except red_random; Web WMs are worse than
+  copying even on unboxed actions (scroll window, goback, answer), not only because of the missing boxes.
+- 2026-11-17 (WM oracle, Web dev3 60 tasks): wmprev_web_gemma_v1 (296974) 25/60, wmprev_web_random_v1 (296975)
+  24/60, vs base 28 / 26 / 27 and the exact image-only preview 34/60. Previews ran on every check (WM_AFTER prompt in
+  all 60 episodes, 0 failed); the check rejected about half as often (71 / 81 bad vs 140 with exact images). As the
+  test predicted (both Web WMs below copy), a learned Web preview does not help: at or slightly below base.
+- 2026-11-17 (WM seed study, user's question "is Gemma ever statistically better than random at generating trees
+  for WM training, or is it noise?"): the pooled WMs mix all seeds (5 or 6 trees each), so there was no variance
+  estimate. New: cusi/world_model/seeds.py + run_world_model.py seeds_data / seeds_wm / seeds_compare + Slurm pair
+  world_model_seeds. One dataset per tree seed (and a copy with train cut to the smallest tree's size, whole
+  expansions in a seeded order: build_dataset max_train), one WM per dataset, each tested on the same base Gemma
+  eval steps; Welch t / Mann-Whitney U / Cohen's d, gemma minus random, per metric (one-step cos margin over copy,
+  changed-only, pixel MAE and vs copy, rollout k=3/5 margins, tree val margin). Embedder held fixed within a
+  comparison (pooled models' fine-tuned SigLIPs, so only the WM training transitions differ); run once with each
+  policy's embedder. The WM stage seed (42) is the same for every model, so the spread is the trees'.
+  LA: 6+6 trees, cap 2,100 train transitions (per-seed train: gemma 2.7k-8.4k, random 2.1k-4.1k). Jobs: LA wm
+  296979/296980; Red data 296981 -> wm 296982/296983; Web data 296984 -> wm 296985/296986; Android data 296987 ->
+  wm 296988/296989 (also after the pooled Android models 296922/296923 finish, for their embedders).
+  Not covered: the oracle success rate per seed (8+ GPU-hours per eval run).
+- 2026-11-17 (WM seed study, LA, 6 vs 6 seeds, both embedders): on the real Gemma test steps no significant
+  gemma-vs-random difference. Capped (2,100 train each): cos margin over copy +0.0025 (la_gemma emb, p 0.58) /
+  +0.0022 (la_random emb, p 0.70); pixel MAE and rollout k=3 within noise (p 0.39-0.94). Full trees: gemma ahead
+  +0.014 / +0.016 (p 0.11 / 0.10 Welch, 0.13 / 0.09 MWU), pixel MAE -1.06 / -0.54 (p 0.15 / 0.19): the direction of
+  gemma's larger trees (2.7k-8.4k vs 2.1k-4.1k), gone at equal size. Only significant metric: tree val margin,
+  random higher (p 0.002 capped) -- each on its own val set, so it measures how predictable each policy's own
+  transitions are vs copy, not which data trains a better model. Per-seed WMs are weak: margin 0.01-0.02 (pooled
+  la_gemma 0.049), all below copy at k=3.
+- 2026-11-17 (WM android_gemma, 296923): SigLIP stopped on the 600-min cap at 34k steps (val pixel MAE 1.97). WM
+  best epoch 52 of 68: val cos 0.793 vs copy 0.567; changed-only 0.777 vs 0.528 (train 0.881). Test on base Android
+  steps 296990, then the WM oracle wmprev_android_gemma_v1 296991 (afterok). Seed-study Android wm job 296988 (gemma
+  embedder) started.
+- 2026-11-17 (WM android_gemma test, 296990): on the 421 base Android steps cos 0.528 vs copy 0.551 (below copy),
+  pixel MAE 35.6 vs 32.1, below copy at every rollout k (80% of steps indexed with no box: see the box caveat).
+  WM oracle wmprev_android_gemma_v1 (296991) started on lg03 anyway (the user asked for all WMs in the oracle).
+- 2026-11-17 (WM android_random, 296922): SigLIP stopped on the 600-min cap at 38.9k steps (val pixel MAE 1.95).
+  WM best epoch 83 of 99: val cos 0.823 vs copy 0.697; changed-only 0.783 vs 0.623 (train 0.861). Test 296992,
+  then WM oracle wmprev_android_random_v1 296993 (afterok). All 8 pooled WMs done.
+- 2026-11-17 (WM android_random test, 296992): 421 base Android steps, cos 0.515 vs copy 0.539 (below copy; also
+  on the 87 unboxed steps 0.424 vs 0.506), but pixel MAE 27.4 vs copy 32.1 (beats copy in pixels, android_gemma
+  35.6 did not). Below copy at every rollout k. WM oracle 296993 running on lg05.
+- 2026-11-17 (WM seed study, Red, 5 vs 5, both embedders): full trees, random significantly better on every test
+  metric in both embedders (cos margin -0.024 / -0.021 gemma minus random, Welch p 0.0003 / 0.003, MWU 0.008 = the
+  5 seeds fully separated; pixel MAE +2.3 / +1.9, p 0.0002 / 0.007; rollout k=3 p 0.0006 / 0.012) -- random trees
+  are 2.4-6x larger (52k-129k train vs 21k-31k). Capped at 21,452 each: no difference (cos margin p 0.71 / 0.99,
+  pixel MAE p 0.46 / 0.46, rollout p 0.76 / 0.37). Same conclusion as LA: tree size decides, the policy does not.
+- 2026-11-17 (WM seed study, Web, 5 vs 5, both embedders): Gemma (vlm_no_typing) significantly better on the real
+  Gemma test steps, also at equal size (capped 13,272): cos margin over copy +0.105 / +0.086 (web_gemma / web_random
+  embedder; Welch p 0.0005 / 0.010, MWU 0.008 = fully separated), rollout k=3 +0.16 / +0.13 (MWU 0.008); pixel MAE
+  not significant capped (p 0.14 / 0.49). All models below copy (margins -0.09 to -0.21). By type (capped, web_gemma
+  emb): Type -0.19 vs -0.53 (random trees contain no Type step; gemma no-typing trees a few), scroll_window_down
+  +0.11 vs +0.00, click -0.002 vs -0.012 (p 0.008 there, 0.056 with the random embedder). So unlike GameBoy, Web
+  shows a policy effect beyond size, much of it from action types random never or rarely takes.
+- 2026-11-17 (WM seed study, Android, 296988/296989 done): random trees give better WMs on the base Gemma test steps.
+  Capped (equal train size), gemma embedder: cos margin -0.150 vs -0.070 (Welch 0.0007, MWU 0.008), pixel MAE 46.9 vs
+  36.1 (MWU 0.008), rollout k=3 -0.21 vs -0.10 (MWU 0.008). Random embedder: same direction, cos margin MWU 0.032,
+  pixel MAE n.s. Full trees: same direction, weaker (MWU 0.016-0.31). Gemma trees score higher on their own tree val
+  (+0.10), so they are easier in-distribution but transfer worse. All models below copy on test.
+- 2026-11-17 (WM oracle, partial, matched task ids): Red wmprev_red_gemma 19/30, wmprev_red_random 18/29 vs base reps
+  15-17 / 15-18 and exact image-only 13 / 14 on the same tasks. LA wmprev_la_gemma 3/16, wmprev_la_random 8/21 vs base
+  2/16, 6/21 and exact image-only 6/16, 9/21. Partial, still running; Android not yet judged.
