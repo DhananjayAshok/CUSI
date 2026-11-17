@@ -35,7 +35,7 @@ class TreeSearch:
                  k_steps: int, node_threshold: float, closing_node: bool, archive_nodes_only: bool,
                  features=None, describer=None, decision_scorer=None, score_top_m: int = 8,
                  restore: str = "state", replay_similarity: float = 0.95, state_cache: int = 0, store=None,
-                 logger=None, parameters: dict[str, Any] = None) -> None:
+                 score_steps: bool = True, logger=None, parameters: dict[str, Any] = None) -> None:
         """envs: env key (scene) -> env, a dict or cusi.search.envs.SceneEnvs. features, describer and
         decision_scorer come together (the VLM explorer's search) or not at all: features, a VLMFeatures run on every
         new node; describer, a TransitionDescriber that reports each new node's segment (its parent's screen, then
@@ -66,6 +66,8 @@ class TreeSearch:
         self._n_discovered = None
         self.k_steps, self.node_threshold = k_steps, node_threshold
         self.closing_node, self.archive_nodes_only = closing_node, archive_nodes_only
+        # off (a sweep fill): steps are not scored against the archive (value 0) and nothing enters it
+        self.score_steps = score_steps
         self.restore, self.replay_similarity, self.state_cache = restore, replay_similarity, state_cache
         self.store, self.logger, self._parameters = store, logger, parameters
         self.tree = Tree()
@@ -406,6 +408,8 @@ class TreeSearch:
                 if challenge:      # a bot check is not new content: score 0 and keep it out of the archive
                     value, components = 0.0, {}
                     n_challenge += 1
+                elif not self.score_steps:
+                    value, components = 0.0, {}
                 else:
                     value, components = self._score(prev=prev, action=action, nxt=nxt)
                 changed = bool(info2.get("changed", True))
@@ -429,7 +433,7 @@ class TreeSearch:
                         child = self._make_node(env_key=node.env_key, obs=obs2, info=info2, embedding=emb,
                                                 value=float(value), parent=parent_id, segment=(exp.id, seg_start, t))
                         step.node_id = child.id
-                        if self.archive_nodes_only and not challenge:     # the node's state is now seen
+                        if self.archive_nodes_only and not challenge and self.score_steps:     # the node's state is now seen
                             with gpu_work("archive"):
                                 self.scorer.remember(next=nxt, archive=self.archive)
                     exp.children.append(child.id)
@@ -486,4 +490,5 @@ class TreeSearch:
                 return reason
             if self.iterate() is None:
                 # An expander that limits which nodes it expands (the typing explorer) says why none is left
-                return getattr(self.expander, "exhausted_reason", None) or "no restorable node"
+                return (getattr(self.expander, "exhausted_reason", None)
+                        or getattr(self.selector, "exhausted_reason", None) or "no restorable node")

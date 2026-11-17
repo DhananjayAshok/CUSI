@@ -17,7 +17,7 @@ from cusi.utils.paths import search_run, storage_relative
 from cusi.utils.run_dir import run_options
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS, Scene, gameboy_spec, scene_for
 from cusi.search.restore import DEFAULT_STATE_CACHE
-from cusi.search.store import committed_expansions, fork_run
+from cusi.search.store import committed_expansions, committed_nodes, fork_run
 from cusi.state import build_archive, build_encoder, build_scorer_from_config, state_config, state_options
 
 loaded_parameters = load_parameters()
@@ -35,6 +35,8 @@ EXPANDER_DEFAULTS = {"random": (100, 0.2, "actions per expansion (one walk)"),
 #: The VLM explorers: with every action (typing included), without typing, typing only. GameBoy has no typing, so its
 #: only VLM explorer is vlm_no_typing.
 VLM_EXPANDERS = ("vlm_w_typing", "vlm_no_typing", "vlm_typing_only")
+#: --sweep_expansions' node threshold: no step's novelty reaches it, so only the closing node is made.
+SWEEP_NODE_THRESHOLD = 1e9
 
 
 def expander_options(command):
@@ -99,6 +101,11 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @click.option("--from_run", default=None,
               help="Start this run from another run's tree (of any expander), into this run's own directory "
                    "(store.fork_run: the source is not changed). The run's limits count only its own expansions.")
+@click.option("--sweep_expansions", default=0, show_default=True,
+              help="With --from_run: no node selection; every node of the source tree is expanded this many times "
+                   "(selection.SweepSelector), and each expansion's last step, and only it, becomes a node, however "
+                   "novel (--closing_node, an unreachable node threshold). The new nodes are not expanded. Stops "
+                   "when every source node is done (--max_expansions is set to the total). 0: off.")
 @click.option("--reward_buffer", default="global", show_default=True, type=click.Choice(["global", "local"]),
               help="Curiosity: reward against the run's archive (global) or only the start node (local).")
 @click.option("--rl_total_steps", default=100_000, show_default=True, help="Curiosity: env steps per session.")
@@ -132,7 +139,8 @@ def stop_reason(*, search, max_expansions, saturation_patience, budget_metric=No
 @run_options
 def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive_nodes_only, budget_metric, budget,
          saturation_patience, c_puct,
-         tau, normalise_p, q_ema, roots_only, expander, typing_field_cap, from_run, reward_buffer, rl_total_steps,
+         tau, normalise_p, q_ema, roots_only, expander, typing_field_cap, from_run, sweep_expansions, reward_buffer,
+         rl_total_steps,
          rl_max_minutes, rl_num_envs,
          rl_commit_episodes, keep_policies,
          max_features, score_top_m, default_score, model_name, model_backend, vllm_base_url,
@@ -140,7 +148,7 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
          **kwargs):
     from cusi.search.envs import SceneEnvs
     from cusi.search.search import TreeSearch
-    from cusi.search.selection import EnergySelector
+    from cusi.search.selection import EnergySelector, SweepSelector
     from cusi.search.stats import TreeStats
     from cusi.search.store import SearchStore
     parameters = loaded_parameters
@@ -159,7 +167,9 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
                                f"explorer is vlm_no_typing.")
     if (expander in VLM_EXPANDERS) != bool(model_name):
         raise click.UsageError("--model_name goes with a VLM expander, and only with them.")
-    source_config, first = None, 0
+    if sweep_expansions and from_run is None:
+        raise click.UsageError("--sweep_expansions sweeps a source tree: it needs --from_run.")
+    source_config, first, n_source = None, 0, None
     if from_run is not None:
         source_dir = search_run(parameters=parameters, env=env_name, run=from_run)
         with open(os.path.join(source_dir, "config.json")) as f:
@@ -167,12 +177,13 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
         source_config = source_config.get("config", source_config)
         if stored is None:
             first = committed_expansions(directory=source_dir)
+            n_source = committed_nodes(directory=source_dir)
             if overwrite and os.path.exists(directory):
                 shutil.rmtree(directory)
             fork_run(source=source_dir, target=directory)
             overwrite = False          # the fork is this run's start: SearchStore must not clear it
         else:
-            first = stored.get("from_expansions", 0)
+            first, n_source = stored.get("from_expansions", 0), stored.get("from_nodes")
     if scenes:
         scene_names = [s.strip() for s in scenes.split(",")]
     elif source_config is not None:
@@ -196,6 +207,14 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
     per_expander = {name: (kwargs.pop(f"{name}_steps"), kwargs.pop(f"{name}_node_threshold"))
                     for name in EXPANDER_DEFAULTS}
     k_steps, node_threshold = per_expander[expander]
+    if sweep_expansions:
+        if n_source is None:
+            raise click.UsageError(f"{directory} records no source node count (from_nodes) to sweep")
+        # only each expansion's last step becomes a node, however novel
+        closing_node, node_threshold = True, SWEEP_NODE_THRESHOLD
+        max_expansions = sweep_expansions * n_source
+        log_info(f"sweep: {sweep_expansions} expansions of each of {n_source} source nodes (at most "
+                 f"{max_expansions})", parameters=parameters)
     sconfig = state_config(kwargs)
     curiosity = {"reward_buffer": reward_buffer, "rl_total_steps": rl_total_steps, "rl_max_minutes": rl_max_minutes,
                  "rl_num_envs": rl_num_envs, "rl_commit_episodes": rl_commit_episodes,
@@ -205,6 +224,8 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
                   "default_score": default_score} if expander in VLM_EXPANDERS else {}
     typing_config = {"typing_field_cap": typing_field_cap} if expander == "vlm_typing_only" else {}
     fork_config = {"from_run": from_run, "from_expansions": first} if from_run is not None else {}
+    if sweep_expansions:
+        fork_config.update(from_nodes=n_source, sweep_expansions=sweep_expansions)
     config = {"env": env_name, "scenes": scene_names, "max_expansions": max_expansions, "k_steps": k_steps,
               "node_threshold": node_threshold, "closing_node": closing_node, "archive_nodes_only": archive_nodes_only,
               "saturation_patience": saturation_patience, "budget_metric": budget_metric, "budget": budget, "c": c_puct, "tau": tau, "normalise_p": normalise_p,
@@ -281,12 +302,14 @@ def main(env_name, run_name, game, scenes, max_expansions, closing_node, archive
 
     envs = SceneEnvs(make=make, scenes=scene_names, exclusive=env_name == "android")
     search = TreeSearch(envs=envs, encoder=encoder, scorer=scorer, archive=archive, expander=explorer, stats=stats,
-                        selector=EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only,
-                                                normalise_p=normalise_p, seed=seed),
+                        selector=SweepSelector(n_source=n_source, per_node=sweep_expansions, first=first)
+                        if sweep_expansions else
+                        EnergySelector(stats=stats, c=c_puct, tau=tau, roots_only=roots_only,
+                                       normalise_p=normalise_p, seed=seed),
                         k_steps=k_steps, node_threshold=node_threshold, closing_node=closing_node,
                         archive_nodes_only=archive_nodes_only, **annotators, score_top_m=score_top_m,
                         restore=restore, replay_similarity=replay_similarity, state_cache=state_cache,
-                        store=store, parameters=parameters)
+                        store=store, score_steps=not sweep_expansions, parameters=parameters)
     search.max_expansions = max_expansions
     t0 = time.time()
     verified = None

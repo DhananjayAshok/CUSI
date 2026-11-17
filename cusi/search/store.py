@@ -101,6 +101,12 @@ def committed_expansions(*, directory: str) -> int:
         return json.load(f)["n_expansions"]
 
 
+def committed_nodes(*, directory: str) -> int:
+    """Nodes in the run's last committed archive."""
+    with open(os.path.join(directory, ARCHIVE_DIR, COMMIT_FILE)) as f:
+        return json.load(f)["n_nodes"]
+
+
 class SearchStore:
     def __init__(self, *, directory: str, config: Optional[dict] = None, overwrite: bool = False,
                  ignore_config_violation: bool = False) -> None:

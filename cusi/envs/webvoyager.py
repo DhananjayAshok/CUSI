@@ -301,6 +301,17 @@ def canonical_action(*, action_key: str, info: Any) -> dict:
     return {"action_type": action_key}
 
 
+def action_target(*, parsed: dict, ele_desc: list) -> Optional[dict]:
+    """The labelled element an indexed action (Click, Type, Scroll [n]) acts on, as it was on the screen the action was
+    taken from (_ELEMENT_DESC_JS): its tag, text and field value, and its box [x, y, w, h] in viewport CSS pixels.
+    None for Scroll [WINDOW], actions without an element, or an element that could not be described."""
+    index = parsed.get("index", parsed.get("target"))
+    if not isinstance(index, int) or not 0 <= index < len(ele_desc or []) or not ele_desc[index]:
+        return None
+    tag, text, value, x, y, w, h = ele_desc[index]
+    return {"tag": tag, "text": text, "value": value, "box": [x, y, w, h]}
+
+
 def excluded_sites(*, parameters: dict) -> list:
     """The WebVoyager web_name values excluded from train and test."""
     return [s.strip() for s in str(parameters.get("web_excluded_sites") or "").split(",") if s.strip()]
@@ -733,6 +744,10 @@ class WebVoyagerPlayEnv(TextActionEnv):
             return self._obs(), 0.0, False, truncated, info
 
         extra = {}
+        # captured before acting: the next observation relabels the page
+        target = action_target(parsed=parsed, ele_desc=self._ele_desc)
+        if target is not None:
+            extra["target"] = target
         prev_url = self._url
         try:
             fail_obs, pdf_obs, warn_obs, self._download_files = self._wv.exec_action(
@@ -754,6 +769,8 @@ class WebVoyagerPlayEnv(TextActionEnv):
                 left = self._url
                 self._return_to(url=prev_url)
                 where = {"blocked" if error == MSG_BLOCKED_SITE else "out_of_bounds": left}
+                if target is not None:
+                    where["target"] = target
                 info = self.make_info(valid=False, error=error, parsed_action=parsed, step=self._steps,
                                       scene_id=self.scene_id, url=self._url, **where)
                 return self._obs(), 0.0, False, truncated, info

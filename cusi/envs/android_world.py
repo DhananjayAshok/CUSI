@@ -230,6 +230,23 @@ def canonical_action(*, action: json_action.JSONAction) -> dict:
     return {k: getattr(action, k) for k in _JSON_ACTION_FIELDS if getattr(action, k, None) is not None}
 
 
+def action_target(*, ui_elements: list, index) -> Optional[dict]:
+    """The element an indexed action acts on, as it was on the screen the action was taken from: what identifies it
+    across screens (resource name, text, content description, class, package) and its box in screen pixels
+    [x, y, w, h]. None for an action without an element or an index outside the list."""
+    if index is None:
+        return None
+    try:
+        ui = ui_elements[int(index)]       # as M3A: a negative index counts from the end
+    except (IndexError, TypeError, ValueError):
+        return None
+    b = ui.bbox_pixels
+    box = None if b is None else [round(float(b.x_min)), round(float(b.y_min)), round(float(b.x_max - b.x_min)),
+                                  round(float(b.y_max - b.y_min))]
+    return {"resource_name": ui.resource_name, "text": ui.text, "content_description": ui.content_description,
+            "class_name": ui.class_name, "package_name": ui.package_name, "box": box}
+
+
 MSG_OFF_APP = "That action left {app} for another app ({package}), so it was undone. Stay in {app}."
 #: An action that would open a blocked app (an env server's held-out apps): undone before any observation of it, and
 #: the message does not name the app.
@@ -711,6 +728,11 @@ class AndroidPlayEnv(TextActionEnv):
             ja, error = None, MSG_NO_KEYBOARD
 
         terminated, reward, extra = False, 0.0, {}
+        if ja is not None and ja.action_type in _INDEXED_ACTIONS:
+            # captured before acting: the next observation replaces the element list
+            target = action_target(ui_elements=self._ui_elements, index=ja.index)
+            if target is not None:
+                extra["target"] = target
         env, task = self._env, self._task
         try:
             if ja is not None and ja.action_type == json_action.STATUS:

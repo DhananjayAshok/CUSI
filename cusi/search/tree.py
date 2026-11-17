@@ -8,7 +8,7 @@ from cusi.agents.records import EncodedImage
 
 # info keys kept per step (raw frames and region crops are large; the frame is kept separately).
 INFO_KEYS = ("valid", "error", "parsed_action", "step", "url", "stale", "action_name", "frame_changed", "challenge",
-             "challenge_reason", "true")
+             "challenge_reason", "true", "target")
 #: Flags that make a node unselectable.
 UNSELECTABLE_FLAGS = ("unrestorable", "replay_diverged", "challenge_page")
 

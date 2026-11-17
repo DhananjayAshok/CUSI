@@ -73,3 +73,36 @@ class EnergySelector:
         return Selection(node_id=nodes[k].id, candidates=[x.id for x in nodes], energies=energies.tolist(),
                          probs=probs.tolist(), q=q.tolist(), n=n.tolist(), p=p.tolist(), n_total=n_total,
                          scores=scores)
+
+
+class SweepSelector:
+    """No selection: every node of the source tree (the n_source first nodes; a fork's own nodes are never expanded)
+    is expanded per_node times, in id order (a node's expansions one after another), skipping unrestorable nodes.
+    Where it is comes from the tree itself (the fork's expansions start at index first), so a resumed run goes on
+    where it stopped. None when every source node is done (exhausted_reason "swept")."""
+
+    eligible: Optional[Callable] = None
+    exhausted_reason = "swept"
+
+    def __init__(self, *, n_source: int, per_node: int, first: int) -> None:
+        self.n_source, self.per_node, self.first = n_source, per_node, first
+        self._counts: dict = {}
+        self._seen = first          # tree.expansions counted into _counts so far
+        self._cursor = 0            # every source node before it is done
+
+    def reseed(self, *, iteration: int) -> None:
+        pass
+
+    def select(self, *, tree: Tree, p_of: Optional[Callable] = None,
+               rescore: Optional[Callable] = None) -> Optional[Selection]:
+        for e in tree.expansions[self._seen:]:
+            self._counts[e.node_id] = self._counts.get(e.node_id, 0) + 1
+        self._seen = len(tree.expansions)
+        while self._cursor < min(self.n_source, len(tree.nodes)):
+            node = tree.nodes[self._cursor]
+            if node.restorable and self._counts.get(node.id, 0) < self.per_node:
+                return Selection(node_id=node.id, candidates=[node.id], energies=[0.0], probs=[1.0], q=[0.0],
+                                 n=[float(self._counts.get(node.id, 0))], p=[1.0],
+                                 n_total=float(self._seen - self.first))
+            self._cursor += 1
+        return None
