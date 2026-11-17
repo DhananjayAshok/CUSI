@@ -1,12 +1,13 @@
 """
 The benchmark split: configs/splits/benchmark_splits.json, {task id: {"split", "text"}} for every task of the three
-benchmarks. Splits: train, val, test (held-out tasks of the train envs), test_env (every task of the held-out envs).
+benchmarks. Splits: train and test. Test holds both the held-out tasks of the train envs and every task of the
+held-out envs (games, websites, apps with no train task). No val split: tune on train.
 
 Task ids: gb.<game>.<row:03d> (GameBoyWorlds benchmark row), web.<WebVoyager id>, aw.<AndroidWorld task class> (the
 text is its seed-0 instance). resolve() turns an id into what that benchmark's env needs; nothing else in the split
 knows how a benchmark is wired.
 
-    python -m cusi.eval.splits --env gameboy --splits train,val
+    python -m cusi.eval.splits --env gameboy --splits train
 """
 import json
 import sys
@@ -14,7 +15,7 @@ from functools import lru_cache
 from cusi.utils.log_handling import log_error
 from cusi.utils.paths import benchmark_splits_file, web_source_task_file
 
-SPLITS = ("train", "val", "test", "test_env")
+SPLITS = ("train", "test")
 PREFIX = {"gb": "gameboy", "web": "web", "aw": "android"}
 
 

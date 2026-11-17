@@ -3092,3 +3092,19 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
 - 2026-11-17 (WM oracle, partial, matched task ids): Red wmprev_red_gemma 19/30, wmprev_red_random 18/29 vs base reps
   15-17 / 15-18 and exact image-only 13 / 14 on the same tasks. LA wmprev_la_gemma 3/16, wmprev_la_random 8/21 vs base
   2/16, 6/21 and exact image-only 6/16, 9/21. Partial, still running; Android not yet judged.
+- 2026-11-17 (split revised, user's call; supersedes the 2026-11-11 split): no val split, only train / test /
+  test_env, and test is the larger side in every train env. configs/splits/benchmark_splits.json rewritten
+  (tmp_split_revise.py -> storage/tmp/split_proposal_v2.json, copied in). Rules: old val counts as train; no old test
+  task leaves test (moves only train -> test); test_env unchanged; GameBoy start states stay in one split; among seeded
+  candidates, the one whose test and train base solve rate (base Gemma-4-31B, mean over base runs) and category / site
+  / app mix are closest to the env's. Counts train / test / test_env: Red 10 / 40, Link's Awakening 10 / 40, Crystal
+  and Oracle of Seasons 50 each test_env; Web 140 / 160 / 129 (7 sites, each 17-22 train / 21-24 test); Android
+  40 / 46 / 30 (every same-env app on both sides). Base solve env / train / test: Red 0.48 / 0.50 / 0.47, LA
+  0.40 / 0.40 / 0.40, Web 0.61 / 0.61 / 0.61, Android 0.69 / 0.69 / 0.70. Red train: 000, 004, 007, 008, 010, 026,
+  032, 033, 047, 049 (the six old focus tasks 17/19/23/29/31/36 are now test). LA train: 004, 013, 014, 021, 022, 023,
+  024, 027, 028, 045. cusi/eval/splits.py SPLITS and env_server/policy.py (dev = train only) drop "val". The Web /
+  Android WAM dev sets (storage/tmp/wam_dev/) are all test / test_env tasks and should be redrawn from train.
+  Exploration scenes unchanged (user: not a concern).
+- 2026-11-17 (split, user's call): test_env merged into test; the split is only train / test (GameBoy 20 / 180, Web
+  140 / 289, Android 40 / 76). splits.SPLITS = (train, test); env_server test policy reads test only. Held-out games,
+  sites and apps are still the ones with no train task (policy.py's HELD_OUT_* lists unchanged).
