@@ -3108,3 +3108,246 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
 - 2026-11-17 (split, user's call): test_env merged into test; the split is only train / test (GameBoy 20 / 180, Web
   140 / 289, Android 40 / 76). splits.SPLITS = (train, test); env_server test policy reads test only. Held-out games,
   sites and apps are still the ones with no train task (policy.py's HELD_OUT_* lists unchanged).
+- 2026-11-17 (oracle PAE, user's call: "the other side of PAE"): practice on the TEST split with google/gemini-3.5-flash-lite
+  (OpenRouter) as both the agent and its own judge (practice judge -> critique hint -> retry, max 3 tries), LoRA-tune
+  google/gemma-4-31b-it on the judged successes with the aggressive six-task recipe (r64 a128, lr 1e-4 constant, 3
+  epochs), benchmark on the same test tasks. This is an ORACLE / upper bound (trains on the test tasks themselves), not a
+  result; names carry "oracle_test". New: run_practice.py attempt_split (cusi/practice/stages/attempt_test.py
+  attempt_split: any env, every task of a benchmark split, each try run as that env's eval runs it; GameBoy and Android
+  record the benchmark's success, Web writes each try as an eval run for auto_eval), score_web_tries, judge_agreement;
+  dataset --val_copy (validation rows copied from train when no task is held out); Slurm pair practice_split (API
+  model, no GPU). OpenRouter model google/gemini-3.5-flash-lite exists ($0.30 / $2.50 per M tokens in / out).
+  Spend cap (user): 200 USD on this effort; baseline key limit_remaining 8400.762 (usage 246.62) at 20:53; spend is
+  tracked as the drop in limit_remaining (usage lags), log storage/tmp/pae_cost_log.txt.
+  Smoke (2 tasks per env, max 2 tries): GameBoy Red 016 judge success = benchmark success on try 1 (25 steps); Web
+  Apple--12 / --19 judged success on try 1 (auto_eval pending); dataset stage on the Web smoke: 22 success rows, rows
+  carry Gemini's replies in the Gemma agent's format. Base Gemma test-split evals (2 reps per env, run names
+  testsplit_base_gemma_r1/r2; task id files storage/tmp/oracle_pae/test_<env>.txt): 297013-297018.
+- 2026-11-17 (API-model test-split evals, user's request): google/gemini-3.5-flash-lite and google/gemini-3.6-flash
+  (OpenRouter) as the final agent on the test split (GameBoy 180 = Red 40, LA 40, Crystal 50, OoS 50; Web 289; Android
+  76; task files storage/tmp/eval_api/test_<env>.txt, identical to the practice fork's), same agent and settings as the
+  base Gemma test-split runs (testsplit_base_gemma_r1/r2: greedy, GameBoy 8 workers, Web 6 workers + Gemma-4-31B judge
+  on vLLM, Android 3 emulators). New Slurm pair eval_api (scripts/slurm/eval_api.sh + slurm/eval_api.sh): the agent
+  stage needs no GPU (medium partition; Android --exclusive on an idle medium node: eclair16 has /dev/kvm, 40 CPUs);
+  Web is scored by a second GPU job (--stage judge) that serves the judge and runs the judge on the host with the same
+  agent flags (config unchanged, as eval.sh's judge pass). EVAL_API_DEFAULTS in scripts/utils.sh;
+  gemini-3.6-flash added to lm_inference's rate table (600 qpm, as flash-lite). Both ids answer a live call;
+  3.6-flash spends hidden reasoning tokens (46 output tokens for "OK"). Cap for these evals: 150 USD, separate from
+  the practice fork's 200; the key is shared, so cost is attributed from per-run token counts x price, and the key's
+  limit_remaining (8400.340 at the start) is the overall check. Smoke jobs (2 tasks per env per model): 297021-297028.
+- 2026-11-17 (oracle PAE, smoke done, full runs launched): smoke (2 test tasks per env, max 2 tries): GameBoy Red 016
+  judge = benchmark success; Link's Awakening 002 judged success but benchmark failure (truncated at 174 steps: a false
+  positive of the self-judge); Web Apple--12 / --19 judged success; Android SimpleSmsReplyMostRecent and
+  SimpleCalendarAddOneEventTomorrow judge = benchmark success. Measured cost per try (compute snapshots, list prices,
+  matching the key's own drop): GameBoy $0.23 (~240 calls, ~680k input tokens), Web $0.033 (15 calls), Android $0.079
+  (30 calls); smoke total $0.83. Projection for the full test split (545 tasks, max 3 tries): ~$90-110 expected
+  (GameBoy ~$60-85, Web ~$15, Android ~$9), worst case above the 200 USD cap only if GameBoy needs 3 tries nearly
+  everywhere; a watchdog (tmp_pae_watch.sh) logs real spend every 30 min to storage/tmp/pae_cost_log.txt and cancels
+  the practice jobs at $190. Full practice (source oracle_test): Web 297020 (6 browsers), GameBoy 297029 (12 workers,
+  all 4 games' 180 test tasks), Android 297030 (4 emulators, exclusive). Chains (storage/tmp/oracle_pae/chain_jobs.txt):
+  dataset (--labels judge --n_paraphrases 0 --val_frac 0 --val_copy 200) -> fine-tune
+  oracle_test_gemini_focus_r64_lr1e-4_e3 (--practice_model google/gemini-3.5-flash-lite, r64 a128 lr 1e-4 constant,
+  3 epochs, max_length 6144; GameBoy two 23 h segments) -> 2 adapter evals per env (runs
+  testsplit_oracle_test_gemini_focus_r64_lr1e-4_e3_r1/r2): Web 297031 / 297032 / 297033-34, GameBoy 297035 / 297036-37
+  / 297038-39, Android 297040 / 297041 / 297042-43. Web tries scored by auto_eval with Gemma-4-31B (the benchmark's
+  judge) then judge_agreement for all envs: 297044 (after Web practice; rerun judge_agreement for GameBoy / Android if
+  they finish later). Base Gemma test-split evals 297013-18.
+- 2026-11-17 (oracle PAE spend cap, fix): a separate Gemini eval job now shares the OpenRouter key (own 150 USD cap), so
+  the key-wide drop in limit_remaining no longer measures practice spend. The watchdog (tmp_pae_watch.sh) now caps
+  practice only: attributed from the practice pickles' token counts x list price (tmp_pae_spend.py; oracle_test and
+  oracle_test_smoke runs) + a 10 USD margin for tasks in flight, cancelling 297020 / 297029 / 297030 at 190; the
+  key-wide figure is logged beside it as a sanity check. First check 21:10: practice $1.23, key-wide $3.11.
+- 2026-11-17 (API-model evals: smokes, launch): smokes 297021-297028 all ran end to end. GameBoy (Red 016, OoS 000)
+  flash-lite 2/2 (42 and 168 steps; 218k / 960k input tokens), 3.6-flash 2/2 (31 and 52 steps; 227k / 317k input but
+  69k / 46k output: hidden reasoning ~2.2k output tokens per step). Web (Apple--12, Google Map--3) both models finish
+  both tasks, 70-109k input tokens per task (Gemini tiles screenshots: ~2x Gemma's count). Android
+  (AudioRecorderRecordAudioWithFileName, MarkorDeleteNewestNote) flash-lite 0/2, 3.6-flash 2/2. Cost per task from
+  the smokes x the base runs' ~115 GameBoy steps per test task: flash-lite GameBoy ~$0.21, Web ~$0.03, Android
+  ~$0.03 (all envs ~$48); 3.6-flash Web ~$0.08, Android ~$0.08, GameBoy ~$1.6 (all 180 GameBoy tasks ~$285).
+  Under the first 150 USD cap only Red's 40 GameBoy tasks fit for 3.6-flash; the user then raised the cap to 300.
+  Full runs (run testsplit_<model>_r1; Android shards _s0-_s2; 3.6-flash GameBoy split into _red_r1 and _gbrest_r1):
+  flash-lite GameBoy 297045, Web 297046 (+ judge 297047), Android 297048; 3.6-flash GameBoy Red 297049, Web 297050
+  (+ judge 297051), Android 297052. The other 140 3.6-flash GameBoy tasks (LA, Crystal, OoS) launch from
+  tmp_evalapi_watch.sh once the Red run's measured cost per task keeps the projection <= 290 (auto-cancel of all API
+  eval jobs at 290 attributed); spend log storage/tmp/eval_api/cost_log.txt, launches storage/tmp/eval_api/jobs.txt.
+- 2026-11-17 (API evals, finding): gemini-3.5-flash-lite's Web smoke (Google Map--3) had 10 of 15 steps invalid: 9
+  of 15 replies were reasoning only (OpenRouter returns message.reasoning, content None; lm_inference writes
+  "Reasoning: ..." with no "Response:"), so the executor's "Format ERROR: Both 'Thought' and 'Action'" retry spends a
+  step. Replaying the context (tmp_evalapi_probe.py, text only: the stored episode keeps no image data):
+  finish_reason "stop", not "length", even with 34 reasoning tokens of a 1000-token budget, and reasoning effort
+  "low" did not stop it; a larger max_tokens is no fix. It is the model failing the reply format under the same
+  harness as every other model, so the harness is unchanged; invalid-step rates are reported with the results.
+  3.6-flash: 1 invalid step per Web smoke task. The Web smoke judges ran on 4x A5000 (lg10; A6000s all taken):
+  both models 2/2.
+- 2026-11-17 (API evals, user's change): the Web judge for the Gemini test-split evals is
+  google/gemini-3.5-flash-lite via OpenRouter, not Gemma-4-31B on vLLM: no GPU jobs for judging. The pending GPU
+  judge jobs 297047 / 297051 were cancelled. New Slurm pair eval_api_judge (CPU, medium): run_eval.py web with the
+  run's agent flags and an API judge; --from_run judges a copy, so the agent runs testsplit_<model>_r1 stay unjudged
+  (a Gemma judge pass can still be added for a like-for-like comparison) and the judged runs are named
+  testsplit_<model>_r1_judge-gemini-3.5-flash-lite. Base Gemma's Web runs were judged by Gemma-4-31B, so the Web
+  comparison has different judges. Tested on copies of the two Web smokes (297054, 297055): 2/2 each, as Gemma's
+  verdicts; 6-12k judge input tokens per task (~$0.003). Note: auto_eval reads 'NOT SUCCESS' / 'SUCCESS' anywhere in
+  the reply, and lm_inference prefixes Gemini's reasoning ("Reasoning: ...") to it, so reasoning text can sway the
+  parse; to be checked on the full judge logs. Full judges 297056 (flash-lite run), 297057 (3.6-flash run), afterany
+  their agent jobs; judge tokens count under the 300 USD cap (tmp_evalapi_cost.py parses auto_eval.log).
+- 2026-11-17 (annotation v2 built, user's request; plans/annotation_v2_plan.md): train-task-guided path tasks by
+  forward extension. New: cusi/search/task_context.py (phase 0: flavours from the split's train tasks only ->
+  configs/annotation/<env>_train_flavours.json; GameBoy by benchmark task_category per game, Web by site, Android by
+  app; a seeded sample of 3 per flavour, fixed for every call and tree; split guard + split hash in meta),
+  cusi/search/path_notes.py (BUILD: TOO_SHORT / TASK; EXTEND: CONTINUE / REVISE / NEW; parser),
+  cusi/search/annotate_paths.py (every node starts a chain on every branch, copied at forks; stops at NEW, leaf,
+  challenge page or --max_steps 30; REVISE keeps the earlier name as a nested task; cached verdicts make reruns
+  resume), Slurm pair annotate_paths, task_coverage / task_diversity --tasks v1|v2 and task_coverage
+  --test_split all|test (v2 sees train tasks, so it must be scored on the test split; v1 rescored there too).
+  Deviations from the plan: phase 1 (separate edge tags) dropped, the calls read v1's transition reports
+  (`description`, present on every edge of all 52 main trees); results go to <run>/annotations_v2/p<prompt
+  version>/ (calls.jsonl, path_tasks.jsonl, meta.json, summary.json), not nodes.jsonl, so prompt versions never mix
+  and v1 is untouched; flavours are site / app / category (no hand-reviewed "kind" split).
+- 2026-11-17 (annotation v2 pilot, live Gemma-4-31B on eval_server 297007, lg07; Android sat_random_s0 unless noted):
+  p1: Gemma copied the examples' layout ("Task: [Settings]\n- ...": most tasks were the label) and named page
+  visits as tasks; REVISE piled unrelated wandering onto a task. p2: stricter BUILD (a change or an answer; reaching a
+  page only if the examples do), REVISE only for the same goal, tolerant parser (0 mismatches re-parsing p1's 163
+  replies): 53 -> 11 tasks on 30 starts, much closer to AndroidWorld. p3: no accidental / garbled typed text, no
+  trailing navigation; also on Red and Web (25 starts each). Code fixes from reading p3: CONTINUE no longer moves a
+  task's end (Red dialogue tasks stretched to 14 edges), a REVISE to the same name moves the end without a nested
+  copy (Red 35 -> 26 tasks). p3 on the full trees: random s0 1,080 calls / 357 nodes (3.0 per node), 125 tasks (89
+  distinct); VLM w_typing s0 979 / 280 (3.5 per node), 108 (72). ~34 min per tree, two at a time on one 2-GPU server
+  without prefix caching.
+- 2026-11-17 (v1 vs v2 p3, Android s0, test split = 76 tasks): judged coverage@7 v1 0.197 (random) / 0.145 (VLM)
+  vs v2 0.013 / 0.000 — v1 has 1,177 / 969 distinct proposals, v2 77 / 58 (after dedup), so coverage, a max over
+  proposals, falls with the count. Per proposal (max cosine to the test tasks, Qwen3-Embedding-8B): v1 node 0.543 /
+  0.546, v1 edge 0.560 / 0.560, v2 0.530 / 0.559 — no per-task gain either. Reading samples: v1 edge tasks are
+  mostly "open the X page"; v1 node tasks are benchmark-shaped but imagined (never done, invented values); v2 tasks
+  are grounded and closest in form to the train tasks ("Set the recurrence of the 'Renew Driver's License' task to
+  'Every year' in Tasks app"), with some vague ("Toggle a switch in the Public API settings"), typed-fragment
+  ("Search for events containing 'be'") and page-view ones left. p4: reaching a place counts only on GameBoy, tasks
+  must name their target, no fragment typing.
+- 2026-11-17 (annotation v2 p4, final prompt for the full run): Android full trees: random s0 1,068 calls / 357
+  nodes (3.0 per node), 128 tasks (81 distinct); VLM w_typing s0 1,003 / 280 (3.6 per node), 70 (41 distinct);
+  ~44 min each, four runs sharing one server without prefix caching (the Slurm jobs have it: 1.4 calls/s alone).
+  Red and Web random s0, 25 starts each: 176 / 163 calls, 20 / 21 distinct tasks. Reading: Android VLM tasks are
+  AndroidWorld-like and grounded ("Turn on Airplane mode in Settings", "Export events to an .ics file in Simple
+  Calendar Pro", "Set the App start folder to 'AppData (private)' in Markor"); Web WebVoyager-like ("Find the birth
+  date, death date, and place of death for Harriet Tubman on WolframAlpha", "Find the price of the AirPods 5 on the
+  Apple website"); Red in the benchmark's short form ("Speak to Professor Oak", "Enter the Gym"). Left: the VLM
+  explorer's typed intent strings become searches ("Search for 'Playlist management' in the VLC app"), a few vague
+  ("Change the currency in the Pro Expense app") or hallucinated places ("Poke Mart in Pallet Town"), Red dialogue
+  tasks spanning 8-12 edges. Android test split (76 tasks): coverage@7 v2 0.000 / 0.000 vs v1 0.197 / 0.145,
+  coverage@5 0.105 / 0.105 vs 0.789 / 0.684; per proposal, max cosine to the test tasks v2 0.537 / 0.569 vs v1 node
+  0.543 / 0.546, v1 edge 0.560 / 0.560 (share >= 0.6: v2 0.17 / 0.32, v1 node 0.19 / 0.17). So v2 tasks are as
+  test-like per task or more (VLM), grounded by construction, but 10-20x fewer: most chains never complete a task
+  (Android random: 431 of ~600 dropped while still TOO_SHORT), and coverage, a max over proposals, falls with the
+  count. v1 Red s0 on the test split (40 tasks): coverage@7 0.85.
+- 2026-11-17 (annotation v2 full run submitted, tmp_submit_v2.sh, ids in storage/tmp/annot_v2_jobs.txt): p4 on the
+  52 main trees (Red, Web, Android 5 seeds per group, Link's Awakening 6; Android s0 random / vlm_w_typing already
+  done in the pilot): 50 annotate_paths jobs (297070-297272), each followed (afterok) by v2 task coverage on the test
+  split and v2 task diversity; plus v1 task coverage on the test split for all 52 (independent). All --nice=100 so
+  tree continuations keep priority; A6000 x2 each. Summarise with tmp_v2_compare.py (per env / group means of v1 vs
+  v2 coverage, v2 tasks, functions@7, Vendi). eval_server 297007 stopped.
+- 2026-11-17 (annotation v2 p4, final prompt for the full run): Android full trees: random s0 1,068 calls / 357
+  nodes (3.0 per node), 128 tasks (81 distinct); VLM w_typing s0 1,003 / 280 (3.6 per node), 70 (41 distinct);
+  ~44 min each, four runs sharing one server without prefix caching (the Slurm jobs have it: 1.4 calls/s alone).
+  Red and Web random s0, 25 starts each: 176 / 163 calls, 20 / 21 distinct tasks. Reading: Android VLM tasks are
+  AndroidWorld-like and grounded ("Turn on Airplane mode in Settings", "Export events to an .ics file in Simple
+  Calendar Pro", "Set the App start folder to 'AppData (private)' in Markor"); Web WebVoyager-like ("Find the birth
+  date, death date, and place of death for Harriet Tubman on WolframAlpha", "Find the price of the AirPods 5 on the
+  Apple website"); Red in the benchmark's short form ("Speak to Professor Oak", "Enter the Gym"). Left: the VLM
+  explorer's typed intent strings become searches ("Search for 'Playlist management' in the VLC app"), a few vague
+  ("Change the currency in the Pro Expense app") or hallucinated places ("Poke Mart in Pallet Town"), Red dialogue
+  tasks spanning 8-12 edges. Android test split (76 tasks): coverage@7 v2 0.000 / 0.000 vs v1 0.197 / 0.145,
+  coverage@5 0.105 / 0.105 vs 0.789 / 0.684; per proposal, max cosine to the test tasks v2 0.537 / 0.569 vs v1 node
+  0.543 / 0.546, v1 edge 0.560 / 0.560 (share >= 0.6: v2 0.17 / 0.32, v1 node 0.19 / 0.17). So v2 tasks are as
+  test-like per task or more (VLM), grounded by construction, but 10-20x fewer: most chains never complete a task
+  (Android random: 431 of ~600 dropped while still TOO_SHORT), and coverage, a max over proposals, falls with the
+  count. v1 Red s0 on the test split (40 tasks): coverage@7 0.85.
+- 2026-11-17 (annotation v2 full run submitted, tmp_submit_v2.sh, ids in storage/tmp/annot_v2_jobs.txt): p4 on the
+  52 main trees (Red, Web, Android 5 seeds per group, Link's Awakening 6; Android s0 random / vlm_w_typing already
+  done in the pilot): 50 annotate_paths jobs (297070-297272), each followed (afterok) by v2 task coverage on the test
+  split and v2 task diversity; plus v1 task coverage on the test split for all 52 (independent). All --nice=100 so
+  tree continuations keep priority; A6000 x2 each. Summarise with tmp_v2_compare.py (per env / group means of v1 vs
+  v2 coverage, v2 tasks, functions@7, Vendi). eval_server 297007 stopped.
+- 2026-11-17 ~23:44 (API-model evals stopped, user's call): the user stopped the Gemini evals; 297060 (3.6-flash
+  GameBoy rest) and 297052 (3.6-flash Android) were cancelled mid-run, the spend watcher stopped, nothing new
+  launched. Final, solved / scored on the test split (Web judged by gemini-3.5-flash-lite; base Gemma's Web runs by
+  Gemma-4-31B, so Web differs in judge as well as agent):
+    gemini-3.5-flash-lite (complete): Web 194/289; Android 47/75 (1 not scored); Red 19/40; LA 25/40; Crystal 24/50;
+      Oracle of Seasons 20/49 (1 failed to run).
+    gemini-3.6-flash (partial where cut): Web 224/289; Android 54/72 (cut, 4 of 76 not done); Red 31/40; LA 26/40;
+      Crystal 22/25 (cut at 25 of 50); Oracle of Seasons not run.
+    Base Gemma-4-31B on the same ids: Web 193 / 158 / 162 of 289 (three runs); Android 52/75 and 46/74 (two runs);
+      Red 18 / 20 / 16 / 20 of 40 (four runs); LA 16/40 (one run); Crystal and OoS: no base run on the new emulator.
+  Invalid steps: flash-lite Web 298 / 3099 (reasoning-only replies), 3.6-flash Web 310 / 3007, base Gemma Web ~95 /
+  2600. Spend, attributed from finished tasks' tokens x price: $147.34 (flash-lite $52.9 incl. smokes; 3.6-flash
+  $92.6; Web judge $1.9); tasks in flight at the cancel are not counted (a few dollars). Key-wide drop in
+  limit_remaining since this work started: $259.01, which includes the practice fork's spend on the same key.
+- 2026-11-17 ~23:47 (oracle PAE, user's decision): the Gemini 3.5 Flash-Lite test-split practice was stopped by the
+  user (297020 / 297029 / 297030 and their whole chain 297031-297044 cancelled, watchdog killed) and is to be deleted
+  completely: storage/practice/{gameboy,web,android}/gemini-3.5-flash-lite (the user runs the deletion; nothing is
+  read from or built on those dirs). At the stop: practice-attributed $97.5 (GameBoy 145 / 180 tasks, Web 183 / 289,
+  Android 73 / 76 done). Kept: the base Gemma test-split evals 297013-297018 (testsplit_base_gemma_r1/r2), the
+  baseline for the redo.
+- 2026-11-17 (oracle PAE redo, user's call): the same pipeline with google/gemini-3.6-flash as practice agent and self-
+  judge (model dir gemini-3.6-flash, source oracle_test; fine-tune oracle_test_gemini36_focus_r64_lr1e-4_e3; 2 adapter
+  eval repeats per env). Cap 500 USD, practice-attributed (pickled token counts x $0.75 / $3.75 per M; output tokens
+  are OpenRouter's completion_tokens, which include the billed reasoning tokens), key-wide only as a sanity check;
+  watchdog every 30 min, cancel at ~$480. Fix found before the redo: OpenRouter returns 3.6-flash's reasoning summary,
+  which the API client writes as "Reasoning: ...\nResponse: <answer>" (seen in the eval job's 3.6-flash trajectories);
+  the dataset stage now strips it (dataset.strip_api_reasoning: from each row's response and from earlier assistant
+  turns of chat inputs; a reasoning-only reply gives no row), so Gemma learns Gemini's answers, not its summaries.
+- 2026-11-17 23:58 (oracle PAE redo, 3.6-flash smoke, 1 test task per env, max 2 tries): GameBoy Red 016 try 1 judge
+  FAILURE vs benchmark success, try 2 judge success: the judge's reply was cut before its "Success:" line because
+  3.6-flash's reasoning used up the 2000-token judge budget (a false negative from the budget, not the model). Fixes:
+  judge / critique replies are parsed with the reasoning summary stripped (cusi/utils/api_reasoning.py, used by
+  cusi/practice/judging.py and the dataset stage), and practice_split.sh takes --max_new_tokens (judge / critique
+  budget; 8000 planned for 3.6-flash). Agent calls: GameBoy frame_diff 7 / 21 and action 1 / 22 replies were reasoning
+  only (the agent's own budgets, as in the 3.6-flash eval job; unchanged, such replies give no training row); Web and
+  Android none. Web Apple--12 and Android SimpleSmsReplyMostRecent judged success on try 1 (Android = benchmark
+  success). Smoke cost: $0.51 by token count (GameBoy $0.34 for 2 tries, Web $0.09, Android $0.08), key-wide $0.63.
+  Projection for the full test split: ~$200 expected, ~$375 worst (all 3 tries), under the 500 USD cap. The full
+  practice + chain submission (tmp_pae.sh) was denied by the permission system; nothing of the full redo is submitted.
+- 2026-11-18 (oracle test-split practice, gemini-3.6-flash, submitted): tmp_pae.sh run after the blocked attempt.
+  Practice web 297287, gameboy 297288, android 297289 (agent and self-judge google/gemini-3.6-flash, max 3 tries,
+  max_new_tokens 8000); chains: web ds 297290 ft 297291 evals 297292/297293; gameboy ds 297294 ft 297295+297296 evals
+  297297/297298; android ds 297299 ft 297300 evals 297301/297302 (fine-tune oracle_test_gemini36_focus_r64_lr1e-4_e3;
+  ids also in storage/tmp/oracle_pae/chain_jobs_36.txt). Baseline: base Gemma test-split evals 297013-297018.
+  Watchdog tmp_pae_watch.sh: 3.6-flash practice spend by tokens + $25 in-flight margin, every 30 min, cancels practice
+  at $480 (user cap $500); log storage/tmp/pae_cost_log.txt.
+- 2026-11-17 (user's call: full run cancelled; path tasks become the only annotation; p5 = looser prompt): p5
+  lowers the TOO_SHORT bar, accepts reaching a specific named page / screen / setting in every env, and keeps each
+  chain's best partial task (TOO_SHORT replies name one on a Partial line; a chain that never names a full task keeps
+  its latest). Pilot (eval_server 297277; Android s0 full trees, Red / Web random s0 25 starts):
+  Android random s0 807 calls / 357 nodes (2.3 per node), 411 tasks, 308 distinct (p4 81; v1 870 node + 323 edge),
+  78 partial; VLM w_typing s0 592 / 280 (2.1 per node), 281 tasks, 217 distinct (p4 41; v1 724 + 255), 54 partial.
+  Web 25 starts: 48 distinct (p4 21); Red 25 starts: 38 distinct (p4 20), 29 of them partial.
+  Test split (76 tasks): coverage@7 random 0.039 / VLM 0.000 (p4 0.000 / 0.000; v1 0.197 / 0.145), coverage@5 0.566
+  / 0.303 (p4 0.105 / 0.105; v1 0.789 / 0.684), judge max@5 4.58 / 4.07 (v1 5.47 / 5.12). Vendi 18.3 / 15.9 on 289 /
+  206 deduped tasks (v1 33.9 / 30.5 on 1,177 / 969).
+  Honest read: the yield went up 4-5x on Android, but realism slid back toward v1's edge tasks: 83-86% of p5's
+  Android and Web tasks are navigation ("Open the Bluetooth Sensors settings in OpenTracks", "Go to the About page on
+  Wolfram|Alpha"; p4 1-12%, v1 edge 53-77% by the same regex). A chain now names a navigation task at its first edge
+  and usually ends at NEW on the next, so the change that followed is cut off or vaguer (p4 "Find the birth date,
+  death date, and place of death for Harriet Tubman on WolframAlpha" -> p5 "Go to the About page on Wolfram|Alpha",
+  "Search for a specific notable person on WolframAlpha and view their birth and death details"). REVISE turning a
+  navigation into the change done there fires rarely (39 / 13 times) but gives the best tasks ("Open the Expense
+  Detail view for 'Rent Payment'" -> "Delete the 'Rent Payment' expense in Pro Expense"). Partials bypass the
+  fragment rule ("Search for 'ol' in Settings"). Red p5 is mostly partials ("Move toward the Pokemon Center").
+  A fix to try next (not run): in EXTEND, a navigation task followed by an action on the reached screen is REVISE,
+  not NEW.
+- 2026-11-17 (consolidation, user's call): the path annotation is the annotation, as if v1 never existed.
+  cusi/search/annotate.py now runs stage 1 (TransitionDescriber reports for edges without `description`, as v1 did,
+  update rows "description" / "window_descriptions") and stage 2 (path tasks) in one command; results in
+  <run>/annotation/p<prompt version>/ (calls.jsonl, tasks.jsonl, meta.json, summary.json last). Removed: v1's
+  node / edge task proposals (cusi/search/notes.py deleted; app_note moved to path_notes.py), annotations.json,
+  `unannotated`, `context_frames`, the features pass, the annotate_paths module and Slurm pair (moved to
+  storage/tmp/superseded_code/: rm is not permitted here), `--tasks v1|v2`. Kept: describe.py, features.py (the
+  VLM-explorer search uses them live), viewer.py untouched (lazily imported by running searches; it shows v1 fields
+  when present). Readers: task_coverage / task_diversity proposed_tasks read tasks.jsonl (task_coverage keeps
+  --test_split all|test -> task_coverage_testsplit/), practice attempt.tree_tasks reads tasks.jsonl by start node,
+  sync_data's finished check uses annotate.unfinished. Slurm pair annotate = the new command (defaults in utils.sh).
+  plans/annotation_v2_plan.md -> plans/annotation_plan.md (as built). The p5 pilot outputs were moved from
+  annotations_v2/p5/path_tasks.jsonl to annotation/p5/tasks.jsonl on the 4 pilot trees; the Android s0 trees'
+  task_coverage_testsplit/ and task_diversity/ now hold p5 results (v1's numbers are in the entries above).
+  End-to-end check from scratch (tmp_e2e_annotate.py on storage/tmp/annot_e2e/android_sat_random_s0, a copy of
+  android sat_random_s0 with every v1 update field and every report stripped): stage 1 wrote 337/337 reports, a
+  rerun 0; stage 2 on 30 starts 121 calls, 66 tasks, a rerun all cached; proposed_tasks and practice tree_tasks read
+  them.

@@ -32,7 +32,6 @@ import numpy as np
 from cusi.agents.specs import ENV_NAMES
 from cusi.eval.judge_prompts import COVERAGE_PROMPTS, COVERED_AT, ENV_DESCRIPTIONS
 from cusi.eval.task_dedup import apply_dedup, dedup_options, stage_dirs
-from cusi.search.store import node_rows
 from cusi.utils.log_handling import log_info
 from cusi.utils.paths import search_run
 
@@ -105,17 +104,20 @@ def test_tasks(*, env_name: str, parameters: dict, game: str = None) -> list:
     raise ValueError(f"unknown env {env_name!r}")
 
 
+#: Test tasks a run is scored against: all of the benchmark's, or only those of configs/splits' test split (the
+#: annotation shows the annotator train tasks, so a clean score uses the test split).
+TEST_SPLITS = ("all", "test")
+
+
 def proposed_tasks(*, directory: str) -> list:
-    """Every task on the annotated tree's nodes, deduplicated by text: {"proposed_id", "task", "sources"}."""
-    nodes = node_rows(directory=directory)
-    if not any(n.get("node_notes_raw") is not None for n in nodes.values()):
-        raise click.UsageError(f"{directory} has no task annotations: run cusi.search.annotate first")
+    """Every task of the annotated tree (cusi.search.annotate), deduplicated by text: {"proposed_id", "task",
+    "sources"}; a source is {"node_id" (the task's start node), "end"}."""
+    from cusi.search.annotate import read_tasks
     by_key = {}
-    for nid in sorted(nodes):
-        for t in nodes[nid].get("tasks") or []:
-            text = " ".join(t["task"].split())
-            entry = by_key.setdefault(text_key(text), {"task": text, "sources": []})
-            entry["sources"].append({"node_id": nid, "source": t["source"]})
+    for r in read_tasks(directory=directory):
+        text = " ".join(r["task"].split())
+        entry = by_key.setdefault(text_key(text), {"task": text, "sources": []})
+        entry["sources"].append({"node_id": r["start"], "end": r["end"]})
     return [{"proposed_id": f"p{i}", **e} for i, e in enumerate(by_key.values())]
 
 
@@ -200,11 +202,26 @@ def judge_pairs(*, vlm, env_name: str, pairs: list, max_new_tokens: int, batch_s
 
 # --------------------------------------------------------------------------- stages
 
+def split_id(*, env_name: str, test_id: str, game: str = None) -> str:
+    """A test task's id in configs/splits/benchmark_splits.json."""
+    if env_name == "web":
+        return f"web.{test_id}"
+    if env_name == "android":
+        return f"aw.{test_id}"
+    from cusi.agents.specs import GAMEBOY_GAME
+    return f"gb.{game or GAMEBOY_GAME}.{test_id}"
+
+
 def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, embedder_model: str, k: int,
-              dedup: str, dedup_cos: float, parameters: dict) -> None:
+              dedup: str, dedup_cos: float, parameters: dict, test_split: str = "all") -> None:
     with open(os.path.join(directory, "config.json")) as f:
         game = json.load(f).get("game")      # GameBoy trees: their game (None: Pokemon Red)
     tests = test_tasks(env_name=env_name, parameters=parameters, game=game)
+    if test_split == "test":
+        from cusi.eval.splits import load_splits
+        split = load_splits(parameters=parameters)
+        tests = [t for t in tests if split.get(split_id(env_name=env_name, test_id=t["test_id"], game=game),
+                                               {}).get("split") == "test"]
     proposals = proposed_tasks(directory=directory)
     n_exact = len(proposals)
     holder = {}
@@ -231,6 +248,7 @@ def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, emb
     with open(os.path.join(cov_dir, "config.json"), "w") as f:
         json.dump({"env": env_name, "run_dir": directory, "embedder_model": embedder_model, "k": k,
                    "query_instruction": QUERY_INSTRUCTION, "game": game, "n_test": len(tests),
+                   "test_split": test_split,
                    "n_proposed": len(proposals),
                    "dedup": dedup, "dedup_cos": dedup_cos if dedup == "semantic" else None, "n_exact_text": n_exact,
                    "android_suite_seed": ANDROID_SUITE_SEED if env_name == "android" else None}, f, indent=1)
@@ -351,17 +369,21 @@ def run_summary(*, cov_dir: str, judge_dir: str, parameters: dict) -> dict:
 @click.option("--k", default=5, show_default=True, help="Proposed tasks per test task.")
 @click.option("--batch_size", default=32, show_default=True, help="Judge prompts per call.")
 @click.option("--max_new_tokens", default=200, show_default=True)
+@click.option("--test_split", default="all", show_default=True, type=click.Choice(TEST_SPLITS),
+              help="Score against all benchmark tasks, or only the split's test tasks (the annotator sees train "
+                   "tasks).")
 @dedup_options
 @click.pass_obj
 def command(parameters, env_name, run_name, stage, embedder_model, judge_model, judge_backend, vllm_base_url, k,
-            batch_size, max_new_tokens, dedup, dedup_cos):
+            batch_size, max_new_tokens, test_split, dedup, dedup_cos):
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
-    emb_path, cov_dir = stage_dirs(stage_dir=os.path.join(directory, "task_coverage", short_name(embedder_model)),
+    name = "task_coverage" + ("" if test_split == "all" else "_testsplit")
+    emb_path, cov_dir = stage_dirs(stage_dir=os.path.join(directory, name, short_name(embedder_model)),
                                    dedup=dedup, cos_threshold=dedup_cos)
     if stage in ("embed", "all"):
         run_embed(cov_dir=cov_dir, emb_path=emb_path, env_name=env_name, directory=directory,
                   embedder_model=embedder_model, k=k, dedup=dedup, dedup_cos=dedup_cos,
-                  parameters=parameters)
+                  parameters=parameters, test_split=test_split)
     if stage == "embed":
         return
     if judge_model is None:

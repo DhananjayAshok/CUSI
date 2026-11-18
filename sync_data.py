@@ -157,8 +157,8 @@ def trees_pull(*, parameters: dict, run_name, envs: list) -> list:
 def trees_blockers(*, parameters: dict, path: str) -> list:
     """A tree is finished once its search has stopped (and not resumed since), and any annotation, task_coverage or
     task_diversity started on it has finished. An unannotated tree is finished."""
-    from cusi.search.annotate import ANNOTATIONS_FILE, unannotated
-    from cusi.search.store import EXPANSIONS_FILE, node_rows
+    from cusi.search.annotate import unfinished
+    from cusi.search.store import EXPANSIONS_FILE
     out = []
     summary = os.path.join(path, "summary.json")
     if not os.path.exists(summary):
@@ -166,11 +166,8 @@ def trees_blockers(*, parameters: dict, path: str) -> list:
             out.append("search running or killed (no summary.json; --time_limited if it ended at its time limit)")
     elif _newer(os.path.join(path, EXPANSIONS_FILE), summary):
         out.append("search resumed after its summary.json")
-    if os.path.exists(os.path.join(path, ANNOTATIONS_FILE)):
-        nodes = node_rows(directory=path)
-        pending = len(unannotated(nodes=nodes))
-        if pending:
-            out.append(f"annotation unfinished ({pending}/{len(nodes)} nodes left)")
+    if unfinished(directory=path):
+        out.append("annotation unfinished (no summary.json after its meta.json)")
     for stage in ("task_coverage", "task_diversity"):
         for embed_dir in _existing(os.path.join(path, stage, "*")):
             if not os.path.exists(os.path.join(embed_dir, "config.json")):

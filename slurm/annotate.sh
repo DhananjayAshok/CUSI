@@ -9,6 +9,6 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=23:00:00
-# (Resubmitting the same command continues from the last annotated node.)
+# (Resubmitting the same command continues from the written reports and cached verdicts.)
 [[ -f scripts/slurm/annotate.sh ]] || { echo "Submit from the CUSI root"; exit 1; }
 bash scripts/slurm/annotate.sh "$@"

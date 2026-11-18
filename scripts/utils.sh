@@ -274,11 +274,13 @@ declare -A PRACTICE_DEFAULTS=(
     ["lora"]="none"
 )
 
-# scripts/slurm/annotate.sh
+# scripts/slurm/annotate.sh (the model is always given: never defaulted)
 ANNOTATE_ESSENTIALS=("env" "run" "model")
 declare -A ANNOTATE_DEFAULTS=(
-    ["max_features"]="8"
-    ["workers"]="8"
+    ["max_steps"]="30"
+    ["n_per_flavour"]="3"
+    ["sample_seed"]="0"
+    ["workers"]="16"
     ["vllm_port"]="none"
 )
 
@@ -288,6 +290,7 @@ declare -A TASK_COVERAGE_DEFAULTS=(
     ["judge_model"]="google/gemma-4-31b-it"
     ["embedder_model"]="Qwen/Qwen3-Embedding-8B"
     ["k"]="5"
+    ["test_split"]="all"
     ["vllm_port"]="none"
 )
 

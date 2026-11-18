@@ -1,0 +1,108 @@
+{
+ "legend_of_zelda_links_awakening": {
+  "interaction": [
+   {
+    "id": "gb.legend_of_zelda_links_awakening.021",
+    "task": "talk to diamond kid"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.028",
+    "task": "talk to witch"
+   }
+  ],
+  "inventory": [
+   {
+    "id": "gb.legend_of_zelda_links_awakening.004",
+    "task": "open inventory by pressing enter and remove sword"
+   }
+  ],
+  "navigation": [
+   {
+    "id": "gb.legend_of_zelda_links_awakening.014",
+    "task": "take the heart"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.022",
+    "task": "go inside the 2 door house"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.023",
+    "task": "go inside the pot room"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.024",
+    "task": "go near sign"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.027",
+    "task": "go inside the weird tunnel"
+   },
+   {
+    "id": "gb.legend_of_zelda_links_awakening.045",
+    "task": "jump2"
+   }
+  ],
+  "navigation + interaction": [
+   {
+    "id": "gb.legend_of_zelda_links_awakening.013",
+    "task": "in dark forest and kill all the bats to acquire money from the chest"
+   }
+  ]
+ },
+ "pokemon_red": {
+  "catch_pokemon, combat": [
+   {
+    "id": "gb.pokemon_red.008",
+    "task": "Catch Pidgey"
+   }
+  ],
+  "combat": [
+   {
+    "id": "gb.pokemon_red.007",
+    "task": "Defeat Trainer Lass"
+   }
+  ],
+  "interaction": [
+   {
+    "id": "gb.pokemon_red.026",
+    "task": "Look into the binoculars above"
+   },
+   {
+    "id": "gb.pokemon_red.032",
+    "task": "Play the game above"
+   },
+   {
+    "id": "gb.pokemon_red.047",
+    "task": "Speak to the gym leader"
+   }
+  ],
+  "menu": [
+   {
+    "id": "gb.pokemon_red.010",
+    "task": "Open the Map"
+   }
+  ],
+  "menu, interaction": [
+   {
+    "id": "gb.pokemon_red.033",
+    "task": "Toss an Ultra Ball"
+   }
+  ],
+  "navigation": [
+   {
+    "id": "gb.pokemon_red.000",
+    "task": "Enter the Pokemon Center"
+   }
+  ],
+  "navigation, interaction": [
+   {
+    "id": "gb.pokemon_red.004",
+    "task": "Read the sign below you"
+   },
+   {
+    "id": "gb.pokemon_red.049",
+    "task": "Read the blackboard in the school nearby"
+   }
+  ]
+ }
+}

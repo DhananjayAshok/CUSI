@@ -28,19 +28,27 @@ from cusi.utils.paths import PracticePaths
 
 
 def tree_tasks(*, restorer: NodeRestorer, parameters: dict) -> list:
-    """Every task of an annotated search run's nodes, in node order (unrestorable nodes' tasks are left out)."""
+    """Every task of an annotated search run (cusi.search.annotate), by start node (unrestorable start nodes' tasks
+    are left out); "child" is the first node of the task's path, "end" its last."""
+    from cusi.search.annotate import ANNOTATION_DIR, TASKS_FILE, annotation_dir
+    from cusi.search.store import read_rows
     nodes = restorer.nodes
-    if not any(n.get("node_notes_raw") is not None for n in nodes.values()):
-        log_error(f"{restorer.directory} has no task annotations: run cusi.search.annotate first",
+    path = os.path.join(annotation_dir(directory=restorer.directory), TASKS_FILE)
+    if not os.path.exists(path):
+        log_error(f"{restorer.directory} has no {ANNOTATION_DIR}/ tasks: run cusi.search.annotate first",
                   parameters=parameters)
+    by_start = {}
+    for r in read_rows(path):
+        by_start.setdefault(r["start"], []).append(r)
     out = []
-    for nid in sorted(nodes):
+    for nid in sorted(by_start):
         flags = nodes[nid].get("flags") or {}
         if flags.get("unrestorable") or flags.get("replay_diverged") or flags.get("challenge_page"):
             continue
-        for i, t in enumerate(nodes[nid].get("tasks") or []):
+        for i, t in enumerate(by_start[nid]):
             out.append({"task_id": f"n{nid}_{i}", "task": t["task"], "scene": nodes[nid]["env_key"],
-                        "source": t["source"], "node_id": nid, "child": t.get("child")})
+                        "source": "path", "node_id": nid, "child": t["path"][1] if len(t["path"]) > 1 else None,
+                        "end": t["end"]})
     return out
 
 

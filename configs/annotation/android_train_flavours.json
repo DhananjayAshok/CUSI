@@ -1,0 +1,188 @@
+{
+ "all": {
+  "AudioRecorder": [
+   {
+    "id": "aw.AudioRecorderRecordAudio",
+    "task": "Record an audio clip using Audio Recorder app and save it."
+   }
+  ],
+  "Clock": [
+   {
+    "id": "aw.ClockStopWatchPausedVerify",
+    "task": "Pause the stopwatch."
+   }
+  ],
+  "Files": [
+   {
+    "id": "aw.FilesDeleteFile",
+    "task": "Delete the file q2a8_fancy_banana.mp3 from the Android filesystem located in the Notifications folder within the sdk_gphone_x86_64 storage area."
+   }
+  ],
+  "Markor": [
+   {
+    "id": "aw.MarkorCreateFolder",
+    "task": "Create a new folder in Markor named folder_20261106_225804."
+   },
+   {
+    "id": "aw.MarkorCreateNote",
+    "task": "Create a new note in Markor named 2023_01_26_wise_yacht.md with the following text: Ignorance is bliss."
+   },
+   {
+    "id": "aw.MarkorCreateNoteAndSms",
+    "task": "Create a new note in Markor named fair_ant_XOdi.txt with the following text: Actions speak louder than words.. Share the entire content of the note with the phone number +13192815309 via SMS using Simple SMS Messenger"
+   },
+   {
+    "id": "aw.MarkorMergeNotes",
+    "task": "Merge the contents of Markor notes tough_frog_2023_08_05.txt, proud_cat_edited.txt and 2023_08_21_friendly_koala.md (in the same order) into a new Markor note named mIObBbo4 and save it. Add a new line between the content of each note."
+   },
+   {
+    "id": "aw.MarkorMoveNote",
+    "task": "In Markor, move the note shy_king_copy.md from StudyGuides to MeetingMinutes."
+   }
+  ],
+  "Notes": [
+   {
+    "id": "aw.NotesRecipeIngredientCount",
+    "task": "What quantity of spirulina do I need for the recipe 'Chicken Alfredo' in the Joplin app? Express your answer in the format <amount> <unit> where both the amount and unit exactly match the format in the recipe."
+   },
+   {
+    "id": "aw.NotesTodoItemCount",
+    "task": "How many to-dos do I have in the 'Ideas' folder in the Joplin app? Express your answer as just a single number."
+   }
+  ],
+  "Recipe": [
+   {
+    "id": "aw.RecipeAddMultipleRecipesFromMarkor",
+    "task": "Add the recipes from recipes.txt in Markor to the Broccoli recipe app."
+   },
+   {
+    "id": "aw.RecipeDeleteDuplicateRecipes2",
+    "task": "Delete all but one of any recipes in the Broccoli app that are exact duplicates, ensuring at least one instance of each unique recipe remains"
+   },
+   {
+    "id": "aw.RecipeDeleteDuplicateRecipes3",
+    "task": "Delete all but one of any recipes in the Broccoli app that are exact duplicates, ensuring at least one instance of each unique recipe remains"
+   },
+   {
+    "id": "aw.RecipeDeleteMultipleRecipes",
+    "task": "Delete the following recipes from Broccoli app: Zucchini Noodles with Pesto, Garlic Butter Shrimp, Lentil Soup."
+   },
+   {
+    "id": "aw.RecipeDeleteMultipleRecipesWithConstraint",
+    "task": "Delete the recipes from Broccoli app that use black garlic in the directions."
+   },
+   {
+    "id": "aw.RecipeDeleteSingleRecipe",
+    "task": "Delete the following recipes from Broccoli app: Thai Peanut Noodle Salad."
+   }
+  ],
+  "Retro": [
+   {
+    "id": "aw.RetroPlaylistDuration",
+    "task": "Create a playlist in Retro Music titled \"Reggae Rhythms 51\" with a duration between 45 and 50 minutes using the provided songs."
+   }
+  ],
+  "SimpleCalendar": [
+   {
+    "id": "aw.SimpleCalendarAddOneEventRelativeDay",
+    "task": "In Simple Calendar Pro, create a calendar event for this Thursday at 5h with the title 'Call with the Team' and the description 'We will celebrate team roles.'. The event should last for 60 mins."
+   },
+   {
+    "id": "aw.SimpleCalendarAnyEventsOnDate",
+    "task": "Do I have any events October 28 in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   },
+   {
+    "id": "aw.SimpleCalendarDeleteEventsOnRelativeDay",
+    "task": "In Simple Calendar Pro, delete all events scheduled for this Monday."
+   },
+   {
+    "id": "aw.SimpleCalendarEventsInNextWeek",
+    "task": "What events do I have in the next week in Simple Calendar Pro? Assume the week starts from Monday. Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   },
+   {
+    "id": "aw.SimpleCalendarEventsInTimeRange",
+    "task": "Do I have any events between 4:15pm and 8pm Friday in Simple Calendar Pro? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   },
+   {
+    "id": "aw.SimpleCalendarEventsOnDate",
+    "task": "What events do I have October 24 in Simple Calendar Pro? Answer with the titles only. If there are multiple titles, format your answer as a comma separated list."
+   },
+   {
+    "id": "aw.SimpleCalendarLocationOfEvent",
+    "task": "What is the location of my Family reunion event in Simple Calendar Pro? Answer with the location only."
+   },
+   {
+    "id": "aw.SimpleCalendarNextEvent",
+    "task": "What is my next upcoming event in Simple Calendar Pro? Answer with the title only. If there are multiples titles, format your answer in a comma separated list."
+   }
+  ],
+  "SimpleSms": [
+   {
+    "id": "aw.SimpleSmsReply",
+    "task": "Reply to +18407874306 with message: Yoga class every Tuesday and Thursday at 6 PM. in Simple SMS Messenger"
+   },
+   {
+    "id": "aw.SimpleSmsSend",
+    "task": "Send a text message using Simple SMS Messenger to +16597910719 with message: Beauty is in the eye of the beholder."
+   }
+  ],
+  "SportsTracker": [
+   {
+    "id": "aw.SportsTrackerActivitiesCountForWeek",
+    "task": "How many running activities did I do this week in the OpenTracks app? Assume the week starts from Monday. Express your answer as a single integer."
+   },
+   {
+    "id": "aw.SportsTrackerActivityDuration",
+    "task": "How long was my skiing activity October 12 2023 in the OpenTracks app? Express your answer in minutes as a single integer."
+   },
+   {
+    "id": "aw.SportsTrackerLongestDistanceActivity",
+    "task": "What was the longest distance covered in a mountain biking activity in the OpenTracks app this week? Assume the week starts from Monday. Express your answer as a single number in meters rounded to the nearest integer."
+   }
+  ],
+  "System": [
+   {
+    "id": "aw.SystemBluetoothTurnOffVerify",
+    "task": "Turn bluetooth off."
+   },
+   {
+    "id": "aw.SystemBluetoothTurnOn",
+    "task": "Turn bluetooth on."
+   },
+   {
+    "id": "aw.SystemBluetoothTurnOnVerify",
+    "task": "Turn bluetooth on."
+   },
+   {
+    "id": "aw.SystemBrightnessMaxVerify",
+    "task": "Turn brightness to the max value."
+   },
+   {
+    "id": "aw.SystemBrightnessMin",
+    "task": "Turn brightness to the min value."
+   },
+   {
+    "id": "aw.SystemWifiTurnOn",
+    "task": "Turn wifi on."
+   },
+   {
+    "id": "aw.SystemWifiTurnOnVerify",
+    "task": "Turn wifi on."
+   }
+  ],
+  "Tasks": [
+   {
+    "id": "aw.TasksCompletedTasksForDate",
+    "task": "Which tasks have I completed for October 16 2023 in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   },
+   {
+    "id": "aw.TasksDueOnDate",
+    "task": "What tasks do I have due October 24 2023 in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   },
+   {
+    "id": "aw.TasksHighPriorityTasks",
+    "task": "What are my high priority tasks in Tasks app? Answer with the titles only. If there are multiples titles, format your answer in a comma separated list."
+   }
+  ]
+ }
+}

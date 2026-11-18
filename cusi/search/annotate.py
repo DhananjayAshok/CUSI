@@ -1,51 +1,80 @@
 """
-Annotate a finished search run, every node and edge, with:
-- what a VLM-explorer search writes as it goes: each node's features (VLMFeatures) and the report of the segment that
-  reached it (TransitionDescriber: its parent's screen, then every step to it); random and curiosity trees run
-  without a model, so this gives them the same notes. Decision scores are not added: they are made at selection
-  time, which is over.
-- the notes the practice and knowledge pipelines read (cusi/search/notes.py): each node's screen description and the
-  tasks that could be done from it; each edge's hindsight task and knowledge. A node's `tasks` lists the tasks that
-  start from it, each with its source: {"task", "source": "node"} from its own screen, {"task", "source": "edge",
-  "child", "segment"} from the transition to that child (whose `edge_task` and `knowledge` hold the edge's notes).
+Annotate a finished search run with the tasks actually done along its paths, written in the form of the
+benchmark's train tasks (plans/annotation_plan.md). One run does both stages and continues where it stopped:
 
-The notes are appended to nodes.jsonl as update rows, node by node, so an interrupted run continues where it stopped;
-annotations.json records the model. The run's viewer is rebuilt at the end.
+1. Transition reports: every edge (a node's segment from its parent) without a `description` gets one from
+   TransitionDescriber (its parent's screen, then every step to it), as a VLM-explorer search writes them as it goes;
+   random and curiosity trees run without a model, so this gives them the same reports. Written to nodes.jsonl as
+   update rows ("description", "window_descriptions").
+2. Path tasks: every node starts a chain on every branch below it. A chain is extended one edge at a time
+   (cusi.search.path_notes): while it has no task, a call says whether the chain from its start now completes one
+   (TOO_SHORT keeps going); once it has one, each further edge is CONTINUE (no effect on the task: the chain goes on,
+   the task's end stays), REVISE (a larger or more specific task now completed; the earlier name stays as a task of
+   its own, ending where it ended) or NEW (the task ended before this edge; the chain stops). A chain is copied at
+   every fork, and stops at a leaf, a challenge page, or when it would pass --max_steps env steps. A chain with no
+   task by then keeps the best partial task its TOO_SHORT replies named (the latest; "partial": true), or is dropped
+   if they named none. Every call sees a fixed sample of the benchmark's train tasks (cusi.search.task_context).
 
-    python -m cusi.search.annotate --env web --run tree_random_v3 --model_name <model> --vllm_base_url <url>
+Each call's verdict is cached in annotation/p<prompt version>/calls.jsonl (keyed by the chain's node path), so a
+rerun continues where it stopped and rebuilds the same tasks. Results, in the run directory, annotation/p<prompt
+version>/:
+- tasks.jsonl: one row per task: {"start", "task", "end", "path" (node ids start..end), "n_edges", "n_steps",
+  "revisions" (the chain's names in order, up to this one), "nested" (an earlier name that a REVISE replaced),
+  "partial" (a chain's best partial task, kept because it never named a full one)};
+- meta.json: model, settings, the train sample (ids) and the split file's hash; refuses mixed settings;
+- summary.json: counts, written last (a run without it is unfinished).
+
+    python -m cusi.search.annotate --env android --run sat_random_s0 --model_name <model> --vllm_base_url <url>
 """
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+import random
+import threading
+import time
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from typing import Any, Optional
 import click
 from cusi.agents.frames import FrameRef
 from cusi.agents.specs import ENV_NAMES, ENV_SPECS
+from cusi.search import path_notes as pn
 from cusi.search.store import EXPANSIONS_FILE, append_node_updates, node_rows, read_rows, step_from_row
-from cusi.utils.compute import tally
+from cusi.search.task_context import TrainContext, tree_group
 from cusi.utils.log_handling import log_info
 from cusi.utils.parameter_handling import load_parameters
 from cusi.utils.paths import search_run
 
-ANNOTATIONS_FILE = "annotations.json"
-#: Screens shown before a node's own in its node-notes call, for context.
-NODE_CONTEXT_FRAMES = 3
+ANNOTATION_DIR = "annotation"
+CALLS_FILE, TASKS_FILE, META_FILE, SUMMARY_FILE = "calls.jsonl", "tasks.jsonl", "meta.json", "summary.json"
+MAX_NEW_TOKENS = 300
+#: The transition-report fields stage 1 writes (TransitionDescriber's output; "discovered" stays the search's).
+REPORT_FIELDS = ("description", "window_descriptions")
 
 
-def context_frames(*, node: dict, nodes: dict, expansions: dict) -> list:
-    """The frames (run-relative refs, oldest first) of the last NODE_CONTEXT_FRAMES distinct screens before a node's:
-    the expansion's earlier steps, preceded by the screen it started from; none for a root."""
-    if not node.get("segment"):
-        return []
-    exp_id, _, last = node["segment"]
-    exp = expansions[exp_id]
-    refs = [nodes[exp["node_id"]]["frame"]] + [s["frame"] for s in exp["steps"][:last]]
-    # frames are stored once per distinct image: drop repeats of the node's screen and of the screen before
-    distinct = []
-    for ref in refs:
-        if ref != node["frame"] and (not distinct or ref != distinct[-1]):
-            distinct.append(ref)
-    return distinct[-NODE_CONTEXT_FRAMES:]
+def _same(*, a: str, b: str) -> bool:
+    """Two task names that differ only in case, spacing and punctuation."""
+    def norm(s):
+        return " ".join("".join(c for c in str(s).lower() if c.isalnum() or c.isspace()).split())
+    return norm(a) == norm(b)
+
+
+def annotation_dir(*, directory: str) -> str:
+    """annotation/p<prompt version>/: each prompt version's verdicts and tasks apart."""
+    return os.path.join(directory, ANNOTATION_DIR, f"p{pn.PROMPT_VERSION}")
+
+
+def read_tasks(*, directory: str) -> list:
+    """The run's path tasks (tasks.jsonl rows)."""
+    path = os.path.join(annotation_dir(directory=directory), TASKS_FILE)
+    if not os.path.exists(path):
+        raise click.UsageError(f"{directory} has no tasks: run cusi.search.annotate first")
+    return read_rows(path)
+
+
+def unfinished(*, directory: str) -> bool:
+    """An annotation was started on the run (its meta.json exists) and has not written its summary since."""
+    d = annotation_dir(directory=directory)
+    meta, summary = os.path.join(d, META_FILE), os.path.join(d, SUMMARY_FILE)
+    return os.path.exists(meta) and (not os.path.exists(summary) or os.path.getmtime(meta) > os.path.getmtime(summary))
 
 
 def node_app(*, env_name: str, node: dict, expansions: dict):
@@ -54,7 +83,7 @@ def node_app(*, env_name: str, node: dict, expansions: dict):
     step that reached the node (the env's true state), else, for a root, its scene's app. None elsewhere."""
     if env_name != "android":
         return None
-    from cusi.agents.specs import ENV_SPECS, android_app_label
+    from cusi.agents.specs import android_app_label
     if node.get("segment"):
         exp_id, _, last = node["segment"]
         true = ((expansions[exp_id]["steps"][last].get("info") or {}).get("true") or {})
@@ -64,106 +93,222 @@ def node_app(*, env_name: str, node: dict, expansions: dict):
     return scene.kwargs.get("app_label") if scene else None
 
 
-def unannotated(*, nodes: dict) -> list:
-    """Ids of the nodes annotate_run would still annotate (it skips challenge pages)."""
-    return [nid for nid, n in nodes.items() if not (n.get("flags") or {}).get("challenge_page") and (
-        n.get("features") is None or n.get("node_notes_raw") is None
-        or (n["parent"] is not None and (n.get("description") is None or n.get("edge_notes_raw") is None)))]
+def env_description(*, env_name: str, directory: str) -> str:
+    """The env as the prompts name it: GameBoy names the tree's own game."""
+    if env_name != "gameboy":
+        return ENV_SPECS[env_name].env_description
+    with open(os.path.join(directory, "config.json")) as f:
+        config = json.load(f)
+    return f"the GameBoy game {tree_group(env=env_name, config=config.get('config', config))}"
 
 
-def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_features: int, workers: int,
-                 parameters: dict[str, Any]) -> dict:
-    """workers: nodes annotated at a time (their VLM calls run concurrently; their updates are written one by one)."""
+def describe_edges(*, directory: str, env_name: str, vlm, workers: int, parameters: dict[str, Any]) -> int:
+    """Stage 1: a transition report for every edge that has none (challenge pages skipped). Returns how many."""
     from cusi.search.describe import TransitionDescriber
-    from cusi.search.features import VLMFeatures
-    from cusi.search.notes import TASK_EXAMPLES, EdgeNotes, NodeNotes
-    meta_path = os.path.join(directory, ANNOTATIONS_FILE)
-    meta = {"model_name": model_name, "max_features": max_features}
-    if os.path.exists(meta_path):
-        with open(meta_path) as f:
-            done = json.load(f)
-        if {k: done.get(k) for k in meta} != meta:
-            raise click.UsageError(f"{directory} was annotated with {done}; not mixing in {meta}")
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=1)
-    env_description = ENV_SPECS[env_name].env_description
-    features = VLMFeatures(vlm=vlm, max_features=max_features)
     describer = TransitionDescriber(vlm=vlm, parameters=parameters)
-    node_notes, edge_notes = (NodeNotes(vlm=vlm, task_examples=TASK_EXAMPLES[env_name]),
-                              EdgeNotes(vlm=vlm, task_examples=TASK_EXAMPLES[env_name]))
+    description = env_description(env_name=env_name, directory=directory)
     nodes = node_rows(directory=directory)
     expansions = {e["id"]: e for e in read_rows(os.path.join(directory, EXPANSIONS_FILE))}
-    counts = {"features": 0, "reports": 0, "node_notes": 0, "edge_notes": 0}
+    todo = [nid for nid in sorted(nodes) if nodes[nid]["parent"] is not None and nodes[nid].get("description") is None
+            and not (nodes[nid].get("flags") or {}).get("challenge_page")]
+    log_info(f"annotate {directory}: transition reports for {len(todo)} edges", parameters=parameters)
 
-    def calls(nid: int) -> tuple:
-        """One node's annotation calls (on a worker thread) -> (its new fields, the counts they add). Reads only the
-        node's own fields and its parent's frame, which no other node's update changes."""
-        node = nodes[nid]
-        update, added = {}, []
-        frame = FrameRef(path=os.path.join(directory, node["frame"])).pil()
-        with tally() as compute:     # this node's annotation calls
-            if node.get("features") is None:
-                f = features(env_description=env_description, frame=frame, text_boxes=node.get("text_boxes") or [])
-                if not f.pop("parsed"):
-                    update["flags"] = {**(node.get("flags") or {}), "features_parse_failed": True}
-                update.update(f)
-                added.append("features")
-            app = node_app(env_name=env_name, node=node, expansions=expansions)
-            if node.get("node_notes_raw") is None:
-                context = [FrameRef(path=os.path.join(directory, ref)).pil()
-                           for ref in context_frames(node=node, nodes=nodes, expansions=expansions)]
-                update.update(node_notes(env_description=env_description, frame=frame,
-                                         text_boxes=node.get("text_boxes") or [], app=app, context_frames=context))
-                added.append("node_notes")
-            if node["parent"] is not None and (node.get("description") is None or node.get("edge_notes_raw") is None):
-                exp_id, first, last = node["segment"]
-                steps = [step_from_row(directory=directory, row=r) for r in expansions[exp_id]["steps"][first:last + 1]]
-                start_frame = FrameRef(path=os.path.join(directory, nodes[node["parent"]]["frame"]))
-                if node.get("description") is None:
-                    update.update(describer(env_description=env_description, steps=steps, start_frame=start_frame))
-                    added.append("reports")
-                if node.get("edge_notes_raw") is None:
-                    update.update(edge_notes(env_description=env_description, start_frame=start_frame.pil(),
-                                             end_frame=frame, steps=steps,
-                                             description=update.get("description", node.get("description")),
-                                             app=app))
-                    added.append("edge_notes")
-        if update:
-            update["annotate_compute"] = compute.snapshot()
-        return update, added
+    def report(nid: int) -> dict:
+        exp_id, first, last = nodes[nid]["segment"]
+        steps = [step_from_row(directory=directory, row=r) for r in expansions[exp_id]["steps"][first:last + 1]]
+        start = FrameRef(path=os.path.join(directory, nodes[nodes[nid]["parent"]]["frame"]))
+        out = describer(env_description=description, steps=steps, start_frame=start) or {}
+        return {k: out.get(k) for k in REPORT_FIELDS}
 
-    def apply(nid: int, update: dict) -> None:
-        """Write one node's fields (on this thread only). Task lists are merged here, from their current values: a
-        node's own tasks keep the edge tasks its children already added, and an edge task joins its parent's list."""
-        node = nodes[nid]
-        if "node_tasks" in update:
-            edge_tasks = [t for t in node.get("tasks") or [] if t["source"] == "edge"]
-            update["tasks"] = [{"task": t, "source": "node"} for t in update["node_tasks"]] + edge_tasks
-        rows = [{"id": nid, **update}]
-        parent_update = {}
-        if "edge_notes_raw" in update and update.get("edge_task"):
-            parent = nodes[node["parent"]]
-            parent_update["tasks"] = (parent.get("tasks") or []) + [
-                {"task": update["edge_task"], "source": "edge", "child": nid, "segment": node["segment"]}]
-            rows.append({"id": node["parent"], **parent_update})
-        append_node_updates(directory=directory, rows=rows)
-        node.update(update)
-        if parent_update:
-            nodes[node["parent"]].update(parent_update)
-
-    todo = [nid for nid in sorted(nodes) if not (nodes[nid].get("flags") or {}).get("challenge_page")]
-    log_info(f"annotate {directory}: {len(todo)} nodes, {workers} at a time", parameters=parameters)
+    done = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(calls, nid): nid for nid in todo}
-        for i, future in enumerate(as_completed(futures)):
-            update, added = future.result()
-            if update:
-                apply(futures[future], update)
-            for k in added:
-                counts[k] += 1
-            if (i + 1) % 20 == 0:
-                log_info(f"annotate {directory}: {i + 1}/{len(todo)} nodes, {counts}", parameters=parameters)
-    return counts
+        futures = {pool.submit(report, nid): nid for nid in todo}
+        for future in as_completed(futures):
+            append_node_updates(directory=directory, rows=[{"id": futures[future], **future.result()}])
+            done += 1
+            if done % 100 == 0:
+                log_info(f"annotate: {done}/{len(todo)} transition reports", parameters=parameters)
+    return done
+
+
+class PathAnnotator:
+    def __init__(self, *, directory: str, env_name: str, vlm, model_name: str, max_steps: int, n_per_flavour: int,
+                 sample_seed: int, workers: int, max_starts: Optional[int], parameters: dict[str, Any]) -> None:
+        """Stage 2 (stage 1 must have run). max_starts: annotate only chains from a seeded sample of this many start
+        nodes (a pilot); None: all."""
+        self._parameters = parameters
+        self.directory, self.env_name, self.vlm = directory, env_name, vlm
+        self.max_steps, self.workers = max_steps, workers
+        with open(os.path.join(directory, "config.json")) as f:
+            config = json.load(f)
+        group = tree_group(env=env_name, config=config.get("config", config))
+        self.context = TrainContext(env=env_name, group=group, n_per_flavour=n_per_flavour, seed=sample_seed,
+                                    parameters=parameters)
+        self.train_block = self.context.block()
+        self.env_description = env_description(env_name=env_name, directory=directory)
+        self.nodes = node_rows(directory=directory)
+        self.expansions = {e["id"]: e for e in read_rows(os.path.join(directory, EXPANSIONS_FILE))}
+        self.kids = {}
+        for nid in sorted(self.nodes):
+            n = self.nodes[nid]
+            if n["parent"] is not None and not (n.get("flags") or {}).get("challenge_page"):
+                self.kids.setdefault(n["parent"], []).append(nid)
+        starts = [nid for nid in sorted(self.nodes) if self.kids.get(nid)
+                  and not (self.nodes[nid].get("flags") or {}).get("challenge_page")]
+        if max_starts is not None and max_starts < len(starts):
+            starts = sorted(random.Random(f"starts:{sample_seed}").sample(starts, max_starts))
+        self.starts = starts
+        self.out_dir = annotation_dir(directory=directory)
+        os.makedirs(self.out_dir, exist_ok=True)
+        meta = {"model_name": model_name, "max_steps": max_steps, "prompt_version": pn.PROMPT_VERSION,
+                **self.context.meta}
+        meta_path = os.path.join(self.out_dir, META_FILE)
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                done = json.load(f)
+            if {k: done.get(k) for k in meta} != meta:
+                raise click.UsageError(f"{directory} was annotated with {done}; not mixing in {meta}")
+        with open(meta_path, "w") as f:
+            json.dump({**meta, "max_starts": max_starts}, f, indent=1)
+        self.calls_path = os.path.join(self.out_dir, CALLS_FILE)
+        self.cache = {r["key"]: r for r in read_rows(self.calls_path)}
+        self._lock = threading.Lock()
+        self.counts = {"calls": 0, "cached": 0, "unparsed": 0, "dropped_building": 0, "kept_partial": 0,
+                       "capped": 0}
+
+    # ------------------------------------------------------------------ one edge
+    def edge_steps(self, *, nid: int) -> list:
+        exp_id, first, last = self.nodes[nid]["segment"]
+        return self.expansions[exp_id]["steps"][first:last + 1]
+
+    def frame(self, *, nid: int):
+        return FrameRef(path=os.path.join(self.directory, self.nodes[nid]["frame"])).pil()
+
+    def ask(self, *, chain: dict, child: int) -> dict:
+        """The cached or new verdict on extending chain by the edge to child."""
+        key = ":".join(str(x) for x in chain["path"] + [child])
+        with self._lock:
+            hit = self.cache.get(key)
+        if hit is not None:
+            with self._lock:
+                self.counts["cached"] += 1
+            return hit
+        steps = [step_from_row(directory=self.directory, row=r) for r in self.edge_steps(nid=child)]
+        reports = [self.nodes[n].get("description") for n in chain["path"][1:]]
+        app = node_app(env_name=self.env_name, node=self.nodes[child], expansions=self.expansions)
+        args = dict(env_description=self.env_description, app_note=pn.app_note(app=app, where="Image 3"),
+                    reports=reports, steps=steps, latest=self.nodes[child].get("description"),
+                    train=self.train_block)
+        if chain["task"] is None:
+            prompt, allowed = pn.build_prompt(**args, env_name=self.env_name), (pn.TOO_SHORT, pn.TASK)
+        else:
+            prompt, allowed = pn.extend_prompt(**args, current=chain["task"]), (pn.CONTINUE, pn.REVISE, pn.NEW)
+        images = [self.frame(nid=chain["path"][0]), self.frame(nid=chain["path"][-1]), self.frame(nid=child)]
+        out = str(self.vlm.infer(texts=prompt, images=images, max_new_tokens=MAX_NEW_TOKENS,
+                                 temperature=0.0)["output"])
+        verdict, task, parsed = pn.parse_verdict(text=out, allowed=allowed)
+        partial = pn.parse_partial(text=out) if verdict == pn.TOO_SHORT else None
+        row = {"key": key, "verdict": verdict, "task": task, "partial": partial, "parsed": parsed, "raw": out}
+        with self._lock:
+            self.counts["calls"] += 1
+            self.counts["unparsed"] += not parsed
+            self.cache[key] = row
+            with open(self.calls_path, "a") as f:
+                f.write(json.dumps(row) + "\n")
+        return row
+
+    # ------------------------------------------------------------------ chains
+    def advance(self, *, chain: dict, child: int) -> tuple:
+        """(chains to extend further as (chain, child) pairs, finished chains) after the edge to child."""
+        n_steps = len(self.edge_steps(nid=child))
+        if chain["n_steps"] + n_steps > self.max_steps:
+            with self._lock:
+                self.counts["capped"] += 1
+            return [], [chain]
+        row = self.ask(chain=chain, child=child)
+        verdict = row["verdict"]
+        if not row["parsed"]:          # unreadable: no task yet keeps building, a named task is ended (conservative)
+            verdict = pn.TOO_SHORT if chain["task"] is None else pn.NEW
+        if verdict == pn.NEW:
+            return [], [chain]
+        nxt = {**chain, "path": chain["path"] + [child], "n_steps": chain["n_steps"] + n_steps,
+               "names": list(chain["names"])}
+        if verdict == pn.TOO_SHORT and row.get("partial"):
+            # the best task the chain has completed so far: kept if the chain never names a full one
+            nxt["partial"] = (row["partial"], child)
+        if verdict == pn.TASK:
+            nxt["task"], nxt["names"] = row["task"], [(row["task"], child)]
+        elif verdict == pn.REVISE and _same(a=row["task"], b=chain["task"]):
+            # the same name again: the task was achieved further on; its end moves, no nested copy
+            nxt["names"][-1] = (nxt["names"][-1][0], child)
+        elif verdict == pn.REVISE:
+            nxt["task"] = row["task"]
+            nxt["names"].append((row["task"], child))
+        # CONTINUE (no effect on the task): the chain goes on, the task's end stays where it was achieved
+        kids = self.kids.get(child) or []
+        if not kids:
+            return [], [nxt]
+        return [(nxt, k) for k in kids], []
+
+    def task_row(self, *, chain: dict, name: str, end: int, revisions: list, nested: bool, partial: bool) -> dict:
+        path = chain["path"][:chain["path"].index(end) + 1]
+        return {"start": chain["path"][0], "task": name, "end": end, "path": path, "n_edges": len(path) - 1,
+                "n_steps": sum(len(self.edge_steps(nid=n)) for n in path[1:]), "revisions": revisions,
+                "nested": nested, "partial": partial}
+
+    def tasks_of(self, *, chain: dict) -> list:
+        """The finished chain's task rows: its last name (to its end) and every name a REVISE replaced (nested, to
+        where that name ended); a chain without one, its best partial task, if any."""
+        if chain["task"] is None:
+            if not chain.get("partial"):
+                return []
+            name, end = chain["partial"]
+            return [self.task_row(chain=chain, name=name, end=end, revisions=[name], nested=False, partial=True)]
+        names = chain["names"]
+        return [self.task_row(chain=chain, name=name, end=end, revisions=[x[0] for x in names[:i + 1]],
+                              nested=i < len(names) - 1, partial=False) for i, (name, end) in enumerate(names)]
+
+    def run(self) -> dict:
+        t0 = time.time()
+        log_info(f"annotate {self.directory}: {len(self.starts)} start nodes, {len(self.cache)} cached calls, "
+                 f"{self.workers} at a time", parameters=self._parameters)
+        pending = [({"path": [u], "task": None, "names": [], "n_steps": 0}, k) for u in self.starts
+                   for k in self.kids[u]]
+        finished, done_edges = [], 0
+        with ThreadPoolExecutor(max_workers=self.workers) as pool:
+            running = set()
+            while pending or running:
+                while pending and len(running) < 4 * self.workers:
+                    chain, child = pending.pop()
+                    running.add(pool.submit(self.advance, chain=chain, child=child))
+                ready, running = wait(running, return_when=FIRST_COMPLETED)
+                for fut in ready:
+                    more, ended = fut.result()
+                    pending += more
+                    finished += ended
+                    done_edges += 1
+                    if done_edges % 200 == 0:
+                        log_info(f"annotate: {done_edges} edges, {len(pending) + len(running)} open, "
+                                 f"{self.counts}", parameters=self._parameters)
+        rows, seen = [], set()
+        for chain in finished:
+            if chain["task"] is None:
+                self.counts["kept_partial" if chain.get("partial") else "dropped_building"] += 1
+            for r in self.tasks_of(chain=chain):
+                key = (r["start"], r["end"], r["task"])
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(r)
+        rows.sort(key=lambda r: (r["start"], r["end"], r["task"]))
+        with open(os.path.join(self.out_dir, TASKS_FILE), "w") as f:
+            for r in rows:
+                f.write(json.dumps(r) + "\n")
+        summary = {**self.counts, "tasks": len(rows), "distinct_texts": len({r["task"] for r in rows}),
+                   "starts": len(self.starts), "starts_with_task": len({r["start"] for r in rows}),
+                   "nodes": len(self.nodes), "seconds": round(time.time() - t0)}
+        with open(os.path.join(self.out_dir, SUMMARY_FILE), "w") as f:
+            json.dump(summary, f, indent=1)
+        return summary
 
 
 @click.command()
@@ -172,19 +317,23 @@ def annotate_run(*, directory: str, env_name: str, vlm, model_name: str, max_fea
 @click.option("--model_name", required=True)
 @click.option("--model_backend", default="vllm", show_default=True)
 @click.option("--vllm_base_url", default=None)
-@click.option("--max_features", default=8, show_default=True, help="Features listed per node.")
-@click.option("--workers", default=8, show_default=True, help="Nodes annotated at a time.")
-def main(env_name, run_name, model_name, model_backend, vllm_base_url, max_features, workers):
+@click.option("--max_steps", default=30, show_default=True, help="Env steps a chain may span.")
+@click.option("--n_per_flavour", default=3, show_default=True, help="Train tasks shown per flavour.")
+@click.option("--sample_seed", default=0, show_default=True, help="Seed of the train sample (and of --max_starts).")
+@click.option("--max_starts", default=None, type=int, help="A pilot: only this many start nodes (seeded sample).")
+@click.option("--workers", default=16, show_default=True, help="Calls at a time.")
+def main(env_name, run_name, model_name, model_backend, vllm_base_url, max_steps, n_per_flavour, sample_seed,
+         max_starts, workers):
     from cusi.agents.vlm import AgentVLM
-    from cusi.search.viewer import build_viewer
     parameters = load_parameters()
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
     vlm = AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
                    parameters=parameters)
-    counts = annotate_run(directory=directory, env_name=env_name, vlm=vlm, model_name=model_name,
-                          max_features=max_features, workers=workers, parameters=parameters)
-    viewer = build_viewer(run_dir=directory, title=f"{env_name} / {run_name}")
-    log_info(f"annotated {directory}: {counts}; viewer {viewer}", parameters=parameters)
+    n = describe_edges(directory=directory, env_name=env_name, vlm=vlm, workers=workers, parameters=parameters)
+    summary = PathAnnotator(directory=directory, env_name=env_name, vlm=vlm, model_name=model_name,
+                            max_steps=max_steps, n_per_flavour=n_per_flavour, sample_seed=sample_seed,
+                            workers=workers, max_starts=max_starts, parameters=parameters).run()
+    log_info(f"annotate {directory}: {n} transition reports written; {summary}", parameters=parameters)
 
 
 if __name__ == "__main__":
