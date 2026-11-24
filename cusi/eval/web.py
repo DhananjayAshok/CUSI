@@ -20,8 +20,8 @@ from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, storage_relative, web_source_task_file, web_task_dir
-from cusi.eval.supervision import DECODING, run_pool, supervisor_extra, supervisor_state
-from cusi.eval.options import seed_option, task_list
+from cusi.eval.supervision import decoding, run_pool, supervisor_extra, supervisor_state
+from cusi.eval.options import seed_option, task_list, temperature_option
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
 MAX_ITER = 15            # run.sh --max_iter
@@ -85,23 +85,26 @@ def materialize_screenshots(*, run_dir: str) -> list:
 
 
 def run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
-             run_dir: str, parameters=None, vlm=None, world_action: Optional[str] = None) -> dict:
+             run_dir: str, parameters=None, vlm=None, world_action: Optional[str] = None,
+             temperature: Optional[float] = None) -> dict:
     """One task with run.py's browser-death retries; vlm overrides the served model (tests). The outcome (and
     outcome.json) carries the task's compute over all its attempts. world_action: a World Action Model spec
-    (cusi/world_action) deciding in place of the executor's policy."""
+    (cusi/world_action) deciding in place of the executor's policy. temperature None decodes greedily."""
     with tally() as compute:
         return _run_task(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, data_file=data_file, run_dir=run_dir, parameters=parameters,
-                         vlm=vlm, compute=compute, world_action=world_action)
+                         vlm=vlm, compute=compute, world_action=world_action, temperature=temperature)
 
 
 def _run_task(*, task: dict, task_dir: str, model_name: str, model_backend: str, vllm_base_url, data_file: str,
-              run_dir: str, parameters, vlm, compute, world_action: Optional[str] = None) -> dict:
+              run_dir: str, parameters, vlm, compute, world_action: Optional[str] = None,
+              temperature: Optional[float] = None) -> dict:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.webvoyager import WebVoyagerPlayEnv, load_webvoyager
     from cusi.eval.supervision import model
     parameters = load_parameters(parameters)
-    vlm = vlm or model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
+    vlm = vlm or model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
+                       temperature=temperature)
     wv = load_webvoyager(project_root=parameters["project_root"])
     wam = None
     if world_action is not None:
@@ -229,11 +232,12 @@ def judge(*, run_dir: str, judge_model_name: str, judge_model_backend: str, judg
 @click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy "
                                                    "(cusi/world_action), e.g. oracle_preview.")
 @seed_option
+@temperature_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, judge_model_name, judge_model_backend,
             judge_vllm_base_url, run_name, task_file, tasks, skip_judge, workers, world_action, overwrite,
-            ignore_config_violation, seed):
+            ignore_config_violation, seed, temperature):
     """WebVoyager test-set evaluation through WebVoyagerPlayEnv, with the final Web agent (cusi/agents/agent.py)."""
     if task_file == "cusi":
         from cusi.envs.webvoyager import excluded_sites, filtered_task_file
@@ -244,7 +248,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
     rows = load_tasks(task_file=task_file, tasks=task_list(tasks=tasks))
     log_info(f"[web eval] {len(rows)} tasks from {task_file}", parameters=parameters)
     run_dir = eval_run(parameters=parameters, env="web", run=run_name)
-    run = EvalRun(directory=run_dir, config={"env": "web", "agent": AGENT_VERSION, "decoding": DECODING,
+    run = EvalRun(directory=run_dir, config={"env": "web", "agent": AGENT_VERSION,
+                                             "decoding": decoding(temperature=temperature),
                                              "model_name": model_name,
                                              "model_backend": model_backend,
                                              "judge_model_name": judge_model_name,
@@ -262,7 +267,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, judge_model_na
             continue
         jobs.append(dict(task=task, task_dir=task_dir, model_name=model_name, model_backend=model_backend,
                          vllm_base_url=vllm_base_url, data_file=task_file, run_dir=run_dir,
-                         parameters=parameters if workers <= 1 else None, world_action=world_action))
+                         parameters=parameters if workers <= 1 else None, world_action=world_action,
+                         temperature=temperature))
     log_info(f"[web eval] {run_name}: {len(jobs)} tasks to run ({len(rows)} in the file), "
              f"{workers} worker(s) -> {run_dir}", parameters=parameters)
 

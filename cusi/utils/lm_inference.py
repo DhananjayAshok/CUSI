@@ -43,6 +43,8 @@ _RATE_LIMITS: dict[str, int] = {
     "claude-sonnet-4-6": 60,
     "claude-haiku-4-5-20251001": 60,
     "google/gemini-3.1-pro-preview": 60,
+    "google/gemini-3.5-flash-lite": 600,
+    "google/gemini-3.6-flash": 600,
     "qwen/qwen3-vl-235b-a22b-instruct": 60,
 }
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Slurm job for scripts/slurm/annotate.sh (all logic lives there). Submit from the CUSI root:
-#   sbatch --output="$results_dir/logs/annotate_%j.out" slurm/annotate.sh --env <env> --run <run> --model <model>
+#   sbatch --output="$results_dir/logs/annotate_%j.out" slurm/annotate.sh --env <env> --run <run>[,<run>...] \
+#       --model <model>
 # Arguments after the script name are passed through to scripts/slurm/annotate.sh.
-# vLLM serves --model on every visible GPU (Gemma-4-31B needs 2).
+# vLLM serves --model on every visible GPU (Gemma-4-31B needs 2 A6000s; an 8B model fits one GPU: submit with
+# --gres to change).
 #SBATCH --job-name=cusi-annotate
 #SBATCH --partition=medium-lg
 #SBATCH --gres=gpu:rtxa6000:2

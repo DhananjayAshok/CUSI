@@ -70,6 +70,18 @@ NO_TYPING_PATCHES = (("For `click`, `long_press` and `input_text`, the index",
                      ("type and report content EXACTLY", "report content EXACTLY"))
 # F56: what a text field holds after typing.
 READBACK_MATCH_CHARS = 40
+# Compact element lists (opt-in, M3AExecutor(compact_elements=True) and the practice dataset's --compact_elements):
+# every false / empty field of an element line is dropped (an absent field means false), ~2k tokens on a long screen.
+_ELEMENT_LINE = re.compile(r"^UI element \d+: \{.*\}$", re.MULTILINE)
+_EMPTY_FIELD = re.compile(r', "\w+": (?:False|None|""|\[\])(?=, "|\}$)')
+
+
+def compact_elements(text: str) -> str:
+    """Every "UI element k: {...}" line of text without its False / None / "" / [] fields; other lines unchanged.
+    Idempotent, so the same function serves the executor's lists and whole prompt texts (dataset rows)."""
+    if not text:
+        return text
+    return _ELEMENT_LINE.sub(lambda m: _EMPTY_FIELD.sub("", m.group(0)), text)
 
 
 def insert(*, prompt: str, text: str) -> str:
@@ -132,7 +144,7 @@ def _parse_elements(text: str) -> list:
     out = []
     for m in re.finditer(r'UI element (\d+): \{(.*)\}', text or ""):
         body = m.group(2)
-        t = re.search(r'"text": "(.*?)", "', body)
+        t = re.search(r'"text": "(.*?)"(?:, "|$)', body)     # (?:...|$): a compact line may end at its text
         out.append((int(m.group(1)), t.group(1) if t else "", '"is_editable": True' in body))
     return out
 
@@ -209,8 +221,11 @@ class M3AExecutor(Executor):
     MAX_NEW_TOKENS = 1000      # benchmark_adapters/android_world_adapter.py InferenceModelWrapper
     TEMPERATURE = 0.0
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, *, compact_elements: bool = False, **kwargs) -> None:
+        """compact_elements: the action and summary prompts show compact element lists (compact_elements()); the
+        env's element text, and the readback note's parse of it, are unchanged."""
         super().__init__(**kwargs)
+        self.compact = compact_elements
         self._notes = ""
         self._subgoals: list = []
         self._done: set = set()
@@ -233,6 +248,11 @@ class M3AExecutor(Executor):
     def restore_history(self, history: list) -> None:
         self._summaries = list(history)
 
+    def _elements(self, *, obs: dict) -> str:
+        """The observation's element list as the prompts show it."""
+        text = obs["texts"]["ui_elements"]
+        return compact_elements(text) if self.compact else text
+
     def _history(self) -> list:
         return ["Step " + str(i + 1) + "- " + s for i, s in enumerate(self._summaries)]
 
@@ -244,7 +264,7 @@ class M3AExecutor(Executor):
             self._subgoals = parse_subgoals(response=out)
         obs, info = self.env.observe()
         self._before = (obs, info)
-        prompt = action_prompt(goal=self.task, history=self._history(), ui_elements=obs["texts"]["ui_elements"],
+        prompt = action_prompt(goal=self.task, history=self._history(), ui_elements=self._elements(obs=obs),
                                guidance=hint, notes=self._notes, subgoals=self._subgoals, done=self._done,
                                context=device_context(env=self.env),
                                no_typing=getattr(self.env, "action_mode", "all") == "no_typing")
@@ -305,7 +325,7 @@ class M3AExecutor(Executor):
         after = np.array(obs_after["frame"], copy=True)
         m3a_utils.add_screenshot_label(after, "after")
         prompt = m3a._summarize_prompt(pending["action"], pending["reason"], self.task,
-                                       obs_before["texts"]["ui_elements"], obs_after["texts"]["ui_elements"])
+                                       self._elements(obs=obs_before), self._elements(obs=obs_after))
         current = self._current_call
         summary = self.call(tag="summary", prompt=prompt, images=[before, after])
         self._current_call = current   # the step stays owned by the action call

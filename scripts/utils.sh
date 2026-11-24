@@ -274,18 +274,20 @@ declare -A PRACTICE_DEFAULTS=(
     ["lora"]="none"
 )
 
-# scripts/slurm/annotate.sh (the model is always given: never defaulted)
+# scripts/slurm/annotate.sh (the model is always given: never defaulted; --run may list several runs)
 ANNOTATE_ESSENTIALS=("env" "run" "model")
 declare -A ANNOTATE_DEFAULTS=(
     ["max_steps"]="30"
     ["n_per_flavour"]="3"
     ["sample_seed"]="0"
     ["workers"]="16"
+    ["parallel"]="3"
+    ["vllm_extra"]="none"
     ["vllm_port"]="none"
 )
 
 # scripts/slurm/task_coverage.sh: the judge and embedder are this script's defaults (override per run).
-TASK_COVERAGE_ESSENTIALS=("env" "run")
+TASK_COVERAGE_ESSENTIALS=("env" "run" "annotation_model")
 declare -A TASK_COVERAGE_DEFAULTS=(
     ["judge_model"]="google/gemma-4-31b-it"
     ["embedder_model"]="Qwen/Qwen3-Embedding-8B"
@@ -324,7 +326,7 @@ declare -A STATE_COVERAGE_DEFAULTS=(
 )
 
 # scripts/slurm/task_diversity.sh
-TASK_DIVERSITY_ESSENTIALS=("env" "run")
+TASK_DIVERSITY_ESSENTIALS=("env" "run" "annotation_model")
 declare -A TASK_DIVERSITY_DEFAULTS=(
     ["judge_model"]="google/gemma-4-31b-it"
     ["embedder_model"]="Qwen/Qwen3-Embedding-8B"
@@ -351,6 +353,14 @@ declare -A FINETUNE_EVAL_DEFAULTS=(
 ACTION_REPRO_ESSENTIALS=("model" "lora" "out")
 declare -A ACTION_REPRO_DEFAULTS=(
     ["n"]="300"
+)
+
+# scripts/slurm/base_disagree.sh
+BASE_DISAGREE_ESSENTIALS=("model" "dataset_dir" "out")
+declare -A BASE_DISAGREE_DEFAULTS=(
+    ["out_dataset"]="none"
+    ["val_copy"]="200"
+    ["max_model_len"]="16384"
 )
 
 # scripts/slurm/testbed.sh
@@ -402,6 +412,7 @@ declare -A CURIOSITY_PARITY_DEFAULTS=(
 # scripts/slurm/eval.sh
 EVAL_ESSENTIALS=("env" "model" "run")
 declare -A EVAL_DEFAULTS=(
+    ["compact_elements"]="false"
     ["workers"]="1"
     ["n_tasks"]="none"
     ["tasks"]="none"
@@ -414,6 +425,7 @@ declare -A EVAL_DEFAULTS=(
     ["overwrite"]="false"
     ["ignore_config_violation"]="false"
     ["seed"]="0"
+    ["temperature"]="none"
     ["vllm_extra"]="none"
     ["lora"]="none"
     ["game"]="none"
@@ -421,6 +433,27 @@ declare -A EVAL_DEFAULTS=(
     ["world_action_device"]="cpu"
     ["world_action_shadow"]="true"
     ["keep_vllm"]="false"
+)
+
+# scripts/slurm/eval_api.sh
+EVAL_API_ESSENTIALS=("env" "model" "model_backend" "run")
+declare -A EVAL_API_DEFAULTS=(
+    ["stage"]="agent"
+    ["tasks"]="none"
+    ["task_file"]="cusi"
+    ["workers"]="1"
+    ["n_emulators"]="1"
+    ["judge_model"]="none"
+    ["vllm_port"]="none"
+)
+
+# scripts/slurm/eval_api_judge.sh
+EVAL_API_JUDGE_ESSENTIALS=("model" "model_backend" "run" "judge_model" "judge_model_backend")
+declare -A EVAL_API_JUDGE_DEFAULTS=(
+    ["tasks"]="none"
+    ["task_file"]="cusi"
+    ["workers"]="6"
+    ["from_run"]="none"
 )
 
 # scripts/slurm/eval_server.sh

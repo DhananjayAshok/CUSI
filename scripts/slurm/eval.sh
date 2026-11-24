@@ -9,6 +9,8 @@
 #
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> \
 #       [--workers <value>] [--n_tasks <value>] [--tasks <value>] [--seed <n>] [--vllm_port <value>]
+#   bash scripts/slurm/eval.sh --env <env> ... [--temperature <t>]   # every agent call sampled at t (default greedy;
+#       # the Web judge stays greedy), recorded as decoding "t<t>" in the run config
 #   bash scripts/slurm/eval.sh --env gameboy ... [--game <value>]   # a GameBoyWorlds game other than pokemon_red
 #   bash scripts/slurm/eval.sh --env <env> ... [--world_action <value>]   # a World Action Model deciding in place of the
 #       # executor (cusi/world_action): GameBoy a model dir / world model name / oracle / oracle_preview; Web and
@@ -16,6 +18,7 @@
 #   bash scripts/slurm/eval.sh --env <env> ... [--task_file <value>] [--judge_model <value>]   # no --judge_model: agent only
 #   bash scripts/slurm/eval.sh --env <env> ... [--n_emulators <value>]   # K emulators, shard i/K -> run <run>_s<i>
 #   bash scripts/slurm/eval.sh --env android ... [--android_wait <seconds>]   # sleep after each action (default 2)
+#   bash scripts/slurm/eval.sh --env android ... [--compact_elements true]   # compact UI element lists in the prompts
 #   bash scripts/slurm/eval.sh --env <env> --model <model> --run <run> --judge_only <judge_only> --judge_model <judge_model>   # score a finished run
 #   bash scripts/slurm/eval.sh --env <env> ... [--overwrite <value>] [--ignore_config_violation <value>]
 #   (--tasks may name a file of task ids, one per line)
@@ -83,6 +86,7 @@ FLAGS=(--model_name "$AGENT_MODEL" --model_backend vllm --vllm_base_url "$URL" -
 [[ "${ARGS["ignore_config_violation"]}" == "true" ]] && FLAGS+=(--ignore_config_violation)
 [[ "${ARGS["tasks"]}" != "none" ]] && FLAGS+=(--tasks "${ARGS["tasks"]}")
 [[ "${ARGS["seed"]}" != "0" ]] && FLAGS+=(--seed "${ARGS["seed"]}")
+[[ "${ARGS["temperature"]}" != "none" ]] && FLAGS+=(--temperature "${ARGS["temperature"]}")
 case "$ENV_NAME" in
     gameboy)
         FLAGS+=(--workers "${ARGS["workers"]}")
@@ -97,6 +101,7 @@ case "$ENV_NAME" in
         [[ "${ARGS["world_action"]}" != "none" ]] && FLAGS+=(--world_action "${ARGS["world_action"]}") ;;
     android)
         [[ "${ARGS["android_wait"]}" != "none" ]] && FLAGS+=(--wait_after_action_seconds "${ARGS["android_wait"]}")
+        [[ "${ARGS["compact_elements"]}" == "true" ]] && FLAGS+=(--compact_elements)
         [[ "${ARGS["world_action"]}" != "none" ]] && FLAGS+=(--world_action "${ARGS["world_action"]}") ;;
     *) echo "Unknown --env $ENV_NAME"; exit 1 ;;
 esac

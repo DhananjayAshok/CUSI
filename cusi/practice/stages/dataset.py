@@ -26,6 +26,7 @@ from cusi.agents.executors.base import strip_guidance, strip_guidance_messages
 from cusi.agents.supervisors.report import SupervisorCall
 from cusi.practice.prompts import AUGMENT_PARAPHRASE_PROMPT, fill
 from cusi.practice.stages.common import atomic_json, load_json, run_jobs
+from cusi.utils.api_reasoning import strip_api_reasoning, strip_embedded_reasoning
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.utils.parsing import parse_list
 from cusi.utils.paths import PracticePaths
@@ -51,19 +52,43 @@ def success_cutoff(*, safe_success_point, n_executor_calls: int, safety_margin: 
     return min(n_executor_calls, int(safe_success_point) + safety_margin)
 
 
-def call_messages(*, call, image_paths: list) -> list:
-    """The call's input as a chat with image paths, guidance cut."""
+def user_text(*, text: str, compact_elements: bool = False, strip_prompt_reasoning: bool = False) -> str:
+    """A user turn's text as a row shows it: optionally without API reasoning summaries pasted into it (an M3A
+    history's step summaries, strip_embedded_reasoning) and with compact UI element lists (as M3AExecutor with
+    compact_elements shows them)."""
+    if strip_prompt_reasoning:
+        text = strip_embedded_reasoning(text)
+    if compact_elements:
+        from cusi.agents.executors.m3a import compact_elements as compact
+        text = compact(text)
+    return text
+
+
+def call_messages(*, call, image_paths: list, compact_elements: bool = False,
+                  strip_prompt_reasoning: bool = False, api: bool = True) -> list:
+    """The call's input as a chat with image paths, guidance cut; earlier assistant turns without an API model's
+    reasoning summary (strip_api_reasoning; api: the practice model was API-served); user text through user_text
+    (both options off by default)."""
+    def clean(text: str) -> str:
+        return user_text(text=text, compact_elements=compact_elements, strip_prompt_reasoning=strip_prompt_reasoning)
+
     if getattr(call, "messages", None) is None:
-        return [{"role": "user", "content": [{"type": "text", "text": strip_guidance(call.prompt)}]
+        return [{"role": "user", "content": [{"type": "text", "text": clean(strip_guidance(call.prompt))}]
                  + [{"type": "image", "image": p} for p in image_paths]}]
     out = []
     for msg in strip_guidance_messages(call.messages):
         content = msg["content"]
         if isinstance(content, str):
-            out.append(dict(msg))
+            out.append({**msg, "content": strip_api_reasoning(content, api=api)} if msg["role"] == "assistant"
+                       else {**msg, "content": clean(content)})
+        elif msg["role"] == "assistant":
+            out.append({"role": msg["role"], "content": [
+                {**p, "text": strip_api_reasoning(p["text"], api=api)} if p["type"] == "text" else dict(p)
+                for p in content]})
         else:
             out.append({"role": msg["role"], "content": [
-                {"type": "image", "image": image_paths[p["image"]]} if p["type"] == "image" else dict(p)
+                {"type": "image", "image": image_paths[p["image"]]} if p["type"] == "image"
+                else {**p, "text": clean(p["text"])} if p["type"] == "text" else dict(p)
                 for p in content]})
     return out
 
@@ -80,7 +105,8 @@ def replace_task(*, messages: list, task: str, new: str) -> list:
     return out
 
 
-def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, images_dir: str) -> list:
+def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, images_dir: str,
+             compact_elements: bool = False, strip_prompt_reasoning: bool = False, api: bool = True) -> list:
     task = record["task"]
     episode_id = f"{task['task_id']}_t{entry['try']}"
     calls = agent_calls(report=entry["report"])
@@ -98,6 +124,9 @@ def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, im
                 accepted = call.accepted_by_env()
                 if success and not accepted:
                     continue
+        response = strip_api_reasoning(call.response, api=api)
+        if not response:      # an API thinking model's reply that was only reasoning: no answer to learn
+            continue
         image_paths = []   # relative to the dataset directory, so the dataset survives a rename or a move
         for i, image in enumerate(call.images):
             name = f"{episode_id}_{call_idx}_{i}.png"
@@ -107,7 +136,10 @@ def try_rows(*, record: dict, entry: dict, success: bool, safety_margin: int, im
         rows.append({"episode_id": episode_id, "task_id": task["task_id"], "task": task["task"],
                      "task_source": task["source"], "scene": task["scene"], "node_id": task["node_id"],
                      "try": entry["try"], "role": role, "tag": tag, "call_idx": call_idx, "accepted": accepted,
-                     "messages": call_messages(call=call, image_paths=image_paths), "response": call.response,
+                     "messages": call_messages(call=call, image_paths=image_paths,
+                                               compact_elements=compact_elements,
+                                               strip_prompt_reasoning=strip_prompt_reasoning, api=api),
+                     "response": response,
                      # how the call sent its images (cusi.finetune.data.as_sent): a single-prompt call as JPEG,
                      # a chat call as PNG
                      "image_encoding": "jpeg" if getattr(call, "messages", None) is None else "png"})
@@ -142,7 +174,14 @@ def paraphrase(*, spec, vlm, tasks: list, n: int, path: str, max_new_tokens: int
 
 
 def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety_margin: int, val_frac: float,
-                  seed: int, max_new_tokens: int, overwrite: bool, parameters: dict, labels: str = "judge") -> None:
+                  seed: int, max_new_tokens: int, overwrite: bool, parameters: dict, labels: str = "judge",
+                  val_copy: int = 0, compact_elements: bool = False, strip_prompt_reasoning: bool = False,
+                  api: bool = True) -> None:
+    """val_copy (with val_frac 0, where no task is held out, e.g. test-set oracle practice): this many success train
+    rows (seeded, paraphrases excluded) are also written as success/validation, so the fine-tune's validation loss
+    measures fit, not generalisation. compact_elements / strip_prompt_reasoning: user text as user_text shows it."""
+    if val_copy and val_frac:
+        raise ValueError("val_copy is for datasets without held-out tasks: use it with val_frac 0")
     out_dir = paths.dataset_dir
     if os.path.exists(os.path.join(out_dir, "stats.json")) and not overwrite:
         log_info(f"dataset: already built ({out_dir}).", parameters=parameters)
@@ -172,7 +211,9 @@ def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety
             kind = "success" if success else "failure"
             stats[f"{kind}_tries"] += 1
             rows[(kind, split)] += try_rows(record=record, entry=entry, success=success,
-                                            safety_margin=safety_margin, images_dir=images_dir)
+                                            safety_margin=safety_margin, images_dir=images_dir,
+                                            compact_elements=compact_elements,
+                                            strip_prompt_reasoning=strip_prompt_reasoning, api=api)
     train_tasks = sorted({r["task"] for r in rows[("success", "train")]})
     paraphrases = paraphrase(spec=spec, vlm=vlm, tasks=train_tasks, n=n_paraphrases,
                              path=os.path.join(out_dir, "paraphrases.json"), max_new_tokens=max_new_tokens,
@@ -182,6 +223,11 @@ def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety
         for new in paraphrases.get(r["task"], []):
             augmented.append({**r, "task": new, "paraphrase_of": r["task"],
                               "messages": replace_task(messages=r["messages"], task=r["task"], new=new)})
+    if val_copy:
+        originals = rows[("success", "train")]
+        order = np.random.default_rng(seed).permutation(len(originals))[:val_copy]
+        rows[("success", "validation")] = [originals[i] for i in sorted(order)]
+        stats["validation_copied_from_train"] = len(rows[("success", "validation")])
     rows[("success", "train")] += augmented
     for (kind, split), split_rows in rows.items():
         os.makedirs(os.path.join(out_dir, kind), exist_ok=True)
@@ -192,5 +238,7 @@ def build_dataset(*, spec, vlm, paths: PracticePaths, n_paraphrases: int, safety
     stats["paraphrase_rows"] = len(augmented)
     stats["validation_tasks"] = len(val)
     stats["labels"] = labels
+    if compact_elements or strip_prompt_reasoning:
+        stats["compact_elements"], stats["strip_prompt_reasoning"] = compact_elements, strip_prompt_reasoning
     atomic_json(dict(stats), os.path.join(out_dir, "stats.json"))
     log_info(f"dataset: {dict(stats)} -> {out_dir}", parameters=parameters)

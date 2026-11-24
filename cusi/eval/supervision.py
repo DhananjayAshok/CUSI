@@ -8,20 +8,26 @@ from typing import Callable, Optional
 from cusi.agents.supervisors.report import jsonable
 
 #: Test-set evals decode greedily (every supervisor, executor and judge call at temperature 0), so a run is repeatable
-#: and two models compare without sampling noise; recorded in each eval run's config.
+#: and two models compare without sampling noise; recorded in each eval run's config. --temperature T samples every
+#: agent call at T instead (recorded as decoding "t<T>"); the Web judge (auto_eval.py) stays at temperature 0.
 DECODING = "greedy"
 
 
+def decoding(*, temperature: Optional[float]) -> str:
+    """An eval run's recorded decoding: greedy, or t<T> for every agent call sampled at temperature T."""
+    return DECODING if temperature is None else f"t{temperature:g}"
+
+
 @functools.lru_cache(maxsize=None)
-def _vlm(model_name: str, model_backend: str, vllm_base_url: Optional[str]):
+def _vlm(model_name: str, model_backend: str, vllm_base_url: Optional[str], temperature: Optional[float]):
     from cusi.agents.vlm import AgentVLM
     return AgentVLM(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
-                    greedy=DECODING == "greedy")
+                    greedy=temperature is None, temperature=temperature)
 
 
-def model(*, model_name: str, model_backend: str, vllm_base_url: Optional[str]):
-    """One model client per (model, backend, server) per process."""
-    return _vlm(model_name, model_backend, vllm_base_url)
+def model(*, model_name: str, model_backend: str, vllm_base_url: Optional[str], temperature: Optional[float] = None):
+    """One model client per (model, backend, server, temperature) per process; temperature None decodes greedily."""
+    return _vlm(model_name, model_backend, vllm_base_url, temperature)
 
 
 def supervisor_extra(*, report, result: dict) -> dict:

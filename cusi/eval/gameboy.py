@@ -6,14 +6,15 @@ import gzip
 import os
 import pickle
 import time
+from typing import Optional
 import click
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
-from cusi.eval.supervision import DECODING, model, run_pool, supervisor_extra, supervisor_state
-from cusi.eval.options import seed_option, task_list
+from cusi.eval.supervision import decoding, model, run_pool, supervisor_extra, supervisor_state
+from cusi.eval.options import seed_option, task_list, temperature_option
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
 GAMEBOY_WAIT_TICKS = 20          # GameBoyRL benchmark_scripts/common.py run_episode
@@ -50,26 +51,28 @@ def action_sequence(*, reports: list) -> list:
 
 def run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
              out_dir: str, parameters=None, world_action=None, world_action_device: str = "cpu",
-             world_action_shadow: bool = True, max_steps: int = MAX_STEPS) -> EvalRow:
-    """One task, with its compute (EvalRow.compute)."""
+             world_action_shadow: bool = True, max_steps: int = MAX_STEPS,
+             temperature: Optional[float] = None) -> EvalRow:
+    """One task, with its compute (EvalRow.compute); temperature None decodes greedily."""
     with tally() as compute:
         result = _run_task(row=row, task_id=task_id, model_name=model_name, model_backend=model_backend,
                            vllm_base_url=vllm_base_url, session_name=session_name, out_dir=out_dir,
                            parameters=parameters, world_action=world_action, world_action_device=world_action_device,
-                           world_action_shadow=world_action_shadow, max_steps=max_steps)
+                           world_action_shadow=world_action_shadow, max_steps=max_steps, temperature=temperature)
     result.compute = compute.snapshot()
     return result
 
 
 def _run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, vllm_base_url, session_name: str,
               out_dir: str, parameters, world_action, world_action_device: str, world_action_shadow: bool,
-              max_steps: int) -> EvalRow:
+              max_steps: int, temperature: Optional[float]) -> EvalRow:
     from cusi.utils.parameter_handling import load_parameters
     from cusi.envs.gameboy import GameBoyPlayEnv
     from cusi.eval.episode import write_episode
     from cusi.agents.records import InvalidRecord
     parameters = load_parameters(parameters)
-    vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
+    vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
+                temperature=temperature)
     wam = None
     if world_action is not None:    # cached per process: one load for every task a worker runs
         from cusi.world_action import load_world_action_model
@@ -141,11 +144,12 @@ def _run_task(*, row: dict, task_id: str, model_name: str, model_backend: str, v
 @click.option("--world_action_shadow", default=True, type=bool, help="Also record (never execute) the base policy's "
               "own decision at every world-action decision: one extra VLM call per decision.")
 @seed_option
+@temperature_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, game, n_tasks, rerun_failed, workers,
-            overwrite, ignore_config_violation, tasks, seed, world_action, world_action_device, world_action_shadow,
-            max_steps):
+            overwrite, ignore_config_violation, tasks, seed, temperature, world_action, world_action_device,
+            world_action_shadow, max_steps):
     """GameBoy benchmark through GameBoyPlayEnv test mode, with the final GameBoy agent."""
     tasks = task_list(tasks=tasks)
     wam_summary = None
@@ -155,7 +159,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
         wam_summary = {**wam.summary(), "transfer": wam.transfer_kind(game=game)}
         world_action = wam.directory or world_action
     config = dict(env="gameboy", agent=AGENT_VERSION, model_name=model_name, model_backend=model_backend, game=game,
-                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=DECODING,
+                  n_tasks=n_tasks, tasks=tasks, workers=workers, seed=seed, decoding=decoding(temperature=temperature),
                   world_action=world_action, world_action_model=wam_summary,
                   world_action_shadow=world_action_shadow if world_action else None,
                   **({} if max_steps == MAX_STEPS else {"max_steps": max_steps}))
@@ -176,7 +180,7 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, game
                          vllm_base_url=vllm_base_url, session_name=session, out_dir=out_dir,
                          parameters=parameters if workers <= 1 else None,
                          world_action=world_action, world_action_device=world_action_device,
-                         world_action_shadow=world_action_shadow, max_steps=max_steps))
+                         world_action_shadow=world_action_shadow, max_steps=max_steps, temperature=temperature))
 
     def on_result(job, result):
         row, task_id = job["row"], job["task_id"]

@@ -166,8 +166,8 @@ def trees_blockers(*, parameters: dict, path: str) -> list:
             out.append("search running or killed (no summary.json; --time_limited if it ended at its time limit)")
     elif _newer(os.path.join(path, EXPANSIONS_FILE), summary):
         out.append("search resumed after its summary.json")
-    if unfinished(directory=path):
-        out.append("annotation unfinished (no summary.json after its meta.json)")
+    for model in unfinished(directory=path):
+        out.append(f"annotation by {model} unfinished (no summary.json after its meta.json)")
     for stage in ("task_coverage", "task_diversity"):
         for embed_dir in _existing(os.path.join(path, stage, "*")):
             if not os.path.exists(os.path.join(embed_dir, "config.json")):

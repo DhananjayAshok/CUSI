@@ -40,8 +40,10 @@ class Agent:
     """An env's executor under its supervisor; one supervisor (and one executor per leg) per run()."""
 
     def __init__(self, *, env_name: str, env, vlm, parameters: dict, world_action=None,
-                 world_action_shadow: bool = True) -> None:
+                 world_action_shadow: bool = True, executor_options: Optional[dict] = None) -> None:
         self.env_name = env_name
+        #: Opt-in keyword arguments of the executor class (e.g. M3AExecutor's compact_elements); none by default.
+        self.executor_options = dict(executor_options or {})
         self.env = env
         self.vlm = vlm
         self._parameters = parameters
@@ -58,7 +60,7 @@ class Agent:
 
     def make_executor(self, *, previous_history=None):
         return self.executor_class(env=self.env, vlm=self.vlm, previous_history=previous_history,
-                                   parameters=self._parameters)
+                                   parameters=self._parameters, **self.executor_options)
 
     def run(self, *, task: str, obs: dict, info: dict, max_steps: int,
             guidance: Optional[str] = None) -> tuple:
@@ -70,9 +72,9 @@ class Agent:
 
 
 def make_agent(*, env_name: str, env, vlm, parameters: dict, world_action=None,
-               world_action_shadow: bool = True) -> Agent:
+               world_action_shadow: bool = True, executor_options: Optional[dict] = None) -> Agent:
     return Agent(env_name=env_name, env=env, vlm=vlm, parameters=parameters, world_action=world_action,
-                 world_action_shadow=world_action_shadow)
+                 world_action_shadow=world_action_shadow, executor_options=executor_options)
 
 
 def merged_leg(*, report) -> LegReport:

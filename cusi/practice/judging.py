@@ -9,23 +9,25 @@ from cusi.practice.prompts import (CRITIQUE_CONSOLIDATE_PROMPT, CRITIQUE_SLICE_P
 from cusi.utils.parsing import parse_int, parse_yes_no
 from cusi.agents.records import LegReport
 from cusi.agents.vlm import AgentVLM
+from cusi.utils.api_reasoning import strip_api_reasoning
 
 DESCRIBE_SLICE_SIZE = 10
 DEFAULT_LOOKBACK = 8
 
 
 def _batched(vlm: AgentVLM, *, prompts: list, images: list, max_new_tokens: int, log: list, tag: str) -> list:
+    """The replies, parsed without an API thinking model's reasoning summary (logged whole)."""
     out = vlm.infer(texts=prompts, images=images, max_new_tokens=max_new_tokens)["output"]
     for p, o in zip(prompts, out):
         log.append({"tag": tag, "prompt": p, "response": o})
-    return out
+    return [strip_api_reasoning(o, api=vlm.api) for o in out]
 
 
 def _single(vlm: AgentVLM, *, prompt: str, images: Optional[list], max_new_tokens: int, log: list,
             tag: str) -> str:
     out = vlm.infer(texts=prompt, images=images, max_new_tokens=max_new_tokens)["output"]
     log.append({"tag": tag, "prompt": prompt, "response": out})
-    return out
+    return strip_api_reasoning(out, api=vlm.api)
 
 
 def describe_trajectory(*, frames: list, vlm: AgentVLM, domain: Domain, max_new_tokens: int, log: list) -> str:

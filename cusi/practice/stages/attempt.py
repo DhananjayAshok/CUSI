@@ -27,15 +27,15 @@ from cusi.utils.log_handling import log_error, log_info, log_warn
 from cusi.utils.paths import PracticePaths
 
 
-def tree_tasks(*, restorer: NodeRestorer, parameters: dict) -> list:
-    """Every task of an annotated search run (cusi.search.annotate), by start node (unrestorable start nodes' tasks
-    are left out); "child" is the first node of the task's path, "end" its last."""
-    from cusi.search.annotate import ANNOTATION_DIR, TASKS_FILE, annotation_dir
+def tree_tasks(*, restorer: NodeRestorer, annotation_model: str, parameters: dict) -> list:
+    """Every task of a search run as annotated by annotation_model (cusi.search.annotate), by start node
+    (unrestorable start nodes' tasks are left out); "child" is the first node of the task's path, "end" its last."""
+    from cusi.search.annotate import TASKS_FILE, annotation_dir
     from cusi.search.store import read_rows
     nodes = restorer.nodes
-    path = os.path.join(annotation_dir(directory=restorer.directory), TASKS_FILE)
+    path = os.path.join(annotation_dir(directory=restorer.directory, model_name=annotation_model), TASKS_FILE)
     if not os.path.exists(path):
-        log_error(f"{restorer.directory} has no {ANNOTATION_DIR}/ tasks: run cusi.search.annotate first",
+        log_error(f"{restorer.directory} has no tasks by {annotation_model}: run cusi.search.annotate first",
                   parameters=parameters)
     by_start = {}
     for r in read_rows(path):
@@ -68,7 +68,8 @@ def attempt(*, spec, pool, vlm, paths: PracticePaths, restorer: NodeRestorer, ma
     """restorer: the annotated search run's NodeRestorer. sample_tasks: the first this many of a seeded (sample_seed)
     shuffle of the tasks, so a larger sample_tasks extends a smaller one (None: all). max_tasks: then the first this
     many (None: all)."""
-    tasks = tree_tasks(restorer=restorer, parameters=parameters)
+    # the tree's annotation by the practising model itself
+    tasks = tree_tasks(restorer=restorer, annotation_model=vlm.model_name, parameters=parameters)
     if sample_tasks is not None:
         order = list(range(len(tasks)))
         random.Random(sample_seed).shuffle(order)

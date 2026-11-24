@@ -109,12 +109,12 @@ def test_tasks(*, env_name: str, parameters: dict, game: str = None) -> list:
 TEST_SPLITS = ("all", "test")
 
 
-def proposed_tasks(*, directory: str) -> list:
-    """Every task of the annotated tree (cusi.search.annotate), deduplicated by text: {"proposed_id", "task",
-    "sources"}; a source is {"node_id" (the task's start node), "end"}."""
+def proposed_tasks(*, directory: str, annotation_model: str) -> list:
+    """Every task of the tree as annotated by annotation_model (cusi.search.annotate), deduplicated by text:
+    {"proposed_id", "task", "sources"}; a source is {"node_id" (the task's start node), "end"}."""
     from cusi.search.annotate import read_tasks
     by_key = {}
-    for r in read_tasks(directory=directory):
+    for r in read_tasks(directory=directory, model_name=annotation_model):
         text = " ".join(r["task"].split())
         entry = by_key.setdefault(text_key(text), {"task": text, "sources": []})
         entry["sources"].append({"node_id": r["start"], "end": r["end"]})
@@ -212,8 +212,9 @@ def split_id(*, env_name: str, test_id: str, game: str = None) -> str:
     return f"gb.{game or GAMEBOY_GAME}.{test_id}"
 
 
-def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, embedder_model: str, k: int,
-              dedup: str, dedup_cos: float, parameters: dict, test_split: str = "all") -> None:
+def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, annotation_model: str,
+              embedder_model: str, k: int, dedup: str, dedup_cos: float, parameters: dict,
+              test_split: str = "all") -> None:
     with open(os.path.join(directory, "config.json")) as f:
         game = json.load(f).get("game")      # GameBoy trees: their game (None: Pokemon Red)
     tests = test_tasks(env_name=env_name, parameters=parameters, game=game)
@@ -222,7 +223,7 @@ def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, emb
         split = load_splits(parameters=parameters)
         tests = [t for t in tests if split.get(split_id(env_name=env_name, test_id=t["test_id"], game=game),
                                                {}).get("split") == "test"]
-    proposals = proposed_tasks(directory=directory)
+    proposals = proposed_tasks(directory=directory, annotation_model=annotation_model)
     n_exact = len(proposals)
     holder = {}
 
@@ -248,7 +249,7 @@ def run_embed(*, cov_dir: str, emb_path: str, env_name: str, directory: str, emb
     with open(os.path.join(cov_dir, "config.json"), "w") as f:
         json.dump({"env": env_name, "run_dir": directory, "embedder_model": embedder_model, "k": k,
                    "query_instruction": QUERY_INSTRUCTION, "game": game, "n_test": len(tests),
-                   "test_split": test_split,
+                   "test_split": test_split, "annotation_model": annotation_model,
                    "n_proposed": len(proposals),
                    "dedup": dedup, "dedup_cos": dedup_cos if dedup == "semantic" else None, "n_exact_text": n_exact,
                    "android_suite_seed": ANDROID_SUITE_SEED if env_name == "android" else None}, f, indent=1)
@@ -361,6 +362,7 @@ def run_summary(*, cov_dir: str, judge_dir: str, parameters: dict) -> dict:
 @click.command()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
 @click.option("--run", "run_name", required=True, help="An annotated search run of this env.")
+@click.option("--annotation_model", required=True, help="Whose annotation of the run to score (cusi.search.annotate).")
 @click.option("--stage", default="all", show_default=True, type=click.Choice(STAGES))
 @click.option("--embedder_model", required=True, help="A Qwen3-Embedding style model (transformers).")
 @click.option("--judge_model", default=None, help="The judge (required for the judge and all stages).")
@@ -374,16 +376,17 @@ def run_summary(*, cov_dir: str, judge_dir: str, parameters: dict) -> dict:
                    "tasks).")
 @dedup_options
 @click.pass_obj
-def command(parameters, env_name, run_name, stage, embedder_model, judge_model, judge_backend, vllm_base_url, k,
-            batch_size, max_new_tokens, test_split, dedup, dedup_cos):
+def command(parameters, env_name, run_name, annotation_model, stage, embedder_model, judge_model, judge_backend,
+            vllm_base_url, k, batch_size, max_new_tokens, test_split, dedup, dedup_cos):
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
     name = "task_coverage" + ("" if test_split == "all" else "_testsplit")
-    emb_path, cov_dir = stage_dirs(stage_dir=os.path.join(directory, name, short_name(embedder_model)),
+    emb_path, cov_dir = stage_dirs(stage_dir=os.path.join(directory, name, short_name(annotation_model),
+                                                          short_name(embedder_model)),
                                    dedup=dedup, cos_threshold=dedup_cos)
     if stage in ("embed", "all"):
         run_embed(cov_dir=cov_dir, emb_path=emb_path, env_name=env_name, directory=directory,
-                  embedder_model=embedder_model, k=k, dedup=dedup, dedup_cos=dedup_cos,
-                  parameters=parameters, test_split=test_split)
+                  annotation_model=annotation_model, embedder_model=embedder_model, k=k, dedup=dedup,
+                  dedup_cos=dedup_cos, parameters=parameters, test_split=test_split)
     if stage == "embed":
         return
     if judge_model is None:

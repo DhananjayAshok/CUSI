@@ -4,8 +4,8 @@
 # task's nearest other tasks for the same functionality. Run from the CUSI root (Slurm wrapper:
 # slurm/task_diversity.sh); rerunning continues where it stopped.
 #
-#   bash scripts/slurm/task_diversity.sh --env <env> --run <run> [--judge_model <value>] [--embedder_model <value>] \
-#       [--k <value>] [--vllm_port <value>]
+#   bash scripts/slurm/task_diversity.sh --env <env> --run <run> --annotation_model <model> \
+#       [--judge_model <value>] [--embedder_model <value>] [--k <value>] [--vllm_port <value>]
 source scripts/utils.sh || { echo "Could not source utils"; exit 1; }
 declare -A ARGS
 populate_dict TASK_DIVERSITY_DEFAULTS ARGS
@@ -19,7 +19,8 @@ if [[ "$PORT" == "none" ]]; then
     PORT=$(( 8100 + $(echo "$JOB" | tr -cd '0-9' | tail -c 6 | sed 's/^0*//;s/^$/0/') % 800 ))
 fi
 echo "Node: $(hostname)  GPUs: ${CUDA_VISIBLE_DEVICES:-none}  env=${ARGS["env"]} run=${ARGS["run"]}"
-COMMON=(--env "${ARGS["env"]}" --run "${ARGS["run"]}" --embedder_model "${ARGS["embedder_model"]}" --k "${ARGS["k"]}")
+COMMON=(--env "${ARGS["env"]}" --run "${ARGS["run"]}" --annotation_model "${ARGS["annotation_model"]}" \
+    --embedder_model "${ARGS["embedder_model"]}" --k "${ARGS["k"]}")
 python -u run_eval.py task_diversity "${COMMON[@]}" --stage embed || exit 1
 bash scripts/serve_vllm.sh --model "${ARGS["judge_model"]}" --port "$PORT" || exit 1
 trap "bash scripts/stop_vllm.sh --port $PORT" EXIT

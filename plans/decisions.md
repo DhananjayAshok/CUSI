@@ -3351,3 +3351,502 @@ itself. Audited PAE, OpenWebVoyager, OS-Genesis, UI-Voyager, MobileRL (repos clo
   android sat_random_s0 with every v1 update field and every report stripped): stage 1 wrote 337/337 reports, a
   rerun 0; stage 2 on 30 starts 121 calls, 66 tasks, a rerun all cached; proposed_tasks and practice tree_tasks read
   them.
+- 2026-11-18 (annotation p6 pilot, user's call "run the fix"; eval_server 297318, lg07; `python -m
+  cusi.search.annotate`, output annotation/p6/): p6 = p5 + in EXTEND an action on (or right after reaching) a screen
+  the task only reached is REVISE (the navigation becomes the task done there), NEW only when the edge leaves for
+  something unrelated; partials must pass the same filters as tasks (exact target, no fragment typing). Also: a
+  --max_starts pilot's stage 1 now describes only the edges its chains can reach within --max_steps (Red 209 of
+  2,870 edges, Web 182 of 5,844); a full run describes all.
+  Android random s0 (stage 1 from scratch: 337 reports, the tree had been stripped): 965 calls / 357 nodes (2.7 per
+  node), 687 tasks, 476 distinct (p5 308, p4 81, old 870 node + 323 edge), 71 partial, 209 nested, 325 REVISE
+  verdicts. VLM w_typing s0 (0 reports needed: the search wrote them): 797 / 280 (2.85 per node), 519 tasks, 338
+  distinct (p5 217, p4 41, old 724 + 255), 44 partial, 198 nested, 258 REVISE. Red random s0, 25 starts: 196 calls,
+  30 distinct (p5 38, p4 20), 13 partial, 7 REVISE.
+  Test split (76): coverage@7 random 0.039 / VLM 0.000 (p5 0.039 / 0.000; p4 0 / 0; old 0.197 / 0.145), coverage@5
+  0.539 / 0.276 (p5 0.566 / 0.303; p4 0.105 / 0.105; old 0.789 / 0.684); Vendi 19.9 / 17.6 on 411 / 287 deduped
+  tasks (p5 18.3 / 15.9; old 33.9 / 30.5). Navigation share of distinct tasks 0.77 / 0.79 (p5 0.86 / 0.83; p4 0.01 /
+  0.12; old edge tasks 0.73 / 0.77).
+  Read: the fix did not work. REVISE fires far more (325 / 258 vs 39 / 13), but mostly to turn a navigation into a
+  deeper navigation ("Open the App notifications page in Settings" -> "Open the Special app access page in
+  Settings"; "Open the Custom recurrence page ..." -> "Open the date picker for the end date ..."): the prompt's own
+  example "opens or edits an item listed there" let opening a deeper screen count as doing something there. Real
+  conversions exist but are a minority ("Open the sort options menu in Tasks app" -> "Sort tasks by priority in
+  Tasks app"; "Open the Security update settings" -> "Set a pattern for the screen lock in Settings"; "Turn off the
+  'Daily device usage' toggle in Digital Wellbeing"). Coverage and Vendi stay at p5's level. Red: mostly partials
+  and dialogue / sign reading in the benchmark's form ("Read the full Pokédex entry for Golbat", "Read the sign in
+  front of the Poké Mart"), a few low-value ones ("Send out Char", "Move toward the Pokemon Center").
+  Next fix to try (not run): REVISE only for a change made or an answer read on the reached screen; opening another
+  screen, menu or dialog from it is CONTINUE for the same task (its end does not move) or NEW.
+  Web part not run: web/sat_random_s0 not yet stripped by the deletion (tmp_strip_annotations.py, still in gameboy
+  after 3.5 h); server released rather than held idle. Queue script for it: tmp_p6_web_ready.sh.
+  Failure, mine: while the deletion ran I re-ran its tmp.sh once by accident (a parallel `bash tmp.sh` after my
+  Write to tmp.sh was rejected), a second strip racing the first on gameboy/sat_random_s0 (it crashed in rmtree);
+  the coordinator verified and restored the trees. Rule kept since: own script names, run only after a confirmed
+  write. Also: the first p6 attempt (02:50) died when the deletion removed annotation/ under it and stripped its new
+  reports. Note: stage 1 writes description / window_descriptions update rows into nodes.jsonl, the keys the strip
+  removes, so a later strip must not run over trees with new annotation output (or stage 1 could write its reports
+  under annotation/ instead).
+- 2026-11-18 (annotation p6, Web spot check after the strip; eval_server 298204, lg03): web/sat_random_s0, 25
+  starts: stage 1 wrote the 182 reachable reports; stage 2 126 calls (5.0 per start), 64 tasks, 64 distinct (p5 48,
+  p4 21), 6 partial, 22 nested, 28 REVISE verdicts; navigation share 0.80 (0.76 without nested; p5 0.85, p4 0.10).
+  Same pattern as Android: REVISE mostly deepens navigation ("Go to the 'Search on GitHub' documentation page" ->
+  "Navigate to the 'Searching users' page ..."; "Go to the 'Tutti i punti di noleggio auto' page" -> "Go to the car
+  rental locations page for Costa Rica on Booking.com"); some real info-finding tasks come out of it ("Go to the
+  bundled subscriptions help article on ESPN and find the link to view bundle plans and prices", "Go to the Arcade
+  section on the App Store for Vision and view the ratings and reviews for 'Alto's Odyssey — Remastered'"), and one
+  unachieved / vague one ("Fill out the complaint form on the Booking.com Dispute Resolution Center page"). p4's
+  WebVoyager-style tasks on the same starts ("Find the birth date, death date, and place of death for Harriet Tubman
+  on WolframAlpha", "Find the price of the AirPods 5 on the Apple website") are not recovered. Server released.
+- 2026-11-18 (annotation p7, user: "maximally adjusted to avoid tasks that don't fit"; eval_server 298205, lg03):
+  (1) Stage-1 reports now live in <run>/annotation/transitions.jsonl (shared by prompt versions; the VLM trees'
+  search-written base-row descriptions are still read from nodes.jsonl); nodes.jsonl is never written. The pilot
+  trees' appended rows (android sat_random_s0 337, gameboy sat_random_s0 273, web sat_random_s0 182) were moved there
+  (tmp_p7_migrate.py) and each nodes.jsonl reset to exactly strip_rows(storage/tmp/annotation_strip_backup/...)
+  (checked equal after the write). (2) p7 prompt: REVISE only for a change or a specific answer read out on the
+  reached screens; opening another screen / menu / dialog / tab / article is CONTINUE (end does not move) or NEW.
+  Navigation-only tasks only where the train flavours have them: GameBoy yes (Red "navigation" "Enter the Pokemon
+  Center", "menu" "Open the Map"; Link's Awakening navigation), Web no (its 3 open/visit train tasks all ask for an
+  answer there), Android no (none). (3) Fit gate after stage 2: one call per candidate (start and end screens, the
+  path's reports, the same train sample as stage 2 rather than only its flavour's: Android / Web candidates have no
+  reliable flavour label), ACCEPT only if (a) the path completes it, (b) the end screen shows it done or the answer,
+  (c) it reads like a train task, (d) not a one-click wrapper; candidates.jsonl / tasks.jsonl (accepted) /
+  rejected.jsonl (failed criteria + reason) / gate_calls.jsonl. Embedding signal (max cosine to train tasks,
+  Qwen3-Embedding-8B, tmp_p7_embed.py): AUC accepted vs rejected 0.68 (Android random), 0.64 (VLM), 0.41 (Red), 0.56
+  (Web) -> no clear separation, logged only, not a filter.
+  Results (stage 2 calls/node; candidates -> accepted distinct; reject rate; accepted navigation share):
+  Android random s0 1,156 calls (3.2/node), REVISE 0, TASK 18, 211 candidates (104 distinct, 199 of them partials
+  kept) -> 16 accepted, 13 distinct (p6 476, p5 308, p4 81, old 870 + 323); 92% rejected (failed a 100, b 188, c 3,
+  d 9); nav 0.08. VLM w_typing s0 1,026 (3.7/node), REVISE 5, 90 candidates (49) -> 26 accepted, 19 distinct (p6
+  338, p5 217, p4 41, old 724 + 255); 71% rejected (a 43, b 58, c 2, d 5); nav 0.21. Red 25 starts: 26 -> 20
+  accepted, 15 distinct (p6 30); 23% rejected (a 4, b 5, d 3); nav 0.27. Web 25 starts: 26 -> 16 accepted, 16
+  distinct (p6 64); 38% rejected (a 4, b 4, c 6, d 2); nav 0.12 (p6 0.80).
+  Android test split (76): coverage@7 0.000 / 0.000, coverage@5 0.053 / 0.013 (p6 0.539 / 0.276; p4 0.105 / 0.105;
+  old 0.789 / 0.684); Vendi 7.0 / 7.1 on 12 / 16 deduped tasks (p6 19.9 / 17.6; old 33.9 / 30.5).
+  Read: realism is the best of any version (Web: "Use WolframAlpha Pro Premium to find the step-by-step solution
+  for the partial fractions of 1/(x^3+2x^2-x-2)", "Find out what happens after making a booking for an airport
+  transfer on Booking.com"; Android: "Set the 'Renew Driver's License' task to repeat every year in Tasks app",
+  "Turn on Show passwords in Settings"; Red: "Speak to Professor Oak", "Read the full Pokédex entry for Golbat"),
+  but on Android the gate removes nearly everything. Most Android rejections are a granularity problem, not bad
+  tasks: a task is done in the middle of an edge (random edges are 5-11 steps) and the edge goes on to another
+  screen, so the end node's screen does not show it (b) and the recording "continues past" it (a): "Turn off the
+  'Show notification' switch in Nearby Share settings" (ends on Default Print Service), "Enable 'Show hidden items'
+  in Simple Gallery Pro settings" (done in transition 4, recording continues), "Set the snooze time to 2 hours in
+  Simple Calendar Pro" (ends on the Default event type menu). Stage 2 also names few full Android tasks (BUILD said
+  TOO_SHORT 1,129 of 1,156 times on random): most candidates were partials. Gate misses: accepted "Send out Char"
+  (Red), "Search for 'Map exploration' in the OsmAnd app" and vague "Find information about the US Constitution on
+  WolframAlpha". Not loosened. Fix to try next (not run): end a task at the step that completes it, not the edge's
+  end node (cut the path inside the last edge, show that step's frame to the gate), and let BUILD look at the
+  step frames inside a long edge.
+
+- 2026-11-18 PAE (Gemini 3.6 Flash practice -> Gemma LoRA): practice cost $347.56 (cap $500). Judged success: Web 244/289, Android 65/73, GameBoy 139/179 (benchmark 130). Android LoRA eval r1: 49/74 vs base Gemma 47/74 (r1) and 53/74 (r2); on 70 matched tasks 45 vs 46/49 base, 52 Gemini 3.6: no gain even though it was trained on the test tasks. Android LoRA r2 (297302) failed at emulator startup on lg06 (infra); resubmitted as 298213 excluding lg06.
+- 2026-11-18 (annotation p7, Link's Awakening pilot, unchanged p7 code; eval_server 298212):
+  gameboy/sat_zelda_la_random_s0 (nodes.jsonl checked clean first: 1 update row, no annotation key), 25 starts:
+  stage 1 83 reports; stage 2 201 calls (TOO_SHORT 164, TASK 11, CONTINUE 13, REVISE 13); 50 candidates (22
+  distinct) -> 28 accepted, 17 distinct, 10 partial, 5 nested; 44% rejected (a 10, b 6, c 2, d 13); navigation
+  share 0.00 (no navigation task at all, though 6 of LA's 10 train tasks are navigation).
+  Accepted include "take the Piece of Heart", "check the chest", "talk to Bucket Mouse", "talk to rabbit", "talk to
+  the telephone in the bedroom". Flags: unnamed target accepted: "talk to the NPC in the room" (the gate rejected
+  the bare "talk to NPC" 7 times, under c or d); vague "check the chest" (which chest); forced / no-choice: the
+  scripted phone call ("answer the phone", "read the phone ringing text", "read the phone ringing and answering text
+  and the click sound" / "... and the subsequent conversation": advancing a forced dialogue, 5 accepted variants on
+  one start); near-duplicate names of one task ("take the Piece of Heart" / "take the heart piece" / "take the piece
+  of heart"; "talk to rabbit" / "talk to rabbit NPC" / "talk to rabbit kid"). Rejections are mostly (d) "only
+  advances already-open dialogue" and (a) "conversation not finished".
+
+- 2026-11-18 (diagnosis: Android oracle_test_gemini36 LoRA = no gain on its own training tasks). Checked, in order:
+  (1) LoRA applied: yes. vLLM 297301 log "Loaded new LoRA adapter" (max-lora-rank 64 = r64), agent_model = the LoRA
+  name; plans are closer to Gemini's training plans than base's (difflib 0.744 vs 0.554 / 0.554; 6 vs 1 exact of 64)
+  and the LoRA replays Gemini's action sequence further (mean matched prefix 0.47 vs base 0.26 / 0.30; full replay 21
+  vs 8 / 11 of 65 tasks). (2) Format: train action prompts and the eval agent's prompts for the same task and step
+  are the same template (diff = status-bar a11y text, notes, subgoal wording; same Gemma chat template with the empty
+  thought channel; labels start at the response). One mismatch: 584 / 1522 success rows carry Gemini's raw
+  "Reasoning: **...**\nResponse: ..." step summaries inside the history text of the single-prompt executor calls
+  (dataset.call_messages strips only assistant turns, cusi/practice/stages/dataset.py:55-70); Gemma's eval histories
+  never have it (0 / 967 action prompts). (3) Labels: 12 of the 65 judged-success tasks are benchmark failures on the
+  accepted try (BrowserMultiply, CameraTakePhoto, ExpenseAddMultipleFromMarkor, ExpenseDeleteDuplicates2,
+  MarkorAddNoteHeader, MarkorTranscribeVideo, RecipeAddMultipleRecipesFromImage, RecipeAddMultipleRecipesFromMarkor2,
+  RetroPlayingQueue, SaveCopyOfReceiptTaskEval, SportsTrackerTotalDurationForCategoryThisWeek, TasksDueNextWeek): 386
+  rows, 214 of the 889 trained. Targets are aligned (no off-by-one: base takes the target action on 85% of rows).
+  (4) Training: only success rows are used (failure rows unused); --max_length 6144 dropped 633 / 1522 rows (42%;
+  314 / 758 action rows), the longest = late steps (kept/dropped by fifth of episode 143/36, 88/66, 88/58, 77/77,
+  48/77): the final action row is dropped in 36 / 65 episodes, 20 / 38 status rows dropped. Rows are long from the
+  a11y list + 2 images + history, not the leak (removing it would rescue ~33 rows). Val (copies of train) loss
+  0.876 -> 0.198. (5) Memorisation, real decodes (job 298214, tmp_dbg_repro.py / tmp_dbg_repro.sbatch, output
+  storage/tmp/dbg_lora/repro_oracle_test.json; 60 kept + 60 dropped action rows, greedy, base and LoRA on one vLLM):
+  action match (normalised: clear_text false, scroll index, app-name case) kept base 51 / LoRA 57 of 60, dropped base
+  50 / LoRA 57 (7 fixed, 0-1 broken). The adapter does learn Gemini's decisions, but base already takes them 83-85% of
+  the time on Gemini's own states. (6) Per task (one greedy run each): where the LoRA fully replays Gemini's path it
+  wins 21 / 21 (base avg 18.5); on the 32 benchmark-true tasks where it leaves the path it wins 20 vs base avg 24.2
+  (left at a dropped row 8 vs 10 of 14; at a kept row 12 vs 14.2 of 18; kept-row divergences are mostly small
+  observation differences, e.g. one extra a11y element shifting indexes, or equivalent actions). Off the path the
+  LoRA loops more (7 loop episodes vs 3 / 2; 3 with the same full response 3x in a row vs 0 / 0, e.g.
+  RetroCreatePlaylist "click 271" 17x ignoring "index out of range"). Headroom is small: base already solves 41-44 of
+  the 53 really-solved tasks (best case ~+10), and base r1 vs r2 differ by 6 tasks.
+  Read: not a serving or format bug. (a) the length filter removes the late / terminal rows of long tasks, so the
+  adapter is trained on the part base already gets right and untrained where the hard tasks are decided; (b) 18% of
+  "success" tasks are false; (c) off the path the adapter is a bit worse than base (repetition), cancelling the +2.5
+  on replayed tasks. Fix to try (not launched): keep every row (max_length >= 14.6k, or trim a11y list / history so
+  rows fit), strip API reasoning from history text inside prompts, benchmark labels for the oracle run; verify with
+  tmp_dbg_repro.py on terminal rows, the replay analysis, and >= 3 eval repeats.
+- 2026-11-18 (annotation p8, Web and Android; GameBoy keeps p7; eval_server 298216, lg06): path_notes.PROMPT_VERSIONS
+  = {gameboy 7, web 8, android 8}; output annotation/p8/. Changes: (1) step-level ends: stage 2 sees the latest
+  edge's stage-1 window reports (frame k+1 = the screen after action k) and names the completing action ("Step:");
+  a task ends at (edge end node, end_step), records "mid_edge", "replay" {from_node = the last edge's start, actions =
+  its first end_step actions} and "restorable" (from_node not flagged unrestorable / replay_diverged); the gate is
+  shown the last edge's screens up to that action (at most 11) and judges (b) on the last one. (2) (c) also needs a
+  checkable outcome (no "find information about X"), no navigation tacked onto a done task. (3) no search whose query
+  only labels the app or an activity. (4) accepted paraphrases of one start merged (content-word Jaccard >= 0.8,
+  alt_ends / paraphrases). GameBoy check: Red and Link's Awakening rebuilt from their p7 caches with the p8 code
+  (0 model calls): identical accepted and rejected sets.
+  Results (stage-2 calls/node; candidates -> accepted distinct; reject rate (failed a/b/c/d); navigation share;
+  accepted ending mid-edge):
+  Android random s0 1,156 (3.2/node); 224 (113) -> 78 rows, 51 distinct (p7 13, p6 476, old 870 + 323); 65% (72 /
+  130 / 1 / 11); nav 0.00; mid-edge 70 of 78; 63 of 78 accepted are partials; restorable end 26 of 78 (the rest end
+  in edges from replay_diverged nodes). VLM w_typing s0 1,018 (3.6/node); 93 (53) -> 40 rows, 24 distinct (p7 19,
+  p6 338, old 724 + 255); 57% (33 / 41 / 5 / 6); nav 0.08; mid-edge 25 of 40; restorable 24 of 40. Web 25 starts:
+  182 calls; 18 -> 10 distinct (p7 16, p6 64); 44% (2 / 3 / 5 / 0); nav 0.00; mid-edge 3 of 10.
+  Test split (76): coverage@7 0.000 / 0.000 (p7 0 / 0; old 0.197 / 0.145), coverage@5 0.079 / 0.013 (p7 0.053 /
+  0.013; p6 0.539 / 0.276; old 0.789 / 0.684); Vendi 12.1 / 8.0 on 45 / 21 deduped (p7 7.0 / 7.1; old 33.9 / 30.5).
+  Paraphrase merge within a start merged 0 (paraphrases sit on different starts); tree-wide the same rule would
+  take Android random 51 -> 43, VLM 24 -> 21 texts, and misses some ("Modify" vs "Change the mobile data usage cycle
+  in Settings"). Leakage (tmp_p8_leak.py, Qwen3-Embedding-8B vs all train + test texts): 0 accepted tasks at cos >=
+  0.85; max 0.839 (Web, a train task: "Compare the prices of the iPhone Duo and iPhone Air" vs "Compare the prices
+  and chips for the iPhone 14 Pro and iPhone 15 Pro"), max 0.731 against a test task.
+  Read: step-level ends work (mid-edge tasks are most of the Android gains: "Disable background data for Android
+  System Intelligence", "Turn off Microphone access in Privacy settings", "Mark 'Learn to Play Guitar' as completed
+  in Tasks app", "Set the preferred network type to 3G for the T-Mobile SIM in Settings"); Web keeps only
+  checkable tasks ("Find the average word length of the US Constitution on WolframAlpha", "Search WolframAlpha for
+  ... Harriet Tubman and find her birth date, death date, and place of death"). Still unrealistic or vague among
+  accepted: typed fragments ("Search for 'aex' in Simple Calendar Pro", "Add the number 7 to the blocked list",
+  "Search for cities starting with 'y'"), no target value ("Modify / Change the mobile data usage cycle", "Change
+  the date and time formats in Joplin", "Set a specific end date for custom recurrence", "Toggle the 'Hide status
+  bar icons' setting"), navigation that slipped ("Open the To-Do list manager in Markor", "View the properties of the
+  image ...", "... and view the metadata of the image"), and an inconsistent gate ("Turn off Fade when not in use"
+  rejected as a one-click wrapper on one start, accepted on another). Coverage stays near zero because few test-like
+  goals are ever completed on these trees.
+- 2026-11-18 (reporting change, user's call): annotation coverage is reported as (1) judge_max@k, each test task's
+  best LLM-judge score over its k = 5 nearest annotation tasks, averaged over the test split, and (2) top1_cos, its
+  best cosine, averaged the same way (task_coverage summary.json "overall"); coverage@7 / @5 are no longer headlined.
+  Test split, current versions (p8 Web / Android, p7 GameBoy): Red 5.08 / 0.606, Link's Awakening 4.72 / 0.542, Web
+  2.22 / 0.363, Android random 2.99 / 0.516, Android VLM w_typing 2.68 / 0.481. The Android s0 pilots by version, in
+  these terms (random / VLM, judge_max@k, top1_cos): old v1 5.47 / 0.660 and 5.12 / 0.641; p4 3.09 / 0.521 and
+  3.33 / 0.528; p5 4.58 / 0.582 and 4.07 / 0.546; p6 4.46 / 0.580 and 4.05 / 0.552; p7 2.64 / 0.485 and 2.87 / 0.485;
+  p8 2.99 / 0.516 and 2.68 / 0.481.
+- 2026-11-18 (reporting rule, user's call): always report three numbers: coverage@8 (share of test tasks whose best
+  judge score is >= 8, from per_task.jsonl; the code's COVERED_AT is 7), judge_max@k and top1_cos. Current test
+  split: Red 0.200, Link's Awakening 0.125, Web 0.000, Android random 0.000, Android VLM 0.000. Android s0 pilots,
+  (coverage@8, judge_max@k, top1_cos), random / VLM w_typing, from the per_task files that still exist (no new runs):
+  p4 (0.000, 3.09, 0.521) / (0.000, 3.33, 0.528) [task_coverage_v2_testsplit, its numbers match the logged p4 run];
+  p8 (0.000, 2.99, 0.516) / (0.000, 2.68, 0.481) [task_coverage_testsplit]. Old v1, p5, p6, p7: coverage@8 not
+  recoverable (their per_task files were overwritten by later runs or deleted by the annotation strip); their
+  judge_max@k / top1_cos are in the entry above.
+- 2026-11-18 (failure): Web PAE LoRA evals 297292/297293 finished all 289 agent runs but skipped the judge stage and
+  timing: scripts/slurm/eval.sh was edited (compact_elements flag) at 18:01 while they ran, and bash reads scripts
+  incrementally. Episodes are intact; judge-only reruns 298233/298234 (judge google/gemma-4-31b-it, as base). Rule
+  restated to all agents: never edit a .sh that a running or pending job executes.
+- 2026-11-18 (Android oracle LoRA fix, user-approved; two arms + 3 evals each, all with compact element lists).
+  Code, opt-in, default off: m3a.compact_elements (drops False / None / "" / [] fields of "UI element k: {...}"
+  lines; _parse_elements' text regex also accepts a line ending at its text), M3AExecutor(compact_elements=...)
+  applies it to the action prompt's and both summary-prompt lists (env element text unchanged), reached through
+  Agent / make_agent(executor_options=...) and run_eval.py android --compact_elements (eval.sh --compact_elements
+  true); api_reasoning.strip_embedded_reasoning + dataset --strip_prompt_reasoning (user text of every row; regex
+  bounded to one history step) and dataset --compact_elements; cusi/finetune/disagree.py + run_diagnostics.py
+  base_disagree / disagree_dataset (Slurm pair slurm/base_disagree.sh). Failure of mine: editing
+  scripts/slurm/eval.sh (even by atomic mv) while Web evals 297292/297293 ran it made both skip their judge stage;
+  the coordinator resubmitted judge-only 298233/298234. Rule: never edit a .sh a running / pending job executes.
+  Dataset A (source oracle_test_cgt, episodes linked to oracle_test's, labels gt, compact, reasoning stripped,
+  val_copy 200): 59 gt-success tries (50 tasks x1, 3 x2, 1 x3), 1296 rows (648 action, 589 summary, 59 plan). Checks:
+  all 584 leaked rows clean (2965 removed spans, every one right after "Step k- Action selected: {..}. "); every row
+  = compact(strip(old row)) for the 1226 rows present in the old dataset; no element line keeps a False field.
+  Memory smokes (r64, 4x A6000, 64-128 rows): 8192 (298226), 7680 (298230), 7168 (298231) OOM in backward (~5 GB
+  alloc with ~42.6 GB used); 6656 (298232) ran step 1 at 41.0 GB then OOM at step 2. So 6144 (old 44.2 GB peak).
+  Rows over max_length on dataset A (dropped / action / final = status rows of 59): 6144 235 / 112 / 15; 6656
+  165 / 58 / 7; 7168 120 / 35 / 3; 7680 81 / 17 / 2; 8192 22 / 5 / 0. At 6144 the final row is still dropped for 15
+  episodes (14 tasks): ExpenseDeleteMultiple2, MarkorChangeNoteContent, MarkorCreateNoteFromClipboard,
+  MarkorEditNote, MarkorTranscribeReceipt, RecipeDeleteMultipleRecipesWithNoise, SimpleCalendarAddOneEvent /
+  InTwoWeeks / Tomorrow / AddRepeatingEvent / NextMeetingWithPerson (2 tries), SimpleSmsReplyMostRecent,
+  SimpleSmsResend, VlcCreateTwoPlaylists (old dataset: 36 / 65).
+  Arm B (source oracle_test_cgt_dis): base Gemma, greedy, 1000 tokens, JPEG, on all 648 action rows of A (298225):
+  agrees on 544 (84%), disagrees on 104 (42 tasks; by fifth 32/36/11/15/10; 3 of 59 final rows; base never
+  unparsed). My call: plan and summary rows dropped in B (the arm is the corrections only). B has 104 rows, 23 over
+  6144, so 81 trained x 3 epochs = 7 optimizer steps (A: 99) - a much weaker update; noted, not compensated.
+  Jobs: compact base evals 298227-298229 (testsplit_base_gemma_compact_r1..3); A ft 298237
+  (oracle_test_cgt_gemini36_r64_lr1e-4_e3) -> evals 298238-298240; B ft 298243
+  (oracle_test_cgt_dis_gemini36_r64_lr1e-4_e3) -> evals 298244-298246 (run testsplit_<ft run>_r1..3).
+- 2026-11-18 (failure + resubmit): android sat_vlm_no_typing_qwen3-vl-32b_s1 stopped at 95 nodes, with no summary:
+  its five chained jobs 296797-296801, pinned to eclairlg03, all failed on resume. The snapshot was missing, then
+  the a11y forwarder APK install broke ("Failure calling service package: Broken pipe"). Resubmitted on eclairlg06
+  (298251, continuations 298252/298253). gameboy sat_zelda_la_vlm_no_typing_qwen3-vl-32b_s1 is really done: it
+  stopped "saturated" at 129 nodes, and its continuations exited at once.
+- 2026-11-18 (user's call): filled trees (*_random_filled) are never annotated.
+- 2026-11-18 (annotation: final procedure, user's call "make it the proper final version"): cusi/search/annotate.py
+  is the only tree annotation; no versions. Behaviour per env: GameBoy tasks end at the edge's end node (its edges are
+  2-3 steps; navigation / menu tasks allowed, as in its train flavours); Web and Android (path_notes.STEP_ENVS) end at
+  the completing action inside the last edge, with replay and restorable recorded, stricter fit (checkable outcome,
+  no navigation tacked on, no exploration-label searches) and paraphrase merging. Stage 1 reuses the VLM explorer's
+  base-row descriptions (user: "use the edge description from the explorer"); every other edge is described by the
+  annotation model; meta.json counts both. Output per annotation model: <run>/annotation/<model short name>/
+  (transitions, calls, gate_calls, candidates, tasks, rejected, meta, summary). task_coverage / task_diversity take a
+  required --annotation_model (outputs under task_coverage[_testsplit]/<model>/ and task_diversity/<model>/); practice
+  tree_tasks reads the practising model's own annotation; sync_data checks every model's annotation. Never annotated
+  (enforced in annotate.py: annotated_run): *_random_filled, *_cut69h, smoke_*, tt_* (user's calls). Slurm pair
+  annotate: --run takes a comma-separated list annotated --parallel (3) at a time on one vLLM server; --vllm_extra.
+  plans/annotation_plan.md rewritten as the final procedure.
+- 2026-11-18 (annotation models): google/gemma-4-31b-it, and "qwen3-8b" read as Qwen/Qwen3-VL-8B-Instruct (the
+  annotation needs images; the trees were explored with it; in HF_HOME). Qwen3-VL-8B on a Quadro RTX 8000 in fp16
+  generated ~0.5 tokens/s (stalled; Turing attention path), and on one A5000 vLLM had 1.56 GiB of KV cache left
+  (engine failed to start): Qwen runs on 2 Ampere GPUs, bf16. Smoke, android sat_vlm_no_typing_s0 (216 nodes, all
+  196 reports from the explorer), full tree: Gemma (4x A5000) stage 2 726 calls, 0 unparsed (TOO_SHORT 687, TASK 29,
+  NEW 10), gate 99 calls -> 38 accepted (15 distinct; 38%), 24 mid-edge, 23 min ("Enable the 'Disallow screenshots'
+  option in Markor", "Enable the 'Power button ends call' toggle in Settings"); Qwen (2x A5000) stage 2 480 calls, 0
+  unparsed (TASK 174, REVISE 75, NEW 127, TOO_SHORT 73), gate 254 calls -> 237 accepted (93%), 232 rows, 212 distinct,
+  38 min, mostly navigation, which the prompt forbids ("Navigate to the Settings page in the Markor app", "Navigate
+  to the Connected devices menu in the Settings app"). Kept as is (user: how lax Qwen is compared with Gemma is
+  itself the finding; no prompt or gate change for Qwen).
+- 2026-11-18 (annotation launch): scope = every finished plain search tree (no running / pending job writes to it,
+  search log unchanged for 6 h; a missing summary.json is a run that ended at its time limit) whose game / env has
+  train tasks: 20 Web, 37 GameBoy (Red, Link's Awakening), 20 Android in 8 batches per model (Web 4, GameBoy 3,
+  Android 1; balanced by expected calls), plus android sat_vlm_no_typing_s0 (the smokes) and gameboy
+  sat_zelda_la_random_s0, web sat_random_s0 (submitted once the strip has passed them, tmp_final_later.sh). Gemma
+  batches 298260-298267 (A6000 x2 each), Qwen batches 298279-298286 (2 GPUs; pending ones held to the A5000 node lg10
+  at nice 100 so Gemma keeps the A6000s). In-progress Qwen3-VL-32B search trees (11: android s0-s2, gameboy s0-s2,
+  LA s0 / s2, web s0-s2) are annotated after their last search job ends (afterany): Gemma 298268-298278, Qwen
+  298287-298297. Skipped: games without train tasks (Bomberman, Deja Vu, Sword of Hope, Crystal, Oracle of Seasons
+  trees), the fills / cuts / smoke / test runs. Estimate per model (stage 2 + gate ~3.9 calls per node, stage 1 one
+  call per edge without an explorer report, ~40k): Gemma ~460k calls, ~1 call/s per server -> ~130 server-hours
+  (~260 A6000 GPU-hours), ~16-20 h wall if 8 A6000 pairs free (A6000s are contended: likely 1-2 days); Qwen ~330k
+  calls at ~0.5 call/s -> ~180 server-hours (~370 A5000 GPU-hours), ~2 days on lg10 alone. Batches resume when
+  resubmitted. Old annotations deleted: tmp_strip_annotations.py --apply on every tree not written to by a job
+  (annotation/, task_coverage, task_coverage_testsplit, task_diversity dirs of the pilot trees; the 5 idle
+  *_random_filled trees' old rows, annotations.json and viewers); the 5 Red *_random_filled trees under running fills
+  keep their old rows (never annotated now). rm is not permitted in this session: task_coverage_v2_testsplit on
+  android sat_random_s0 / sat_vlm_w_typing_s0, storage/tmp/annotation_strip_backup/, storage/tmp/superseded_code/
+  and the root tmp_* annotation scripts are left for deletion by the coordinator.
+- 2026-11-18 (user question: how often does base Gemma already agree with Gemini 3.6 Flash on the Web / GameBoy
+  practice rows?). Base google/gemma-4-31b-it, greedy, eval budgets (Web 1000; GameBoy executor 8000, done_check
+  1500, supervisor 5000), the exact training messages and images (Web chats with PNG in place, GameBoy single
+  prompts as JPEG), stop [STOP]; cusi/finetune/disagree.py decode_all / agreement_report, run_diagnostics.py
+  base_decode_all, debug job tmp_dbg_decode_all.sbatch (298247 Web all 1945 rows, 298248 GameBoy: all rows ~3.5
+  GPU-h, so a seeded task-stratified sample of 2999, then cancelled). 0 request errors.
+  Equivalence: GameBoy action = one button (7 values; order / multiplicity cannot differ), exact = normalised;
+  verdict rows by their Complete / Flawed / Undone line; free text by difflib ratio. Web: action line lower-cased,
+  brackets / spaces around ; ignored, trailing period dropped; typed / answer text must match (case-insensitive).
+  GameBoy (actions n 1102): 0.662; fifths 0.585 / 0.691 / 0.688 / 0.701 / 0.651; final 0.800 (n 30); Red 0.741,
+  Oracle of Seasons 0.707, Link's Awakening 0.652, Crystal 0.598. Verdicts: done_check 0.957, regression_check
+  0.878, judge 0.846, plan_flaw 0.784. Text sim: judge_slice 0.42, plan 0.32, frame_diff 0.31, hint 0.16.
+  Web (actions n 1945): exact 0.500, normalised 0.541; fifths 0.744 / 0.511 / 0.540 / 0.511 / 0.264; final 0.221
+  (mostly ANSWER rows: same verb 0.874 but same text 0.157, text sim 0.586 when both answer); by Gemini verb: Click
+  0.663 (verb 0.789), Type 0.549 (0.827), Scroll 0.471 (0.552), GoBack 0.31; base unparsed 44. Per site: Booking
+  0.683, Google Flights 0.654, Apple / Coursera / ArXiv ~0.595, GitHub 0.549, ESPN 0.495, Google Map 0.470,
+  Huggingface 0.429, Wolfram Alpha 0.393. (Android on the compact gt rows: 544 / 648 = 0.84.)
+- 2026-11-18 (second annotation model -> Qwen/Qwen3-VL-32B-Instruct, user's call "instead run the 32B qwen model"):
+  all Qwen3-VL-8B annotation jobs cancelled (298256, 298279-298297); their partial outputs annotation/
+  Qwen3-VL-8B-Instruct/ remain in 10 trees (android sat_vlm_no_typing_s0; web sat_random_s2/s3/s4,
+  sat_vlm_no_typing_s4, sat_vlm_no_typing_qwen3-vl-8b_s0, sat_vlm_w_typing_s0/s1/s2/s4) because rm is not permitted
+  in this session (left for the coordinator). Qwen3-VL-32B, same prompts and gate, served with --dtype half. On 4x
+  A5000 at the default memory use it had 1.2 GiB of KV cache (2.0 GiB needed for one 32k request: engine failed);
+  with --gpu-memory-utilization 0.95 it serves. Smoke, android sat_vlm_no_typing_s0 (same tree as Gemma's): stage 2
+  683 calls, 0 unparsed (TOO_SHORT 589, TASK 53, REVISE 10, NEW 23, CONTINUE 8); gate 166 calls, 0 unparsed -> 145
+  accepted (87%), 92 distinct; 1 h 46 min on 4x A5000 (~0.17 calls/s). Gemma on the same tree: TASK 29, gate 38%, 15
+  distinct. 32B accepts some navigation ("Navigate to the Legal information page in the Settings app") and
+  descriptions of the recording ("... the user unchecked and then re-checked the 'Add completion date' option").
+  Launch (tmp_final_launch.py): batches 298318-298325 (Web 4 on A6000 pairs at nice 100; GameBoy 3 and Android 1 on
+  the A5000 node, 4 GPUs, --gpu-memory-utilization 0.95), in-progress Qwen3-VL-32B search trees afterany their last
+  search job: 298326-298336. Gemma keeps the A6000s first.
+- 2026-11-18 (idealized PAE, user's top priority): can practice SFT shift Gemma at all under ideal conditions? True
+  test tasks, true rewards, and only the tasks Gemini 3.6 Flash solves (its test-split eval) but base Gemma failed in
+  at least one of its two test-split runs. Web: 66 tasks (vs flash-lite-judged eval copies); Web has no programmatic
+  reward, and by the user's call the rows keep Flash's own practice-judge labels: 58 tasks with a judged success,
+  552 executor action rows (492 within max_length 6144). Red: 16 tasks (pokemon_red eval runs; 11 failed by Gemma in
+  both runs, 5 in one), labelled by gt (benchmark success; a successful try kept whole): 15 tasks, 17 tries, 1617
+  rows across all supervisor and executor roles (024: no gt success in 3 tries; 035: 3 gt successes, all judged
+  failures, so it was missing from the judge-labelled dataset).
+  New stage run_practice subset_dataset (cusi/practice/stages/subset.py): a practice run's success tries of listed
+  split ids, rows by try_rows as the dataset stage makes them, val_copy train rows copied as validation. Datasets:
+  practice/<env>/gemini-3.6-flash/tree/oracle_test_flashwins (task lists storage/tmp/oracle_pae/flashwins_*.txt).
+  Aggressive LoRA (user's request, "make sure the behaviour shifts"): r128 a256, lr 2e-4 constant, 5 epochs,
+  32 rows/step, val 50 copied rows, eval/save every 25 (run oracle_test_flashwins_r128_lr2e-4_e5; ~75 steps Web,
+  ~250 Red). Evals: Web all 289 test tasks x2 (Gemma judge, then flash-lite copies *_judge-gemini-3.5-flash-lite,
+  the scale of the Flash / base comparison); Red the 40 pokemon_red test tasks x2 (gt). Read: win tasks vs the rest.
+  GPUs (user: clear them if needed): all pending annotation jobs held; Gemma annotation 298261-298264 requeued held
+  (they resume from calls.jsonl); the first two only freed 2+2 GPUs on different nodes, so lg03 was cleared too.
+  297296 (the GameBoy PAE ft continuation, likely unneeded) set to nice 100 so Red's ft takes lg07 first.
+  Jobs: Web ft 298340 -> evals 298341/298343 -> flash-lite judges 298342/298344; Red ft 298345 -> evals 298346/298347.
+- Failure (idealized PAE): the Web r128 ft 298340 ran out of GPU memory in the first backward (979M trainable; the r64 Web ft
+  had already peaked at 43.8 of 47.4 GB on Web's long rows). Web is now r64 a128, lr 2e-4 constant, 8 epochs
+  (oracle_test_flashwins_r64_lr2e-4_e8, ~120 steps; every row kept): ft 298349 -> evals 298352/298350 -> judges
+  298351/298353; the old evals/judges 298341-298344 were cancelled. Red stays r128 (GameBoy rows peaked 29.6 GB at
+  r64): 298345 took lg03.
+- 2026-11-19 (idealized PAE, Red result + diagnosis): the aggressive Red LoRA (r128 a256, lr 2e-4, 5 ep, 1617 rows)
+  broke the model: 2/40 and 3/40 (win tasks 1/16 each; rest 1-2/24) vs base 16 / 20 and Flash 31; 36-37 of 40
+  episodes truncated, invalid actions 15-23 per run (base 1-5). Cause: the frame_diff rows. HistoryTracker calls
+  frame_diff with max_new_tokens=60 (GameBoyRL/execution/executors/policies/history.py); Gemini 3.6 Flash spends
+  that on reasoning, so its visible diffs are cut off (training targets mean 10 chars, "The dialogue"). The LoRA
+  learned it: its frame diffs are "The player" (5115 times in run 1); base Gemma's are full ("nothing changed.",
+  "The player character moved ..."). The executor's action history is then blind, and it repeats A next to the
+  NPC until the step limit (027). Supervisor rows were also copied verbatim (identical judge_slice summaries across
+  legs, self-contradictory). Every Flash GameBoy practice dataset has these rows; the full-data GameBoy PAE LoRA
+  (14.8k rows, frame_diff diluted) is not broken: evals 297297/8 at 45/103 and 38/97 so far (base 39-44%).
+  Reruns (gentle recipe r64 a128, lr 1e-4 constant, 3 ep, as the six-task focus that helped): subset_dataset
+  --drop_tags (new): oracle_test_flashwins_act (executor action rows only, 529) ft 298410 -> evals 298411/298412;
+  oracle_test_flashwins_nofd (frame_diff dropped, 1233) ft 298413 -> evals 298414/298415. Web LoRA (r64 lr 2e-4
+  e8, final validation loss 0.122) evals 298350/298352 running; Web rows are action rows only (no frame_diff).
+- 2026-11-19 (idealized PAE, Web result): the Web LoRA (r64 a128, lr 2e-4, 8 ep; final validation loss 0.122) broke
+  the model: 25 / 21 of 289 (flash-lite judge; Gemma judge 19 / 20) vs base 187 / 198, Flash 224; win tasks 3/66;
+  ~192 of 289 episodes hit max_iter 15. Not the frame_diff bug (Web rows are action rows only; 45 of 58 episodes
+  end in ANSWER): the LoRA copies Flash's dithering ("Wait, let's look closely ...", 136 of 552 rows say "Wait"),
+  re-clicks the same element and never answers. Over-fitting from the recipe. Gentle rerun (r64 a128, lr 1e-4, 3 ep,
+  as the Red reruns): ft 298752 -> evals/judges 298753(judge 298754) 298755(judge 298756).
+  Old full-data PAE LoRAs (r64 lr 1e-4 e3, all practice rows): GameBoy 73 / 68 of 179 vs base 70 / 78 (Red 12 / 12
+  of 40 vs base 16 / 20); Web 180 / 179 (Gemma judge) vs base 177 / 186: no gain, no collapse.
+- 2026-11-19 (GameBoyRL pull + frame diff 1000): pulled GameBoyRL to 0ce68ea (env server, execution/game_api.py, comments
+  stripped) and set the frame diff budget 60 -> 1000 (history.py; pushed 50a814a; root bump b35b83f). GameBoy searches
+  296789/296804/296809 and fills 296881/296885 requeue-held for it. Smoke tests: Flash 2-task Red eval failed on
+  OpenRouter 402 (out of credits; flash-lite re-judges 298754/298756 will hit it too). Gemma on Quadro RTX 8000
+  (298997) cannot start vLLM: Gemma-4 kernels need 96 KB shared memory, Turing has 64 KB. Gemma evals stay on A6000s.
+- 2026-11-20 (Flash wins + mix, action only): Qwen3-VL-8B smoke (299312, Quadro) on the pulled GameBoyRL ran supervisor
+  legs and saved an episode; holds on GameBoy searches/fills released. Overlap smoke inside annotation 298260 starved
+  (shared vLLM ~25 tok/s across 16 requests): never smoke on a busy shared server. Android A/B (76 tasks, 3 runs):
+  base compact 53/51/50, arm A (all gt-success rows, 1296) 56/54/52, arm B (104 disagreement rows) 47/45/46.
+  New training sets: Flash-win tasks + seeded 25% of the other Flash-success tasks (Gemma succeeds in both runs),
+  executor action rows only. Red 16 + 4 (005 009 039 042), 587 rows, gt labels; Web 66 + 40, 792 rows, Flash judge.
+  Source oracle_test_flashwins_mix25_act. Gentle r64 lr 1e-4 e3 / aggressive lr 2e-4 e5 (Red r128, Web r64 since r128
+  OOMs). Red gentle ft 299321 (3 A6000s: no node had 4 free; rows_per_step is global, so same recipe) -> 299322/3;
+  Red aggressive 299324 -> 299325/6; Web gentle 299327 -> 299328/30 (judges 299329/31); Web aggressive 299332 ->
+  299333/5 (judges 299334/6). All other pending jobs at nice 100.
+- 2026-11-20 (Red 5x): mix aggressive Red 12 / 12 of 40 (worse than base); Web aggressive mix chain (ft 299332 and its
+  evals/judges) cancelled by request. Red r1/r2 differ only by vLLM batching nondeterminism (greedy, seed is a label).
+  Base Red r1/r2 ran before the GameBoyRL pull + frame diff 1000, the mix evals after, so base is rerun on current
+  code: 5x base (testsplit_base_gemma_fd1000_red_r1-5, 307582-6) and gentle mix r3-r5 (307587-9) on test_red.txt.
+- 2026-11-20 (Red 5x result, current code): base Gemma 18/15/20/16/17 of 40 (mean 17.2; Flash-win 16: 3.8, range 2-6;
+  4 added: 2.6; rest 20: 10.8, 10-11). Gentle mix (oracle_test_flashwins_mix25_act r64 lr1e-4 e3) 19/20/18/19/17 (mean
+  18.6; wins 6.4, 6-7; added 3.0; rest 9.2, 9-10). Wins up +2.6 with no overlap below base's best; rest down -1.6
+  (mix never above base's worst); total +1.4 within noise. Flash's action rows transfer to the tasks trained on, at a
+  cost elsewhere; mixing in 4 Flash-success tasks did not protect the rest.
+- 2026-11-21 (Web mix gentle + all-Flash Red): Web gentle mix (299327) 103 / 94 of 289 on the Gemma judge vs base 177 /
+  186: hurts. Its flash-lite re-judge left 116 / 289 episodes 'unjudged' with no error (8 / 3 successes): not usable,
+  cause not found yet. Flash never loses a Red task to Gemma (0 tasks where Gemma succeeds in any of 5 runs and Flash
+  fails; 9 fail for both); on Web 11 tasks Gemma solves twice and Flash fails. New: Red gentle LoRA on all Flash
+  success tries, action rows only (oracle_test_flashall_act: 31 of 40 tasks, 1129 rows; r64 lr1e-4 e3) ft 311166 ->
+  5 evals 311167-311171 (testsplit_oracle_test_flashall_act_r64_lr1e-4_e3_r1-5).
+- 2026-11-21 (why the All-Flash Web LoRA loses tasks base solves): not Flash's "Wait," style (it is more common in
+  failed episodes for every model, Flash and base included; the LoRA's successes have Flash's rate) and not replay
+  of Flash's trajectories (prefix overlap the same in successes and failures). Cause: training rows teach exploring
+  but often not ending. The success cut (judge safe_success_point + safety_margin 2) removed the ANSWER step from 49
+  of 244 successful Flash tries, and the 6144-token cut drops late rows of long tries, so only 146 / 244 tries keep
+  their ANSWER row (84% of 1-5-step tries, 39-53% of longer ones). On the 158 tasks Flash and base both solve, the
+  LoRA fails 31% of runs on the 52 tasks with no ANSWER row in training vs 8% on the 105 with one; 12 of the 17 tasks
+  lost in both runs had none. The lost episodes scroll/click to the 15-step limit and answer from memory. Fix: keep
+  the final ANSWER row of a success try (the cut should not apply past the end, or keep it as the last row), and
+  lift --max_length so long tries' late steps survive.
+- 2026-11-21 (sampled test evals): eval.sh / run_eval.py --temperature T (gameboy, web, android): every agent call
+  (supervisor, executor, frame diff) at T via AgentVLM(temperature=T), recorded as decoding "t<T>" in the run config;
+  default unchanged (greedy, decoding "greedy", so existing runs resume). The Web judge (auto_eval.py) stays at 0.
+  Edited while all-Flash Red evals 311167-71 were queued/running (user's call; default path unchanged; the .sh
+  files replaced atomically so running bash keeps the old copy). Live check against 311167's server (srun --overlap,
+  127.0.0.1): greedy gave 1 distinct output pattern in 4 (one word differed: batching nondeterminism), t=1 gave 3.
+
+## 2026-11-21 All-Flash action-only gentle LoRA on Red: no gain (5x)
+- testsplit_oracle_test_flashall_act_r64_lr1e-4_e3_r1-5 (1,129 rows, all 31 Flash-solved tasks, gt labels):
+  totals 17/15/18/16/14, mean 16.0 vs base 17.2 and mix gentle 18.6. Per group (mean of 5): Flash wins (16) 4.4
+  (base 3.8, mix 6.4), extras (4) 2.6 (2.6, 3.0), other Flash-solved (11) 8.8 (10.8, 9.2), Flash fails (9) 0.2.
+  Training on every Flash success dilutes the win-task signal and still costs tasks base solves; mix gentle stays best.
+
+## 2026-11-21 Base Gemma 20x at t=1 on test (Red, Link's Awakening, Web, Android)
+- Runs testsplit_base_gemma_t1_{red,la,web,android}_r1-20, --temperature 1 --seed r, base google/gemma-4-31b-it.
+  Red test_red.txt (40) workers 8; LA test_la.txt (40, the links_awakening lines of test_gameboy.txt; its other
+  50 "legend" lines are Oracle of Seasons) workers 8; Web test_web.txt (289) workers 3, Gemma judge, 5 dependency
+  lanes of 4 so at most 5 hit the live sites at once; Android test_android.txt (76) --exclusive, 3 emulators,
+  compact elements, lg06 excluded as before. Red r13-20 pinned to lg10 (gres rtxa5000:4, two lanes of 4).
+  Job ids: scratchpad t1_jobs.txt (first ids 320383-...).
+
+## 2026-11-22 Temperature sweep: Gemma holds up to T=1.8; T=2 starts breaking on Web
+- The t=1 batch was cancelled at the user's request with Red 20/20, LA 20/20, Android 17/20, Web 5/20 done
+  (means: Red 19.1/40, LA 19.1/40, Web 189.2/289, Android 52.8/~74.5; Red pass@20 30/40, LA 29/40).
+- cusi/eval/temperature_sweep.py (run_diagnostics.py temperature_sweep; slurm/temperature_sweep.sh, job 332139):
+  recorded test-set calls from the t=1 runs replayed through AgentVLM at T in 0,0.5,1,1.2,1.4,1.6,1.8,2 (vLLM
+  rejects T>2 with a 400), 40 calls per tag x 2 samples, each reply through the env's own parser. vLLM applies
+  Gemma's generation config (top_k 64, top_p 0.95) since the client sends only temperature.
+- GameBoy (action, done_check, frame_diff, plan) 100% valid at every T; Android 99-100%; Web 95-99% with the same
+  2-3 hard prompts failing format at every T including 0 (ANSWER without "Action:" after a CAPTCHA timeout).
+- No degeneration at T<=1.8 anywhere. At T=2 on Web: 2/80 replies run to the 1000-token cap, 2/80 leak Dutch /
+  Portuguese words, 4% glued words ("specificObservation"); Android 1/80 garbled. Agreement with greedy at T=1/1.8/2:
+  GameBoy action 0.88/0.85/0.86, Web 0.64/0.56/0.51, Android 0.85/0.88/0.83. Highest safe T = 1.8 (format-level;
+  task success at high T not measured). Results: storage/tmp/temperature_sweep/v1/.
+- The sweep's arg tables are in scripts/slurm/temperature_sweep.sh, not scripts/utils.sh (pending jobs source it).
+
+## 2026-11-23 Why the Web / Android tree world models fail: the action is an index (diagnosis, no code change)
+- Measured on the committed steps of the Gemma trees (sat_vlm_no_typing_s0-4 + sat_vlm_w_typing_s0-4; JSON only:
+  text_boxes, parsed_action). Web 162,083 steps, 66% indexed; Android 47,234 steps, 61% indexed.
+- An index is an address in one observation's element list, not an element. The most common element behind an index
+  covers 14% of its uses (Web) / 15% (Android), 29% / 48% within one site / app. Of elements seen on >=5 screens, 76% /
+  60% carry more than one index (p90 8 / 7). One click on the same url / activity renumbers some surviving element
+  in 29% of steps on both; a window scroll in 41% (Web) / 37% (Android).
+- The box (what BoxActionWorldModel gets in place of the index) says where, not what. Position -> element within a
+  site / app (64 px cells): 49% Web, 83% Android. On Android 49% of acted-on boxes lie inside another indexed box and
+  11.5% have no text; 7.4% of indexed actions name an element text_boxes does not hold (merged container / label,
+  text-less container) and the env executes 98% of them, so the WM sees NO_BOX for a real click.
+- Lookup test, memory = 8 trees, test = the 2 s0 trees (same sites / apps, other seeds), valid indexed steps with a
+  box; prediction = the next screen of a memory step with the same key taken on a DIFFERENT screen; score = Jaccard
+  overlap of the screens' text sets (copy = the screen before):
+  Web (20,231 steps): index 0.11, position 0.21, element (role, text) 0.63, copy 0.40; same screen + element 0.89
+  (covers 46%). Android (4,197): index 0.18, position 0.38, element 0.53, copy 0.30-0.35; same screen + element 0.83
+  (covers 62%). Index and position transfer worse than "nothing changes"; the element's identity transfers.
+- So the box WM is a per-screen lookup: in-tree val (seen screens, held-out expansions) beats copy (Web 0.62 vs 0.42,
+  Android 0.79 vs 0.57), real task steps do not. The WM test also cannot judge indexed steps: eval episodes store only
+  parsed_action (info["target"] is not carried into the episode step's extra; 0 of 2,015 Web / 658 Android indexed
+  steps of testsplit_base_gemma_t1_*_r1 have it), and on those the WM returns the copy (click cos 0.6645 vs copy
+  0.6645), probably because in training a click without a box was usually a no-op (not checked).
+- Other limits, not index-related: typed text is dropped although different texts in the same field give different
+  screens in 87% (Web) / 98% (Android) of fields; the same screen content + same element gives a different next
+  screen in 14% (Web) / 25% (Android) of repeated cases (text overlap < 0.8); 42% (Web) / 52% (Android) of clicks lead
+  to a screen where over half the text is new; 81% / 68% of (screen, type, element) triples were taken once.
+- Proposed, not built: (1) carry info["target"] into eval episode steps; (2) action = type + element descriptor (role,
+  text, box) + typed text, the index resolved inside plan() / observe(); (3) WM keyed on the element (text / crop
+  embedding in place of or beside the box), retrieval over tree transitions first, learned model as fallback.
+- Scripts (scratchpad, not in the repo): index_diag.py, key_diag.py.
+
+## 2026-11-23 Random-prefix practice on the test split (oracle), Red + Web, Gemini 3.6 Flash
+- User's design: start at a test task's benchmark start state with the task known, take 10 random actions, then PAE
+  practice (judge -> critique hint -> retry, max 3 tries) recording the judge and the benchmark's success; gt-labelled
+  successes -> gentle LoRA -> eval. Within a repeat every try replays the same prefix (user's call); labels gt first;
+  practising model Gemini 3.6 Flash (OpenRouter, BYOK Google key). An oracle (test tasks), as oracle_test before.
+- New: run_practice.py attempt_split --random_prefix N (cusi/practice/stages/attempt_test.py random_prefix): N
+  sample_action steps after reset, seeded by sha1 of the task id (which carries the repeat); a prefix that ends the
+  episode is redrawn (next seed, up to 5); the env's step budget is raised by N; each try records entry["prefix"]; not
+  in the agent report, so no rows. GameBoy and Web only (Android refuses). Web test mode is unscoped, so a random click
+  may leave the site.
+- Smoke (oracle_test_rp10_smoke, 336821/336822, max 2 tries): Red 017 judge + gt success on try 1 after the prefix
+  (gb.pokemon_red.000 is not a test id, so only one Red task ran); Web Apple--12 / --19 judged successes, 10/10 valid
+  prefix actions, Apple--12's two tries replayed the identical prefix.
+- Full runs, source oracle_test_rp10 (repeat 0, max 3 tries, 8 workers): Red 40 test tasks 337129, Web 289 test
+  tasks 337130. Next: score_web_tries (benchmark judge) for Web gt, subset_dataset --labels gt, gentle LoRA (r64 a128,
+  lr 1e-4 constant, 3 ep), eval.
+- 2026-11-23 (random-prefix chain): Web gt labels come from score_web_tries (auto_eval per try, web_scores.json);
+  subset_dataset now reads them (attempt_test.load_web_scores / try_gt, shared with judge_agreement) and refuses Web
+  gt without them. Judge for the Web tries: google/gemini-3.5-flash-lite (OpenRouter, no GPU); on the smoke it agreed
+  with Flash's own verdict on 3/3 tries. Smoke datasets oracle_test_rp10_smoke_gt_act: Web 27 rows, Red 124 rows
+  (executor action rows only, the 8 non-action tags dropped as in the Red action-only sets; no prefix rows).
+  Chain (Slurm afterok): Red 337129 -> dataset 337616 -> gentle LoRA 337617 (r64 a128 lr1e-4 constant e3, source
+  oracle_test_rp10_gt_act, run r64_lr1e-4_e3) -> evals 337618-22 (5x, greedy, test_red.txt); Web 337130 -> judge
+  337623 -> dataset 337624 -> LoRA 337625 -> evals 337626/7 (2x, Gemma judge as the base runs). Eval run names
+  testsplit_oracle_test_rp10_gt_act_r64_lr1e-4_e3_r<k>. attempt_test.py was edited while 337129/337130 ran: their
+  workers are threads of the already-loaded module, so they keep the old code; the edit only adds functions.
+
+2026-11-23 rp10 Red chain: practice 337129 done (3h36m). Gt dataset 337616: 69 tries, 33 benchmark successes, 29/40 tasks with rows, 1137 train + 50 val executor rows. Fine-tune 337617 got a 4x A6000 node at once, so the T=1.8 jobs were not held. 106 optimizer steps.
+2026-11-23 rp10 Web chain: practice 337130 done (4h08m, 518 tries). Flash-Lite benchmark judge (337623): try1 198/289, try2 52/127, try3 34/102. Gt dataset 337624: 284 success tries, 230/289 tasks with rows, 2622 train + 50 val executor rows. Fine-tune 337625 pending on Priority; every T=1.8 job was already running (none left to hold), so Red eval r5 (337622) was held instead so the fine-tune takes the next 4x A6000 node; release it once 337625 runs.
+2026-11-23 rp10: Web fine-tune 337625 started after about 1h pending; Red eval r5 337622 released.
+2026-11-23 rp10 Web fine-tune 337625 failed (eclairlg17, 1h34m): NCCL "unhandled cuda error" in the dcp gather of the first checkpoint save (step 25/217), the same failure as the Android s0 fine-tunes (293004/293291/293395), again with long rows (mean 3590 tokens, 299 over 6144 dropped, 43 GB peak) where Red (mean 639, 29 GB) saved fine. No checkpoint written. Resubmitted as 341846 with save_every 5 (the fix that let 293462 complete) and NCCL_DEBUG=INFO; evals 337626/337627 repointed to afterok:341846. Web steps take ~210 s (vs Red 22 s), so 217 steps is ~13 h.
+2026-11-23 rp10 Red result (5 greedy evals on test_red.txt, 40 tasks, seeds 1-5): LoRA on random-prefix Flash practice successes (gt labels, 1137 rows) 19/20/17/19/19 = mean 18.8 (sd 1.1) vs base Gemma fd1000 18/15/20/16/17 = 17.2 (sd 1.9). Diff +1.6 +- 1.0 SE, about 1.6 SE, not significant. Per task: LoRA better on 9, worse on 8, tied on 23, so the gain is not concentrated on a set of tasks; the main visible effect is lower run-to-run spread. Note the practice was on the same test tasks (oracle setting), so this is an upper bound on what the practice transfers.
+2026-11-23 rp10x10 Red (user: 10 random prefixes per task, gentle LoRA, eval, max priority): repeats 1-9 added to practice/gameboy/gemini-3.6-flash/tree/oracle_test_rp10 (r0 reused; prefix seed is per task_id incl. repeat, so 10 distinct prefixes per task, each shared by its <=3 tries). 360 task-repeats, est ~$580 Flash. One job, 72 workers (337129 used 2.7 GB and 17 CPU-min over 3.6 h at 8 workers: API-bound). Chain: practice 345734 -> gt act dataset oracle_test_rp10x10_gt_act 345735 -> gentle LoRA r64 lr1e-4 e3 (same recipe as rp10; ~10x rows so ~10x steps) 345736 -> 5 greedy evals 345737-345741 (testsplit_oracle_test_rp10x10_gt_act_r64_lr1e-4_e3_r1-5).
+2026-11-23 Resubmitted the two unfinished Android Qwen trees (user): sat_vlm_no_typing_qwen3-vl-32b_s1 (63 exp, its 298251-3 chain held after a launch failure pinned to lg06, left held) as 347157 -> 347158 -> 347159; sat_vlm_no_typing_qwen3-vl-8b_s1 (169 exp; 295164 hit the 3-day job limit before the 69 h wall_s budget, resume 296406 failed vLLM init on lg14) as 347160 -> 347161. Same args, --overwrite false (resume), --exclusive, lg06/14/15 excluded.
+2026-11-23 Annotation restarted (user: annotate all trees, below the Red rp10x10 practice -> fine-tune). Reused the held 2026-11-18 jobs (they resume from calls.jsonl; Gemma batches 298261-298267 + post-search 298268-298278, Qwen3-VL-32B batches 298318-298321/298324/298325 + post-search 298326-298336; 298260/298322/298323 already completed; the cancelled Qwen3-VL-8B jobs stay cancelled). Every A6000 job now depends after:345736 (starts once the Red rp10x10 fine-tune has started) at nice 100. The Android batches (298267 Gemma, 298325 Qwen on A5000) include sat_vlm_no_typing_qwen3-vl-8b_s1, so they also wait afterany:347161 (its resumed search); android sat_vlm_no_typing_qwen3-vl-32b_s1 (298269, 298327) waits afterany:347159. The A5000 GameBoy Qwen batch 298324 does not compete for A6000s: released now (running on lg10). Old held 298251-298253 (the stuck 32B-s1 search) left held.
+2026-11-23 rp10x10 Red: practice 345734 done (4h00, 360 new task-repeats, 3 transient API errors retried OK). 400 task-repeats: 295 benchmark-solved (273 on try 1); 35/40 tasks solved under >=1 prefix (vs 29 with one prefix); 22 tasks solved under all 10 prefixes, so easy tasks dominate the data. Dataset 345735: 341 success tries, 10702 train + 50 val action rows. Fine-tune 345736 started at once on eclairlg03: 1003 steps (~6.5 h at ~22 s/step). Annotation A6000 jobs became eligible when it started (after:345736), as asked; if the evals queue behind them, hold pending annotation until the evals start.
+2026-11-24 rp10x10 Red fine-tune 345736 done (6h55, validation loss 0.3653). Its evals had no A6000s (annotation held 14 pairs; Slurm start estimates 14:25-21:20 UTC). User approved requeuing the 5 newest annotation jobs (298263, 298264, 298334, 298335, 298336; ~1.2 h in, resume from calls.jsonl); they are held, with pending 298261/298262, until the evals run. Evals 345737-345739 started at once (lg05, lg16, lg17); the GPUs freed on lg02 and lg07 went to other users' jobs, so 345740/345741 still wait. Web evals 337626/337627 running since 01:37 / 01:58.
+2026-11-24 rp10x10 Red evals: r1 28, r2 29, r3 27 of 40 (mean 28.0 vs base 17.2, rp10 18.8, no-prefix 16.0). User then asked to stop all running practice jobs and evals: cancelled Red evals r4 345740 / r5 345741 (partial) and Web rp10 evals 337626 / 337627 (~5 h in, partial). Annotation and searches left running.
+2026-11-24 rp10x10 Red, judge labels (user: redo the fine-tune on judged success instead of benchmark gt, eval 5x, max priority). Same practice run (oracle_test_rp10, 400 task-repeats), subset_dataset --labels judge (tries the practice judge called success, cut at its safe success point) -> oracle_test_rp10x10_judge_act 352827 -> same gentle LoRA recipe 352828 -> 5 greedy evals 352829-352832, 352834 (testsplit_oracle_test_rp10x10_judge_act_r64_lr1e-4_e3_r1-5). Compare with the gt-label run (28.0 over 3 runs).
+2026-11-24 Judge-label dataset 352827: 292 judged-success tries (vs 341 gt), 9075 train + 50 val rows, 37 tasks with rows (vs 35 gt). Fine-tune 352828 needs 4 A6000s on one node: requeued+held annotation 298321/298334 (both on lg16, user OK'd requeuing for these jobs); it started on lg16.
+2026-11-24 Gemma T=1.2 practice (user: same as the Flash rp10x10 practice, Gemma at T=1.2, more retries; 10 tries; judge = Gemma itself but greedy). New attempt_split --temperature: every agent call at that temperature, judge and critique on a separate greedy AgentVLM (config.json records temperature, judge_greedy). Same 40 Red test tasks, repeats 0-9, --random_prefix 10 (same prefixes as Flash: the seed is per task_id incl. repeat), --max_tries 10, source oracle_test_rp10_t1.2_tries10 under gemma-4-31b-it. 6 shards (slurm/practice.sh, vLLM on 2 A6000s each, 8 workers): 352950-352955. Requeued+held annotation 298336, 298262, 298263 for GPUs; shard 5 lowered to 8 CPUs (lg07 had 2 GPUs but only 8 CPUs free). First try ran OK (judge failure / benchmark success on 045_r0, 10 steps).
+2026-11-24 FAILURE: Gemma T=1.2 practice shards 352950-352955 judged 0 of 202 tries successful (128 were benchmark successes). Cause: strip_api_reasoning (2026-11-18, for API thinking models' "Reasoning: <summary>\nResponse: <answer>") turned any reply starting "Reasoning: " without the Response separator into "" (meant for API reasoning-only replies). Gemma's judge format starts with "Reasoning:", so every verdict parsed as failure; Gemma's agent replies start with it too, so a Gemma dataset would have dropped them. Every vLLM-model practice judged since 2026-11-18 is affected. Fix: strip_api_reasoning(api=False) keeps such replies; judging passes api from the vlm (not vLLMModel), dataset/subset_dataset from --model_backend. Re-parsing the 440 saved tries: judge vs benchmark precision 0.91, recall 0.82. User chose to keep the 44 finished episodes (rejudge offline later) and continue: shards resubmitted 357419-357424 (8 CPUs each).
+2026-11-24 rp10x10 Red, judge labels, evals: r1 22, r2 20, r4 21, r5 22 of 40 (mean 21.25 over 4; r3 352831 still running, 18 of 34 so far) vs gt labels 28.0 (3 runs) and base 17.2. Judge labels keep most of the tasks (37 with rows vs 35) but lose about 7 points: 292 judged-success tries vs 341 gt, each cut at the judge's safe success point instead of kept whole.
+2026-11-24 Cleanup before commit (behaviour-preserving, checked offline: old vs new subset_dataset byte-identical on 2 real Red tasks for both label kinds; AgentVLM.api equals the old isinstance test on vllm and openrouter): AgentVLM stores model_backend and exposes .api, replacing judging's peek at vlm._model and run_practice's ctx "model_backend" key. No .sh that a running or pending job executes was touched.

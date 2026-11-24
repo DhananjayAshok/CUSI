@@ -77,7 +77,11 @@ class TrainContext:
         by seed, so every call and every tree with these settings sees the same examples."""
         path = flavours_file(env=env, parameters=parameters)
         with open(path) as f:
-            flavours = json.load(f)[group]
+            all_flavours = json.load(f)
+        if group not in all_flavours:
+            raise ValueError(f"{path} has no train tasks for {group!r} (only {sorted(all_flavours)}): its trees "
+                             f"cannot be annotated")
+        flavours = all_flavours[group]
         splits = load_splits(parameters=parameters)
         rng = random.Random(f"{seed}:{env}:{group}")
         self.sample = {}

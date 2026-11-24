@@ -93,9 +93,9 @@ def vendi(*, vectors: np.ndarray) -> float:
 
 # --------------------------------------------------------------------------- stages
 
-def run_embed(*, div_dir: str, emb_path: str, directory: str, embedder_model: str, k_max: int, dedup: str,
-              dedup_cos: float, parameters: dict) -> None:
-    proposals = proposed_tasks(directory=directory)
+def run_embed(*, div_dir: str, emb_path: str, directory: str, annotation_model: str, embedder_model: str,
+              k_max: int, dedup: str, dedup_cos: float, parameters: dict) -> None:
+    proposals = proposed_tasks(directory=directory, annotation_model=annotation_model)
     n_exact = len(proposals)
     holder = {}
 
@@ -256,6 +256,7 @@ def run_summary(*, div_dir: str, emb_path: str, judge_dir: str, seed: int, param
 @click.command()
 @click.option("--env", "env_name", required=True, type=click.Choice(ENV_NAMES))
 @click.option("--run", "run_name", required=True, help="An annotated search run of this env.")
+@click.option("--annotation_model", required=True, help="Whose annotation of the run to score (cusi.search.annotate).")
 @click.option("--stage", default="all", show_default=True, type=click.Choice(STAGES))
 @click.option("--embedder_model", required=True, help="A Qwen3-Embedding style model (transformers).")
 @click.option("--judge_model", default=None, help="The judge (required for the judge, summary and all stages).")
@@ -269,14 +270,16 @@ def run_summary(*, div_dir: str, emb_path: str, judge_dir: str, seed: int, param
 @click.option("--seed", default=0, show_default=True, help="Rarefaction subsets.")
 @dedup_options
 @click.pass_obj
-def command(parameters, env_name, run_name, stage, embedder_model, judge_model, judge_backend, vllm_base_url, k,
-            k_max, batch_size, max_new_tokens, seed, dedup, dedup_cos):
+def command(parameters, env_name, run_name, annotation_model, stage, embedder_model, judge_model, judge_backend,
+            vllm_base_url, k, k_max, batch_size, max_new_tokens, seed, dedup, dedup_cos):
     directory = search_run(parameters=parameters, env=env_name, run=run_name)
-    emb_path, div_dir = stage_dirs(stage_dir=os.path.join(directory, "task_diversity", short_name(embedder_model)),
+    emb_path, div_dir = stage_dirs(stage_dir=os.path.join(directory, "task_diversity", short_name(annotation_model),
+                                                          short_name(embedder_model)),
                                    dedup=dedup, cos_threshold=dedup_cos)
     if stage in ("embed", "all"):
-        run_embed(div_dir=div_dir, emb_path=emb_path, directory=directory, embedder_model=embedder_model,
-                  k_max=k_max, dedup=dedup, dedup_cos=dedup_cos, parameters=parameters)
+        run_embed(div_dir=div_dir, emb_path=emb_path, directory=directory, annotation_model=annotation_model,
+                  embedder_model=embedder_model, k_max=k_max, dedup=dedup, dedup_cos=dedup_cos,
+                  parameters=parameters)
     if stage == "embed":
         return
     if judge_model is None:

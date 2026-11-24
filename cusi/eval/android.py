@@ -7,13 +7,14 @@ import os
 import time
 import traceback
 import click
+from typing import Optional
 from cusi.utils.log_handling import log_info, log_warn
 from cusi.eval.records import EvalRow, EvalRun
 from cusi.utils.compute import tally
 from cusi.utils.run_dir import run_options
 from cusi.utils.paths import eval_episode, eval_run, eval_trajectories
-from cusi.eval.supervision import DECODING, model, supervisor_extra, supervisor_state
-from cusi.eval.options import seed_option, task_list
+from cusi.eval.supervision import decoding, model, supervisor_extra, supervisor_state
+from cusi.eval.options import seed_option, task_list, temperature_option
 from cusi.agents.agent import AGENT_VERSION, make_agent
 
 ENV_NAME = "android"
@@ -42,7 +43,7 @@ def trajectory(*, reports: list) -> list:
 
 def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emulator, vlm, console_port: int,
             grpc_port: int, out_dir: str, parameters: dict, wait_after_action_seconds: float = 2.0,
-            wam=None) -> tuple:
+            wam=None, executor_options: Optional[dict] = None) -> tuple:
     """One task instance -> (fields, process_episodes dict, trajectory, connection, report, extra). wam: a World
     Action Model deciding in place of the executor's policy (cusi/world_action)."""
     from cusi.envs.android_world import AndroidPlayEnv
@@ -60,7 +61,7 @@ def run_one(*, task_name: str, instance: int, suite_seed: int, connection, emula
         recoveries = env.recoveries
         obs, info = env.reset()
         agent = make_agent(env_name=ENV_NAME, env=env, vlm=vlm, parameters=parameters, world_action=wam,
-                           world_action_shadow=False)
+                           world_action_shadow=False, executor_options=executor_options)
         _, result = agent.run(task=goal, obs=obs, info=info, max_steps=env.max_steps)
         report = result["report"]
         final = report.last_report
@@ -129,12 +130,15 @@ def shard_of(*, names: list, shard: str) -> list:
 @click.option("--world_action", default=None, help="A World Action Model deciding in place of the executor's policy "
                                                    "(cusi/world_action), e.g. oracle_preview; needs an emulator "
                                                    "started with snapshots.")
+@click.option("--compact_elements", is_flag=True, default=False,
+              help="The executor's prompts show compact UI element lists (m3a.compact_elements: false fields dropped).")
 @seed_option
+@temperature_option
 @run_options
 @click.pass_obj
 def command(parameters, model_name, model_backend, vllm_base_url, run_name, tasks, n_task_combinations,
             task_random_seed, console_port, grpc_port, rerun_failed, shard, wait_after_action_seconds, world_action,
-            overwrite, ignore_config_violation, seed):
+            compact_elements, overwrite, ignore_config_violation, seed, temperature):
     """AndroidWorld on the test suite through AndroidPlayEnv, with the final Android agent (cusi/agents/agent.py)."""
     tasks = task_list(tasks=tasks)
     if tasks:   # instance ids (Name_0) as in the results -> template names
@@ -146,15 +150,17 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
     run = EvalRun(directory=out_dir, config={
         "env": ENV_NAME, "agent": AGENT_VERSION, "model_name": model_name, "model_backend": model_backend,
         "tasks": tasks, "n_task_combinations": n_task_combinations, "task_random_seed": task_random_seed,
-        "shard": shard, "seed": seed, "decoding": DECODING,
+        "shard": shard, "seed": seed, "decoding": decoding(temperature=temperature),
         **({} if wait_after_action_seconds == 2.0 else {"wait_after_action_seconds": wait_after_action_seconds}),
-        **({"world_action": world_action} if world_action else {})},
+        **({"world_action": world_action} if world_action else {}),
+        **({"compact_elements": True} if compact_elements else {})},
         overwrite=overwrite, ignore_config_violation=ignore_config_violation)
     os.makedirs(eval_trajectories(run_dir=out_dir), exist_ok=True)
     names = suite_tasks(tasks=tasks)
     if shard:
         names = shard_of(names=names, shard=shard)
-    vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url)
+    vlm = model(model_name=model_name, model_backend=model_backend, vllm_base_url=vllm_base_url,
+                temperature=temperature)
     wam = None
     if world_action is not None:
         from cusi.world_action import load_world_action_model
@@ -175,7 +181,8 @@ def command(parameters, model_name, model_backend, vllm_base_url, run_name, task
                 fields, episode, traj, connection, report, extra = run_one(
                     task_name=name, instance=i, suite_seed=task_random_seed, connection=connection,
                     emulator=emulator, vlm=vlm, console_port=console_port, grpc_port=grpc_port, out_dir=out_dir,
-                    parameters=parameters, wait_after_action_seconds=wait_after_action_seconds, wam=wam)
+                    parameters=parameters, wait_after_action_seconds=wait_after_action_seconds, wam=wam,
+                    executor_options={"compact_elements": True} if compact_elements else None)
             tokens = (0, 0) if report is None else (
                 (report.executor_input_tokens or 0) + (report.supervisor_input_tokens or 0),
                 (report.executor_output_tokens or 0) + (report.supervisor_output_tokens or 0))

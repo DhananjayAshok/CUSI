@@ -1,82 +1,69 @@
 # Tree annotation: tasks done along the tree's paths, in the form of the train tasks
 
-Status: implemented (2026-11-17) and the only annotation of a search tree. Code: `cusi/search/annotate.py` (the
-command), `cusi/search/path_notes.py` (prompts, parser), `cusi/search/task_context.py` (train-task context); Slurm
-pair `annotate`. Readers: `cusi/eval/task_coverage.py` and `task_diversity.py` (`proposed_tasks`), practice
-(`cusi/practice/stages/attempt.py`, `tree_tasks`), `sync_data.py` (finished check). Pilot results per prompt version:
-plans/decisions.md, 2026-11-17.
+Code: `cusi/search/annotate.py` (the command), `cusi/search/path_notes.py` (prompts, parsers),
+`cusi/search/task_context.py` (train-task context); Slurm pair `annotate`. Readers: `cusi/eval/task_coverage.py` and
+`task_diversity.py` (`proposed_tasks`, `--annotation_model`), practice (`cusi/practice/stages/attempt.py`,
+`tree_tasks`), `sync_data.py` (finished check). How the design was reached: plans/decisions.md, 2026-11-17 to 18.
 
-## Why
+## What a task is
 
-Asking per screen "what tasks could start here" gives imagined tasks (never done, invented values), and asking per
-edge "what did these 2-5 steps achieve" gives one-step micro-goals ("open the X page"). Here a task is what a path
-of the tree actually did, as long as it took, named in the form of the benchmark's train tasks
-(configs/splits/benchmark_splits.json, split = train only), so every task is feasible by construction and comes
-with its path to replay.
-
-## Tree shapes (s0 trees)
-
-| Tree | Nodes | Leaves | Max / median depth | Ancestor-descendant pairs | Steps per edge (median) |
-|---|---|---|---|---|---|
-| Red random | 2,910 | 828 | 51 / 13 | 43,811 | 3 |
-| Red VLM no-typing | 1,415 | 334 | 36 / 10 | 16,050 | 2 |
-| Web random | 5,854 | 1,002 | 151 / 57 | 335,212 | 4 |
-| Web VLM + typing | 1,707 | 293 | 90 / 23 | 51,353 | 2 |
-| Android random | 357 | 129 | 19 / 4 | 1,828 | 5 |
-| Android VLM + typing | 280 | 75 | 24 / 4 | 1,710 | 3 |
-
-Edges are short, so a task spans several; asking about every ancestor -> descendant pair is out of reach, hence
-forward extension.
+A task is what a path of the tree actually did, as long as it took, named in the form of the benchmark's train tasks
+(configs/splits/benchmark_splits.json, split = train only). Every task is feasible by construction and comes with
+the path that does it.
 
 ## Train-task context (`task_context.py`)
 
 - Flavours from the split's train tasks only: GameBoy by the benchmark CSV's `task_category` per game, Web by site,
-  Android by app; written once by `python -m cusi.search.task_context build` to
+  Android by app; written by `python -m cusi.search.task_context build` to
   `configs/annotation/<env>_train_flavours.json`.
-- Every call sees a seeded sample of `--n_per_flavour` (3) train tasks per flavour, fixed for every call and tree
-  (one prompt prefix; the same context for random and VLM trees). A non-train id raises; the split file's hash and
-  the sample's ids go in the annotation meta.
+- Every call sees a seeded sample of `--n_per_flavour` (3) train tasks per flavour, fixed for every call and tree.
+  A non-train id raises; the split file's hash and the sample's ids go in meta.json.
+- A tree is annotated only if its game / env has train tasks (GameBoy: Pokemon Red, Link's Awakening).
 
 ## Stage 1: transition reports
 
-Every edge (a node's segment from its parent) without a `description` gets one from `TransitionDescriber` (its
-parent's screen, then every step to it), as the VLM-explorer search writes them live; written to nodes.jsonl as update
-rows (`description`, `window_descriptions`). Later calls read these reports as the text of a path.
+A VLM-explorer search reports every edge it makes (`description`, `window_descriptions` in its base rows), and
+those are used as they are. Every other edge gets one from the annotation model's `TransitionDescriber` (its parent's
+screen, then every step to it), written to the model's `transitions.jsonl`. meta.json counts both.
 
 ## Stage 2: forward extension (one call per edge per chain)
 
-Every node starts a chain on every branch below it (copied at forks). Each call extends a chain by one edge `v -> w`
-and sees the chain's start screen, `v`'s and `w`'s screens, the reports of the chain so far, the new edge's actions
-and report, the train sample, and the current task if any.
+Every node starts a chain on every branch below it (copied at forks). Each call extends a chain by one edge and sees
+the chain's start screen, the screens before and after the edge, the reports so far, the edge's actions and report,
+the train sample, and the current task if any.
 
 - No task yet (BUILD): `TOO_SHORT` (keep extending; its Partial line names the best smaller task completed so far,
-  or NONE) or `TASK` (the chain completes it). A task changes something, answers a question shown on the last screen,
-  or reaches a specific named place / page / screen; it must be achieved, specific, named from the screens, and not
-  accidental typing.
-- A task named (EXTEND): `CONTINUE` (no effect on it; the chain goes on, the task's end stays), `REVISE` (a more
-  complete or specific version of the same goal; the earlier name stays as a nested task ending where it ended; the
-  same name again only moves the end), `NEW` (something else starts; the chain ends, the task at `v`).
-- A chain stops at NEW, a leaf, a challenge page, or past `--max_steps` (30) env steps. A chain that never named a
-  task keeps its latest Partial task (`"partial": true`), or nothing if it named none.
+  or NONE) or `TASK`. A task changes something, answers a question shown on screen, or (GameBoy only, where the
+  train flavours have it) reaches a named place or menu; it must be achieved, specific, named from the screens, and
+  not accidental typing.
+- A task named (EXTEND): `CONTINUE` (no effect on it, or only opening further screens on its way; its end does not
+  move), `REVISE` (on the reached screens the path changes something or reads out a specific answer: a fuller task;
+  the earlier name stays as a nested task), `NEW` (something unrelated; the chain ends).
+- A chain stops at NEW, a leaf, a challenge page, or past `--max_steps` (30) env steps; one that never named a task
+  keeps its latest Partial task.
 
-Output, `<run>/annotation/p<prompt version>/`: `calls.jsonl` (cached verdicts keyed by the chain's node path; a rerun
-resumes and rebuilds the same tasks), `tasks.jsonl` (`start`, `task`, `end`, `path`, `n_edges`, `n_steps`,
-`revisions`, `nested`, `partial`), `meta.json` (model, settings, sample, split hash; refuses mixed settings),
-`summary.json` (counts; written last).
+Web and Android (`path_notes.STEP_ENVS`), whose edges run 5-19 steps: the call also reads the edge's screen-by-screen
+report and names the action that completed the task, so a task ends at (edge end node, `end_step`) with a `replay`
+(the edge's start node and its first `end_step` actions) and `restorable`; a task needs a checkable outcome (no "find
+information about X", no navigation tacked onto a done task, no search for an exploration-style label).
 
-## Cost
+## Stage 3: fit gate (one call per candidate)
 
-About 3-3.6 calls per node measured on the Android s0 trees (the worst case, every chain to the 30-step cap, is 3.3-7.1
-per node on the s0 trees). A Slurm job with prefix caching does about 1.4 calls/s alone: a Web random tree is a few
-hours, Android and Link's Awakening trees minutes to an hour. Plus stage 1: one call per edge without a report.
+Given the start screen, the path's reports, the end screen (Web / Android: the last edge's screens up to the
+completing action) and the train sample: ACCEPT only if (a) the path completes the task, (b) the end screen shows it
+done or shows the answer, (c) it reads like a train task, (d) it is not a one-click wrapper. Web / Android: accepted
+paraphrases of one start are merged (`alt_ends`).
 
-## Scoring
+## Output
 
-`task_coverage --test_split test` scores the tasks against the split's test tasks only (the annotator sees train
-tasks, so scoring against all benchmark tasks would count train tasks); `task_diversity` is unchanged. Both read
-`tasks.jsonl` by default.
+`<run>/annotation/<annotation model short name>/` (models side by side): `transitions.jsonl`, `calls.jsonl`,
+`gate_calls.jsonl` (caches: a rerun resumes and rebuilds the same tasks), `candidates.jsonl`, `tasks.jsonl` (accepted),
+`rejected.jsonl` (with the failed criteria and a reason), `meta.json`, `summary.json` (written last).
 
-## Fairness for the random vs VLM comparison
+## Running it
 
-Same annotator, train sample and `max_steps` for every tree; the cap is in env steps, so random's slightly longer edges
-do not buy longer tasks; report coverage and diversity raw and per start node (random trees are 2-4x larger).
+`slurm/annotate.sh --env <env> --run <run>[,<run>...] --model <model>`: one vLLM server per job, the listed runs
+annotated `--parallel` at a time; `--max_starts` annotates a seeded sample of start nodes (and describes only the
+edges they reach). Scoring: `task_coverage --annotation_model <model> --test_split test` and `task_diversity
+--annotation_model <model>`, reported as coverage@8 (share of test tasks whose best judge score is >= 8), the mean best
+judge score (judge_max@k) and the mean best cosine (top1_cos).
